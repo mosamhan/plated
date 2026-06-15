@@ -1,0 +1,64 @@
+<svg width="1180" height="1240" viewBox="0 0 1180 1240" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1180" height="1240" fill="#F4F1EC"/>
+
+  <!-- ============ OPTION A: Crossed Utensils (current) ============ -->
+  <g transform="translate(70 50)">
+    <rect width="480" height="480" rx="108" fill="#1C1F27"/>
+    <circle cx="240" cy="240" r="178" fill="#FFFFFF" opacity="0.07"/>
+    <circle cx="240" cy="240" r="142" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="5"/>
+    <g transform="translate(240 240) scale(0.62)" fill="#FFFFFF">
+      <g transform="rotate(-45)">
+        <rect x="-64" y="-292" width="22" height="148" rx="11"/>
+        <rect x="-27" y="-292" width="22" height="148" rx="11"/>
+        <rect x="10"  y="-292" width="22" height="148" rx="11"/>
+        <rect x="47"  y="-292" width="22" height="148" rx="11"/>
+        <path d="M -64 -170 L 69 -170 C 76 -170 80 -164 79 -157 L 62 -98 C 58 -82 44 -72 28 -72 L -23 -72 C -39 -72 -53 -82 -57 -98 L -74 -157 C -75 -164 -71 -170 -64 -170 Z"/>
+        <rect x="-19" y="-84" width="44" height="376" rx="22"/>
+      </g>
+      <g transform="rotate(45)">
+        <path d="M -27 -66 L -27 -226 C -27 -268 -12 -294 5 -294 C 25 -294 37 -252 37 -204 C 37 -152 35 -102 32 -66 Z"/>
+        <rect x="-22" y="-78" width="44" height="370" rx="22"/>
+      </g>
+    </g>
+    <text x="240" y="610" text-anchor="middle" font-family="Helvetica" font-size="34" font-weight="700" fill="#3A352C">A · Crossed Utensils (current)</text>
+  </g>
+
+  <!-- ============ OPTION B: The Plate ============ -->
+  <g transform="translate(630 50)">
+    <rect width="480" height="480" rx="108" fill="#1C1F27"/>
+    <!-- plate rim -->
+    <circle cx="240" cy="240" r="158" fill="none" stroke="#FFFFFF" stroke-width="26"/>
+    <!-- inner well -->
+    <circle cx="240" cy="240" r="92" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-opacity="0.55"/>
+    <!-- the "bite" orb at 2 o'clock -->
+    <circle cx="356" cy="124" r="46" fill="#FFFFFF"/>
+    <text x="240" y="610" text-anchor="middle" font-family="Helvetica" font-size="34" font-weight="700" fill="#3A352C">B · The Plate + Bite</text>
+  </g>
+
+  <!-- ============ OPTION C: P-Fork Monogram ============ -->
+  <g transform="translate(70 670)">
+    <rect width="480" height="480" rx="108" fill="#1C1F27"/>
+    <g fill="#FFFFFF">
+      <!-- P stem = fork handle -->
+      <rect x="148" y="96" width="52" height="296" rx="26"/>
+      <!-- P bowl -->
+      <path d="M 174 96 L 268 96 C 332 96 372 140 372 198 C 372 256 332 300 268 300 L 174 300 L 174 248 L 262 248 C 300 248 318 226 318 198 C 318 170 300 148 262 148 L 174 148 Z"/>
+      <!-- tines rising from the stem top -->
+      <rect x="142" y="44" width="14" height="64" rx="7"/>
+      <rect x="167" y="36" width="14" height="72" rx="7"/>
+      <rect x="192" y="44" width="14" height="64" rx="7"/>
+    </g>
+    <text x="240" y="610" text-anchor="middle" font-family="Helvetica" font-size="34" font-weight="700" fill="#3A352C">C · P-Fork Monogram</text>
+  </g>
+
+  <!-- ============ OPTION D: Hot Plate (flame) ============ -->
+  <g transform="translate(630 670)">
+    <rect width="480" height="480" rx="108" fill="#1C1F27"/>
+    <!-- plate base: open arc -->
+    <path d="M 96 286 A 144 144 0 0 0 384 286" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round"/>
+    <path d="M 138 348 A 150 150 0 0 0 342 348" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" opacity="0.55"/>
+    <!-- flame above the plate -->
+    <path d="M 240 96 C 282 140 304 176 304 216 C 304 256 276 284 240 284 C 204 284 176 256 176 216 C 176 192 186 170 202 152 C 200 176 208 190 222 196 C 214 162 222 124 240 96 Z" fill="#FFFFFF"/>
+    <text x="240" y="610" text-anchor="middle" font-family="Helvetica" font-size="34" font-weight="700" fill="#3A352C">D · Hot Plate (flame = 9.0+ brand)</text>
+  </g>
+</svg>

@@ -1,0 +1,138 @@
+<svg width="1480" height="1500" viewBox="0 0 1480 1500" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1480" height="1500" fill="#EFEBE4"/>
+
+  <!-- ===== Row 1 ===== -->
+  <!-- 1. Saffron (current) -->
+  <g transform="translate(40 230)">
+    <rect width="320" height="430" rx="28" fill="#FFFDF8" stroke="#D8CDB8" stroke-width="2"/>
+    <text x="24" y="46" font-family="Helvetica" font-size="22" font-weight="800" fill="#251B10">Golden Char</text>
+    <rect x="24" y="64" width="170" height="10" rx="5" fill="#8C7B61"/>
+    <rect x="24" y="92" width="272" height="150" rx="16" fill="#E2D7C2"/>
+    <rect x="216" y="206" width="64" height="28" rx="9" fill="#2E9E63"/>
+    <text x="248" y="226" text-anchor="middle" font-family="Helvetica" font-size="16" font-weight="800" fill="#fff">9.2</text>
+    <rect x="24" y="262" width="200" height="12" rx="6" fill="#251B10"/>
+    <rect x="24" y="284" width="150" height="10" rx="5" fill="#8C7B61"/>
+    <rect x="24" y="318" width="130" height="44" rx="22" fill="#B07207"/>
+    <text x="89" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Follow</text>
+    <rect x="166" y="318" width="130" height="44" rx="22" fill="#D9480F"/>
+    <text x="231" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Order</text>
+    <rect x="24" y="380" width="272" height="30" rx="15" fill="#FBEDCE"/>
+    <text x="160" y="400" text-anchor="middle" font-family="Helvetica" font-size="14" font-weight="700" fill="#251B10">chips · tags · highlights</text>
+    <text x="160" y="466" text-anchor="middle" font-family="Helvetica" font-size="26" font-weight="800" fill="#3A352C">1 · Saffron (current)</text>
+  </g>
+
+  <!-- 2. Coral -->
+  <g transform="translate(400 230)">
+    <rect width="320" height="430" rx="28" fill="#FFFFFF" stroke="#D8CDB8" stroke-width="2"/>
+    <text x="24" y="46" font-family="Helvetica" font-size="22" font-weight="800" fill="#1A1413">Golden Char</text>
+    <rect x="24" y="64" width="170" height="10" rx="5" fill="#8C817C"/>
+    <rect x="24" y="92" width="272" height="150" rx="16" fill="#F4E2DC"/>
+    <rect x="216" y="206" width="64" height="28" rx="9" fill="#23B26D"/>
+    <text x="248" y="226" text-anchor="middle" font-family="Helvetica" font-size="16" font-weight="800" fill="#fff">9.2</text>
+    <rect x="24" y="262" width="200" height="12" rx="6" fill="#1A1413"/>
+    <rect x="24" y="284" width="150" height="10" rx="5" fill="#8C817C"/>
+    <rect x="24" y="318" width="130" height="44" rx="22" fill="#E03131"/>
+    <text x="89" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Follow</text>
+    <rect x="166" y="318" width="130" height="44" rx="22" fill="#E03131"/>
+    <text x="231" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Order</text>
+    <rect x="24" y="380" width="272" height="30" rx="15" fill="#FFE7E8"/>
+    <text x="160" y="400" text-anchor="middle" font-family="Helvetica" font-size="14" font-weight="700" fill="#1A1413">chips · tags · highlights</text>
+    <text x="160" y="466" text-anchor="middle" font-family="Helvetica" font-size="26" font-weight="800" fill="#3A352C">2 · Coral</text>
+  </g>
+
+  <!-- 3. Fresh Teal -->
+  <g transform="translate(760 230)">
+    <rect width="320" height="430" rx="28" fill="#FFFFFF" stroke="#D8CDB8" stroke-width="2"/>
+    <text x="24" y="46" font-family="Helvetica" font-size="22" font-weight="800" fill="#102420">Golden Char</text>
+    <rect x="24" y="64" width="170" height="10" rx="5" fill="#6B7B77"/>
+    <rect x="24" y="92" width="272" height="150" rx="16" fill="#DCEEE7"/>
+    <rect x="216" y="206" width="64" height="28" rx="9" fill="#0FB89C"/>
+    <text x="248" y="226" text-anchor="middle" font-family="Helvetica" font-size="16" font-weight="800" fill="#fff">9.2</text>
+    <rect x="24" y="262" width="200" height="12" rx="6" fill="#102420"/>
+    <rect x="24" y="284" width="150" height="10" rx="5" fill="#6B7B77"/>
+    <rect x="24" y="318" width="130" height="44" rx="22" fill="#0B7B6C"/>
+    <text x="89" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Follow</text>
+    <rect x="166" y="318" width="130" height="44" rx="22" fill="#D9480F"/>
+    <text x="231" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Order</text>
+    <rect x="24" y="380" width="272" height="30" rx="15" fill="#D6F4EE"/>
+    <text x="160" y="400" text-anchor="middle" font-family="Helvetica" font-size="14" font-weight="700" fill="#102420">chips · tags · highlights</text>
+    <text x="160" y="466" text-anchor="middle" font-family="Helvetica" font-size="26" font-weight="800" fill="#3A352C">3 · Fresh Teal</text>
+  </g>
+
+  <!-- 4. Midnight -->
+  <g transform="translate(1120 230)">
+    <rect width="320" height="430" rx="28" fill="#0E0F12" stroke="#D8CDB8" stroke-width="2"/>
+    <text x="24" y="46" font-family="Helvetica" font-size="22" font-weight="800" fill="#F4F6F8">Golden Char</text>
+    <rect x="24" y="64" width="170" height="10" rx="5" fill="#9AA1AD"/>
+    <rect x="24" y="92" width="272" height="150" rx="16" fill="#1C1F27"/>
+    <rect x="216" y="206" width="64" height="28" rx="9" fill="#A6E84F"/>
+    <text x="248" y="226" text-anchor="middle" font-family="Helvetica" font-size="16" font-weight="800" fill="#11150A">9.2</text>
+    <rect x="24" y="262" width="200" height="12" rx="6" fill="#F4F6F8"/>
+    <rect x="24" y="284" width="150" height="10" rx="5" fill="#9AA1AD"/>
+    <rect x="24" y="318" width="130" height="44" rx="22" fill="#C8FF4D"/>
+    <text x="89" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#11150A">Follow</text>
+    <rect x="166" y="318" width="130" height="44" rx="22" fill="#FF7A45"/>
+    <text x="231" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#1A0E06">Order</text>
+    <rect x="24" y="380" width="272" height="30" rx="15" fill="#26301A"/>
+    <text x="160" y="400" text-anchor="middle" font-family="Helvetica" font-size="14" font-weight="700" fill="#C8FF4D">chips · tags · highlights</text>
+    <text x="160" y="466" text-anchor="middle" font-family="Helvetica" font-size="26" font-weight="800" fill="#3A352C">4 · Midnight</text>
+  </g>
+
+  <!-- ===== Row 2 (new directions) ===== -->
+  <!-- 5. Tomato -->
+  <g transform="translate(220 800)">
+    <rect width="320" height="430" rx="28" fill="#FFFFFF" stroke="#D8CDB8" stroke-width="2"/>
+    <text x="24" y="46" font-family="Helvetica" font-size="22" font-weight="800" fill="#20140F">Golden Char</text>
+    <rect x="24" y="64" width="170" height="10" rx="5" fill="#8A7A72"/>
+    <rect x="24" y="92" width="272" height="150" rx="16" fill="#F6E3DC"/>
+    <rect x="216" y="206" width="64" height="28" rx="9" fill="#2F9E44"/>
+    <text x="248" y="226" text-anchor="middle" font-family="Helvetica" font-size="16" font-weight="800" fill="#fff">9.2</text>
+    <rect x="24" y="262" width="200" height="12" rx="6" fill="#20140F"/>
+    <rect x="24" y="284" width="150" height="10" rx="5" fill="#8A7A72"/>
+    <rect x="24" y="318" width="130" height="44" rx="22" fill="#C92A2A"/>
+    <text x="89" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Follow</text>
+    <rect x="166" y="318" width="130" height="44" rx="22" fill="#C92A2A"/>
+    <text x="231" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Order</text>
+    <rect x="24" y="380" width="272" height="30" rx="15" fill="#FCE4E0"/>
+    <text x="160" y="400" text-anchor="middle" font-family="Helvetica" font-size="14" font-weight="700" fill="#20140F">chips · tags · highlights</text>
+    <text x="160" y="466" text-anchor="middle" font-family="Helvetica" font-size="26" font-weight="800" fill="#3A352C">5 · Tomato (new)</text>
+  </g>
+
+  <!-- 6. Berry -->
+  <g transform="translate(580 800)">
+    <rect width="320" height="430" rx="28" fill="#FFFBFA" stroke="#D8CDB8" stroke-width="2"/>
+    <text x="24" y="46" font-family="Helvetica" font-size="22" font-weight="800" fill="#231019">Golden Char</text>
+    <rect x="24" y="64" width="170" height="10" rx="5" fill="#8E7480"/>
+    <rect x="24" y="92" width="272" height="150" rx="16" fill="#F0DEE6"/>
+    <rect x="216" y="206" width="64" height="28" rx="9" fill="#2E9E63"/>
+    <text x="248" y="226" text-anchor="middle" font-family="Helvetica" font-size="16" font-weight="800" fill="#fff">9.2</text>
+    <rect x="24" y="262" width="200" height="12" rx="6" fill="#231019"/>
+    <rect x="24" y="284" width="150" height="10" rx="5" fill="#8E7480"/>
+    <rect x="24" y="318" width="130" height="44" rx="22" fill="#A61E4D"/>
+    <text x="89" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Follow</text>
+    <rect x="166" y="318" width="130" height="44" rx="22" fill="#E8590C"/>
+    <text x="231" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Order</text>
+    <rect x="24" y="380" width="272" height="30" rx="15" fill="#F8E3EC"/>
+    <text x="160" y="400" text-anchor="middle" font-family="Helvetica" font-size="14" font-weight="700" fill="#231019">chips · tags · highlights</text>
+    <text x="160" y="466" text-anchor="middle" font-family="Helvetica" font-size="26" font-weight="800" fill="#3A352C">6 · Berry (new)</text>
+  </g>
+
+  <!-- 7. Noir Gold -->
+  <g transform="translate(940 800)">
+    <rect width="320" height="430" rx="28" fill="#121110" stroke="#D8CDB8" stroke-width="2"/>
+    <text x="24" y="46" font-family="Helvetica" font-size="22" font-weight="800" fill="#F5F1E8">Golden Char</text>
+    <rect x="24" y="64" width="170" height="10" rx="5" fill="#A39B8B"/>
+    <rect x="24" y="92" width="272" height="150" rx="16" fill="#1E1B16"/>
+    <rect x="216" y="206" width="64" height="28" rx="9" fill="#46C26F"/>
+    <text x="248" y="226" text-anchor="middle" font-family="Helvetica" font-size="16" font-weight="800" fill="#10130E">9.2</text>
+    <rect x="24" y="262" width="200" height="12" rx="6" fill="#F5F1E8"/>
+    <rect x="24" y="284" width="150" height="10" rx="5" fill="#A39B8B"/>
+    <rect x="24" y="318" width="130" height="44" rx="22" fill="#D9A441"/>
+    <text x="89" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#171204">Follow</text>
+    <rect x="166" y="318" width="130" height="44" rx="22" fill="#E8590C"/>
+    <text x="231" y="346" text-anchor="middle" font-family="Helvetica" font-size="17" font-weight="800" fill="#fff">Order</text>
+    <rect x="24" y="380" width="272" height="30" rx="15" fill="#2C2517"/>
+    <text x="160" y="400" text-anchor="middle" font-family="Helvetica" font-size="14" font-weight="700" fill="#D9A441">chips · tags · highlights</text>
+    <text x="160" y="466" text-anchor="middle" font-family="Helvetica" font-size="26" font-weight="800" fill="#3A352C">7 · Noir Gold (new)</text>
+  </g>
+</svg>

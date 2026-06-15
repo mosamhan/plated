@@ -1,0 +1,21 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Android adaptive monochrome: white utensils, system tints it -->
+  <defs>
+    <g id="fork">
+      <rect x="-46" y="-300" width="14" height="104" rx="7"/>
+      <rect x="-20" y="-300" width="14" height="104" rx="7"/>
+      <rect x="6"   y="-300" width="14" height="104" rx="7"/>
+      <rect x="32"  y="-300" width="14" height="104" rx="7"/>
+      <path d="M -52 -214 L 52 -214 C 52 -182 44 -150 15 -150 L -15 -150 C -44 -150 -52 -182 -52 -214 Z"/>
+      <path d="M -15 -150 L 15 -150 L 13 280 C 13 292 7 300 0 300 C -7 300 -13 292 -13 280 Z"/>
+    </g>
+    <g id="knife">
+      <path d="M -15 -150 L 15 -150 L 13 280 C 13 292 7 300 0 300 C -7 300 -13 292 -13 280 Z"/>
+      <path d="M 13 -150 L 20 -150 L 20 -262 C 20 -290 12 -306 -2 -306 C -12 -306 -19 -298 -19 -286 L -13 -150 Z"/>
+    </g>
+  </defs>
+  <g transform="translate(512 512) scale(0.95)" fill="#FFFFFF">
+    <use href="#fork" transform="rotate(-45)"/>
+    <use href="#knife" transform="rotate(45)"/>
+  </g>
+</svg>
