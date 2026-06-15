@@ -41,3 +41,13 @@ example
 # generated native folders
 /ios
 /android
+
+# local agent / OpenClaw infra — not part of the app
+.openclaw/
+.claude/
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+.vscode/
