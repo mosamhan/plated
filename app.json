@@ -17,7 +17,7 @@
     "android": {
       "package": "com.samhan.plated",
       "adaptiveIcon": {
-        "backgroundColor": "#E89C12",
+        "backgroundColor": "#EAA01A",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
