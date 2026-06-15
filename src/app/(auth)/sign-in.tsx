@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
 import { Logo } from '@/components/Logo';
 import { TextField } from '@/components/TextField';
+import { showAlert } from '@/lib/dialog';
 import { useAuth } from '@/store/AuthContext';
 import { spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -24,13 +25,25 @@ export default function SignIn() {
   const { signIn } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [email, setEmail] = useState('sam@plated.app');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = () => {
-    signIn();
+  const handleSignIn = async () => {
+    setBusy(true);
+    setError(null);
+    const { error: err } = await signIn(email.trim(), password);
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
     router.replace('/(tabs)');
   };
+
+  const comingSoon = () =>
+    showAlert('Coming soon', 'Apple & Google sign-in are on the roadmap — use email to sign in for now.');
 
   return (
     <KeyboardAvoidingView
@@ -72,7 +85,11 @@ export default function SignIn() {
           <Text style={[styles.link, { color: colors.accent }]}>Forgot password?</Text>
         </Pressable>
 
-        <Button label="Sign in" size="lg" onPress={handleSignIn} />
+        {error && (
+          <Text style={[styles.error, { color: colors.ratingLow }]}>{error}</Text>
+        )}
+
+        <Button label="Sign in" size="lg" onPress={handleSignIn} loading={busy} />
 
         <View style={styles.dividerRow}>
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -81,8 +98,8 @@ export default function SignIn() {
         </View>
 
         <View style={{ gap: 10 }}>
-          <SocialButton icon="logo-apple" label="Continue with Apple" onPress={handleSignIn} />
-          <SocialButton icon="logo-google" label="Continue with Google" onPress={handleSignIn} />
+          <SocialButton icon="logo-apple" label="Continue with Apple" onPress={comingSoon} />
+          <SocialButton icon="logo-google" label="Continue with Google" onPress={comingSoon} />
         </View>
 
         <View style={styles.footer}>
@@ -123,6 +140,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.xl },
   tagline: { fontSize: 14, fontWeight: '500', marginTop: 12, textAlign: 'center' },
   link: { fontSize: 14, fontWeight: '700' },
+  error: { fontSize: 13, fontWeight: '600', marginBottom: spacing.md, textAlign: 'center' },
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: spacing.xl },
   divider: { flex: 1, height: StyleSheet.hairlineWidth },
   or: { fontSize: 13, fontWeight: '600' },

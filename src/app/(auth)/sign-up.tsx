@@ -31,10 +31,32 @@ export default function SignUp() {
   const [password, setPassword] = useState('');
   // Apple 1.2: UGC apps must require terms acceptance before account creation.
   const [agreed, setAgreed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const handleSignUp = () => {
-    if (!agreed) return;
-    signUp();
+  const handleSignUp = async () => {
+    if (!agreed || !name.trim() || !handle.trim() || !email.trim() || password.length < 6) {
+      setError('Fill every field (password 6+ chars) and accept the terms.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const { error: err, needsConfirmation } = await signUp({
+      email: email.trim(),
+      password,
+      name: name.trim(),
+      handle: handle.trim(),
+    });
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    if (needsConfirmation) {
+      setNotice('Check your email to confirm your account, then sign in.');
+      return;
+    }
     router.replace('/(tabs)');
   };
 
@@ -112,7 +134,17 @@ export default function SignUp() {
           </Text>
         </Pressable>
 
-        <Button label="Create account" size="lg" onPress={handleSignUp} disabled={!agreed} style={{ marginTop: 8 }} />
+        {error && <Text style={[styles.msg, { color: colors.ratingLow }]}>{error}</Text>}
+        {notice && <Text style={[styles.msg, { color: colors.success }]}>{notice}</Text>}
+
+        <Button
+          label="Create account"
+          size="lg"
+          onPress={handleSignUp}
+          loading={busy}
+          disabled={!agreed}
+          style={{ marginTop: 8 }}
+        />
 
         <View style={styles.footer}>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>Already have an account? </Text>
@@ -130,6 +162,7 @@ const styles = StyleSheet.create({
   sub: { fontSize: 14, fontWeight: '500', marginBottom: spacing.xl },
   termsRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginBottom: spacing.md },
   termsText: { flex: 1, fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  msg: { fontSize: 13, fontWeight: '600', marginBottom: spacing.md, textAlign: 'center' },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: spacing.xl },
   footerText: { fontSize: 14, fontWeight: '500' },
   link: { fontSize: 14, fontWeight: '700' },

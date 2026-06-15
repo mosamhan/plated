@@ -87,7 +87,8 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
 }
 
 export default function TabsLayout() {
-  const { signedIn } = useAuth();
+  const { signedIn, loading } = useAuth();
+  if (loading) return null; // session restoring — index.tsx shows the loader
   if (!signedIn) return <Redirect href="/(auth)/sign-in" />;
 
   return (
