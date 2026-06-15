@@ -1,56 +1,152 @@
-# Welcome to your Expo app 👋
+<div align="center">
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+<img src="assets/images/icon.png" width="104" alt="Plated app icon" />
 
-## Get started
+# Plated
 
-1. Install dependencies
+**Rate the dish, not the restaurant — then order the exact plate someone vouched for.**
 
-   ```bash
-   npm install
-   ```
+A social food-discovery app where the unit of rating is the individual **dish**, not the venue.
+Browse a feed of real plates people loved, see a restaurant's cumulative **"Plated's Rating,"**
+and hand off to DoorDash / Uber Eats / pickup to order the specific dish — not just the spot.
 
-2. Start the app
+[![Expo SDK 56](https://img.shields.io/badge/Expo-SDK_56-000020?logo=expo&logoColor=white)](https://docs.expo.dev/)
+[![React Native 0.85](https://img.shields.io/badge/React_Native-0.85-61DAFB?logo=react&logoColor=white)](https://reactnative.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Expo Router](https://img.shields.io/badge/Expo_Router-v6-000)](https://docs.expo.dev/router/introduction/)
+[![Platform](https://img.shields.io/badge/iOS_·_Android_·_Web-lightgrey)](#)
 
-   ```bash
-   npx expo start
-   ```
+</div>
 
-In the output, you'll find options to open the app in a
+> **Status:** working prototype, ~100% TypeScript, runs on iOS / Android / web from one codebase.
+> "Plated" is a working codename pending trademark clearance. Built as a portfolio project that
+> demonstrates production-grade mobile architecture, design systems, and app-store/FTC compliance.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+---
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## 📱 Screens
 
-## Get a fresh project
+<table>
+  <tr>
+    <td align="center"><img src="assets/screenshots/home.png" width="200"/><br/><b>Home feed</b><br/><sub>Dish-first social feed</sub></td>
+    <td align="center"><img src="assets/screenshots/plate-detail.png" width="200"/><br/><b>Plate detail</b><br/><sub>Reorder count · creator · order CTA</sub></td>
+    <td align="center"><img src="assets/screenshots/restaurant.png" width="200"/><br/><b>Restaurant</b><br/><sub>Cumulative "Plated's Rating"</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/screenshots/explore.png" width="200"/><br/><b>Explore</b><br/><sub>Filterable plate grid</sub></td>
+    <td align="center"><img src="assets/screenshots/creator.png" width="200"/><br/><b>Creator dashboard</b><br/><sub>Attributed-order earnings</sub></td>
+    <td align="center"><img src="assets/screenshots/leaderboard.png" width="200"/><br/><b>Leaderboard</b><br/><sub>Best restaurants / plates / creators</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/screenshots/profile.png" width="200"/><br/><b>Profile</b><br/><sub>Stats, socials, creator card</sub></td>
+    <td align="center"><img src="assets/screenshots/themes.png" width="200"/><br/><b>Live theming</b><br/><sub>5 palettes, instant switch</sub></td>
+    <td align="center"><img src="assets/screenshots/dark-mode.png" width="200"/><br/><b>Noir Gold</b><br/><sub>Premium dark mode</sub></td>
+  </tr>
+</table>
 
-When you're ready, run:
+---
 
-```bash
-npm run reset-project
+## ✨ What makes it different
+
+Most food apps rate **restaurants**. Plated rates the **dish** — which changes the whole data model
+and unlocks features a venue-rating app structurally can't offer:
+
+- **🍽️ Dish-level ratings** — every "plate" is photographed, rated 1–10, and individually orderable.
+- **📊 "Plated's Rating"** — a restaurant's score is the *cumulative average of every plate* rated
+  there, not a vibe score.
+- **🔁 The Reorder signal** — the highest-praise action in food. Plates track how many people
+  ordered them *again* — a trust metric no rating app captures today.
+- **🤝 Creator economy** — food creators earn on **attributed orders** from their plates
+  (decoupled from rating sentiment — FTC 16 CFR 465 compliant), with a full earnings dashboard.
+- **🛵 Order hand-off, not payments** — a provider sheet deep-links to DoorDash / Uber Eats /
+  pickup. Discovery is the product; logistics stay a commodity.
+
+---
+
+## 🧱 Tech stack & architecture
+
+| Layer | Choice | Why |
+|-------|--------|-----|
+| Framework | **Expo SDK 56 + React Native 0.85** (New Architecture) | One codebase → iOS, Android, web |
+| Routing | **Expo Router v6** (file-based) | Typed, deep-linkable, native stack + custom tab bar |
+| Language | **TypeScript** (strict) | End-to-end type safety, zero `any` in domain code |
+| State | **React Context** stores (`DataContext`, `AuthContext`) | Selector-based; swappable for a real backend |
+| Animation | **Reanimated 4** + **Gesture Handler** | 60fps entrance/press/like micro-interactions on the UI thread |
+| Theming | Custom token system + `useTheme()` | **5 palettes**, persisted via AsyncStorage, instant app-wide switch |
+| Vectors | **react-native-svg** | The logo mark renders identically to the app icon at any size |
+| Images | **expo-image** | Blurhash placeholders, disk cache, cross-fade |
+| Build/Ship | **EAS Build & Submit** | `development` / `preview` / `production` profiles configured |
+
+**Design system:** every color comes from a theme token — no hardcoded colors — so all five themes
+(Saffron, Coral, Fresh Teal, Midnight, Noir Gold) restyle the entire app instantly. Rating-badge
+text color is computed for contrast (WCAG-aware), and the order CTA stays warm in every theme
+because cool tints suppress appetite.
+
+### Project structure
+
+```
+src/
+├── app/                      # Expo Router routes (screens)
+│   ├── (auth)/               # sign-in / sign-up (+ terms gate)
+│   ├── (tabs)/               # home · explore · leaderboard · profile + custom tab bar
+│   ├── order/[id].tsx        # plate detail + comments + order hand-off
+│   ├── restaurant/[id].tsx   # "Plated's Rating" + plates here
+│   ├── creator.tsx           # creator earnings dashboard
+│   ├── report.tsx            # UGC reporting (Apple 1.2)
+│   ├── legal/                # terms (CSAE/zero-tolerance) + privacy
+│   └── settings/             # appearance (themes), blocked users, delete account
+├── components/               # PlateCard, OrderProviderSheet, RatingBadge, PlatedMark, …
+├── theme/                    # palettes (5), ThemeContext, fonts, rating logic
+├── store/                    # DataContext (selectors + mutations), AuthContext
+├── lib/                      # haptics, cross-platform dialogs, invite/FTC helpers
+└── data/                     # typed mock data (users, restaurants, orders, social)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-### Other setup steps
+## 🚀 Getting started
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+npm install
+npx expo start
+```
 
-## Learn more
+Then:
+- **iOS Simulator** — press `i` (requires Xcode)
+- **Android** — press `a` (requires Android Studio)
+- **Phone** — scan the QR code with **Expo Go**
+- **Web** — press `w`
 
-To learn more about developing your project with Expo, look at the following resources:
+> Mock images load from Unsplash / pravatar, so an internet connection is needed at demo time.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## ✅ Engineering quality
 
-Join our community of developers creating universal apps.
+This prototype was built to a shippable bar, not just a demo:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- **App Store readiness** — UGC content reporting, user blocking, account deletion (Guideline
+  5.1.1(v)), terms-acceptance gate, and child-safety (CSAE) policy are all implemented in-app.
+  See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the full submission checklist.
+- **FTC compliance** — creator commissions are disclosed *before* every order action and on every
+  surface that shows monetized content; earnings never depend on positive ratings.
+- **Cross-platform correctness** — e.g. `Alert.alert` is a no-op on react-native-web, so all
+  destructive confirms route through a platform-aware dialog helper.
+- **Adversarially reviewed** — the codebase was put through a multi-lens review (correctness, UX,
+  compliance) and the confirmed findings fixed.
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] **Backend** — real auth, persistence, and live restaurant data (Places/Yelp ingestion)
+- [ ] Real affiliate attribution for order hand-offs (Impact.com → DoorDash/Uber Eats)
+- [ ] Push notifications & contact-graph friend discovery
+- [ ] TestFlight → App Store / Google Play submission
+- [ ] Trademark clearance & final brand name
+
+---
+
+<div align="center">
+<sub>Built with React Native, Expo, and TypeScript. Designed, themed, and shipped as a portfolio project.</sub>
+</div>
