@@ -7,7 +7,6 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { AppNotification, NotificationKind } from '@/data/types';
-import { getUser } from '@/data/users';
 import { useData } from '@/store/DataContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -32,7 +31,7 @@ function timeAgo(iso: string): string {
 export default function Notifications() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { notifications, markAllNotificationsRead } = useData();
+  const { notifications, markAllNotificationsRead, userFor } = useData();
 
   // Snapshot what was unread when the screen opened: the badge clears right
   // away, but the row highlights persist while the user scans the list.
@@ -57,7 +56,7 @@ export default function Notifications() {
         keyExtractor={(n) => n.id}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}
         renderItem={({ item, index }) => {
-          const actor = item.userId ? getUser(item.userId) : undefined;
+          const actor = item.userId ? userFor(item.userId) : undefined;
           return (
             <Animated.View entering={FadeInDown.delay(Math.min(index * 40, 240)).duration(250)}>
               <Pressable

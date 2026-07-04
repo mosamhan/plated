@@ -21,8 +21,6 @@ import { RatingBadge } from '@/components/RatingBadge';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { formatCount } from '@/components/StatPill';
 import { foodPlaceholder } from '@/data/images';
-import { getRestaurant } from '@/data/restaurants';
-import { getUser } from '@/data/users';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
 import { displayFont } from '@/theme/fonts';
@@ -55,6 +53,7 @@ export default function OrderDetail() {
     addComment,
     currentUser,
     userFor,
+    restaurantFor,
   } = useData();
   const [sheet, setSheet] = useState(false);
   const [draft, setDraft] = useState('');
@@ -72,7 +71,7 @@ export default function OrderDetail() {
   }
 
   const user = userFor(order.userId);
-  const restaurant = getRestaurant(order.restaurantId);
+  const restaurant = restaurantFor(order.restaurantId);
   const liked = isLiked(order.id);
   const saved = isSaved(order.id);
   const following = isFollowing(user.id);
@@ -213,7 +212,7 @@ export default function OrderDetail() {
             </Text>
             <View style={{ marginTop: spacing.md, gap: spacing.md }}>
               {comments.map((c) => {
-                const cu = c.userId === currentUser.id ? currentUser : getUser(c.userId);
+                const cu = c.userId === currentUser.id ? currentUser : userFor(c.userId);
                 return (
                   <View key={c.id} style={styles.commentRow}>
                     <Pressable onPress={() => router.push(`/user/${cu.id}`)}>

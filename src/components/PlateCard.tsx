@@ -11,7 +11,6 @@ import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { formatCount } from '@/components/StatPill';
 import { foodPlaceholder } from '@/data/images';
-import { getRestaurant } from '@/data/restaurants';
 import { Order } from '@/data/types';
 import { showAlert } from '@/lib/dialog';
 import { tapLight, tapMedium } from '@/lib/haptics';
@@ -25,7 +24,7 @@ const DOUBLE_TAP_MS = 200;
 export function PlateCard({ order }: { order: Order }) {
   const { colors } = useTheme();
   const router = useRouter();
-  const { isLiked, toggleLike, isSaved, toggleSave, userFor } = useData();
+  const { isLiked, toggleLike, isSaved, toggleSave, userFor, restaurantFor } = useData();
   const [sheet, setSheet] = useState(false);
   const [burst, setBurst] = useState(false);
   const lastTap = useRef(0);
@@ -42,7 +41,7 @@ export function PlateCard({ order }: { order: Order }) {
   );
 
   const user = userFor(order.userId);
-  const restaurant = getRestaurant(order.restaurantId);
+  const restaurant = restaurantFor(order.restaurantId);
   const liked = isLiked(order.id);
   const saved = isSaved(order.id);
 

@@ -6,7 +6,6 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { RatingBadge } from '@/components/RatingBadge';
 import { foodPlaceholder } from '@/data/images';
-import { getRestaurant } from '@/data/restaurants';
 import { Order } from '@/data/types';
 import { useData } from '@/store/DataContext';
 import { radius } from '@/theme/palettes';
@@ -20,8 +19,8 @@ interface Props {
 export function PlateTile({ order, width }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
-  const { userFor } = useData();
-  const restaurant = getRestaurant(order.restaurantId);
+  const { userFor, restaurantFor } = useData();
+  const restaurant = restaurantFor(order.restaurantId);
   const user = userFor(order.userId);
 
   return (

@@ -6,8 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FilterChips } from '@/components/FilterChips';
 import { RankRow } from '@/components/RankRow';
 import { formatCount } from '@/components/StatPill';
-import { getRestaurant } from '@/data/restaurants';
-import { getUser } from '@/data/users';
 import { useData } from '@/store/DataContext';
 import { spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -18,7 +16,7 @@ export default function Leaderboard() {
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { topRestaurants, topPlates, topCreators } = useData();
+  const { topRestaurants, topPlates, topCreators, userFor, restaurantFor } = useData();
   const [tab, setTab] = useState(TABS[0]);
 
   return (
@@ -51,8 +49,8 @@ export default function Leaderboard() {
 
         {tab === 'Best Plates' &&
           topPlates().map((o, i) => {
-            const r = getRestaurant(o.restaurantId);
-            const u = getUser(o.userId);
+            const r = restaurantFor(o.restaurantId);
+            const u = userFor(o.userId);
             // FTC: monetized endorsements are disclosed wherever they appear.
             const disclosure = u.compensationEligible ? ' · earns commission' : '';
             return (

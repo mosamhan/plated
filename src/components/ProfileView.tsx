@@ -20,7 +20,6 @@ import { RatingBadge } from '@/components/RatingBadge';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { SocialLinks } from '@/components/SocialLinks';
 import { formatCount, StatPill } from '@/components/StatPill';
-import { getRestaurant } from '@/data/restaurants';
 import { User } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
@@ -38,7 +37,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked } = useData();
+  const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked, restaurantFor } = useData();
   const [tab, setTab] = useState<'plates' | 'reviews'>('plates');
   const [actionsOpen, setActionsOpen] = useState(false);
 
@@ -169,7 +168,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
         ) : (
           <View style={{ paddingHorizontal: PADDING, gap: 10, paddingTop: spacing.lg }}>
             {orders.map((o) => {
-              const r = getRestaurant(o.restaurantId);
+              const r = restaurantFor(o.restaurantId);
               return (
                 <Pressable
                   key={o.id}
