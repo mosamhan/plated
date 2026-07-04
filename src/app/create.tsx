@@ -20,8 +20,11 @@ import { RatingInput } from '@/components/RatingInput';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { TextField } from '@/components/TextField';
 import { foodPhoto } from '@/data/images';
+import { showAlert } from '@/lib/dialog';
 import { success } from '@/lib/haptics';
 import { isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
+import { pickImage, uploadAsset } from '@/lib/upload';
+import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -40,6 +43,7 @@ export default function CreatePlate() {
     fsqLocation?: string;
   }>();
   const { restaurants, restaurantFor, addOrder } = useData();
+  const { userId } = useAuth();
 
   // Restaurant selection: either an existing restaurant id, or a Foursquare place.
   const presetPlace: PlaceResult | null = params.fsqId
@@ -62,6 +66,21 @@ export default function CreatePlate() {
   const [description, setDescription] = useState('');
   const [rating, setRating] = useState(8);
   const [posting, setPosting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const pickAndUpload = async (camera: boolean) => {
+    const asset = await pickImage({ camera });
+    if (!asset) return;
+    if (!userId) {
+      setPhoto(asset.uri); // no backend — just preview the local image
+      return;
+    }
+    setUploading(true);
+    const url = await uploadAsset('plates', userId, asset);
+    setUploading(false);
+    if (url) setPhoto(url);
+    else showAlert('Upload failed', 'Could not upload that photo — please try again.');
+  };
 
   const selectedRestaurant = restaurantId ? restaurantFor(restaurantId) : undefined;
   const selectedLabel = selectedRestaurant?.name ?? place?.name;
@@ -111,8 +130,26 @@ export default function CreatePlate() {
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 100 }}
         keyboardShouldPersistTaps="handled">
         {/* Photo */}
-        <Image source={{ uri: photo }} style={[styles.preview, { backgroundColor: colors.surface }]} contentFit="cover" />
-        <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Choose a photo</Text>
+        <View>
+          <Image source={{ uri: photo }} style={[styles.preview, { backgroundColor: colors.surface }]} contentFit="cover" />
+          {uploading && (
+            <View style={[styles.uploadOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+              <ActivityIndicator color="#fff" />
+              <Text style={styles.uploadText}>Uploading…</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.photoBtns}>
+          <Pressable onPress={() => pickAndUpload(true)} style={[styles.photoBtn, { backgroundColor: colors.accent }]}>
+            <Ionicons name="camera" size={17} color={colors.accentText} />
+            <Text style={[styles.photoBtnText, { color: colors.accentText }]}>Take photo</Text>
+          </Pressable>
+          <Pressable onPress={() => pickAndUpload(false)} style={[styles.photoBtn, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: StyleSheet.hairlineWidth }]}>
+            <Ionicons name="images" size={17} color={colors.text} />
+            <Text style={[styles.photoBtnText, { color: colors.text }]}>Library</Text>
+          </Pressable>
+        </View>
+        <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Or pick a sample</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
           {SAMPLE_PHOTOS.map((p) => (
             <Pressable key={p} onPress={() => setPhoto(p)}>
@@ -227,6 +264,29 @@ export default function CreatePlate() {
 
 const styles = StyleSheet.create({
   preview: { width: '100%', aspectRatio: 1.4, borderRadius: radius.lg, marginBottom: spacing.md },
+  uploadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: spacing.md,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  uploadText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  photoBtns: { flexDirection: 'row', gap: 10, marginBottom: spacing.lg },
+  photoBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+  },
+  photoBtnText: { fontSize: 14, fontWeight: '800' },
   fieldLabel: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
   thumb: { width: 64, height: 64, borderRadius: radius.md },
   selectedCard: {

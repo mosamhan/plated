@@ -36,6 +36,13 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 160
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Plated needs access to your photos so you can add a plate you rated.",
+          "cameraPermission": "Plated needs your camera to snap a photo of your plate."
+        }
       ]
     ],
     "experiments": {
