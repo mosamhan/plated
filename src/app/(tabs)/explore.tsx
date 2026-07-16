@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FilterChips } from '@/components/FilterChips';
 import { PlateTile } from '@/components/PlateTile';
 import { useData } from '@/store/DataContext';
+import { useLocation } from '@/store/LocationContext';
 import { spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -42,6 +43,7 @@ export default function Explore() {
   const { width: windowWidth } = useWindowDimensions();
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
   const { exploreOrders } = useData();
+  const { location } = useLocation();
   const [filter, setFilter] = useState('Trending');
 
   const data = useMemo(() => exploreOrders(filter), [exploreOrders, filter]);
@@ -49,9 +51,15 @@ export default function Explore() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ paddingTop: insets.top + 8 }}>
-        <Text style={[typography.title, { color: colors.text, paddingHorizontal: PADDING }]}>
-          Explore
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={[typography.title, { color: colors.text }]}>Explore</Text>
+          <Pressable onPress={() => router.push('/settings/location')} style={styles.locChip} hitSlop={8}>
+            <Ionicons name="location" size={13} color={colors.accent} />
+            <Text style={[styles.locText, { color: colors.textMuted }]} numberOfLines={1}>
+              {location.label}
+            </Text>
+          </Pressable>
+        </View>
         <Pressable
           onPress={() => router.push('/search')}
           style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -86,6 +94,15 @@ export default function Explore() {
 }
 
 const styles = StyleSheet.create({
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: PADDING,
+    gap: 10,
+  },
+  locChip: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 170 },
+  locText: { fontSize: 13, fontWeight: '700' },
   search: {
     flexDirection: 'row',
     alignItems: 'center',

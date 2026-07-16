@@ -26,6 +26,7 @@ import { isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
 import { pickImage, uploadAsset } from '@/lib/upload';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
+import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -44,6 +45,7 @@ export default function CreatePlate() {
   }>();
   const { restaurants, restaurantFor, addOrder } = useData();
   const { userId } = useAuth();
+  const { placeQuery } = useLocation();
 
   // Restaurant selection: either an existing restaurant id, or a Foursquare place.
   const presetPlace: PlaceResult | null = params.fsqId
@@ -89,7 +91,7 @@ export default function CreatePlate() {
   const runSearch = async () => {
     if (!query.trim()) return;
     setSearching(true);
-    setResults(await searchPlaces(query.trim()));
+    setResults(await searchPlaces(query.trim(), placeQuery));
     setSearching(false);
   };
 

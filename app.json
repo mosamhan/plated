@@ -43,6 +43,12 @@
           "photosPermission": "Plated needs access to your photos so you can add a plate you rated.",
           "cameraPermission": "Plated needs your camera to snap a photo of your plate."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Plated uses your location to show restaurants near you."
+        }
       ]
     ],
     "experiments": {

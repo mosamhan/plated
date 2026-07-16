@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,6 +9,7 @@ import { RatingBadge } from '@/components/RatingBadge';
 import { TextField } from '@/components/TextField';
 import { isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
 import { useData } from '@/store/DataContext';
+import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -17,6 +18,7 @@ export default function Search() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { searchRestaurants, restaurantWithRating } = useData();
+  const { location, placeQuery } = useLocation();
   const [query, setQuery] = useState('');
   const [places, setPlaces] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -24,12 +26,19 @@ export default function Search() {
   // Restaurants already on Plated (with a Plated's Rating), matched locally.
   const onPlated = useMemo(() => searchRestaurants(query), [searchRestaurants, query]);
 
-  const runSearch = async () => {
-    if (!query.trim() || !isPlacesConfigured) return;
+  const runSearch = async (q?: string) => {
+    if (!isPlacesConfigured) return;
+    const term = (q ?? query).trim() || 'restaurant';
     setSearching(true);
-    setPlaces(await searchPlaces(query.trim()));
+    setPlaces(await searchPlaces(term, placeQuery));
     setSearching(false);
   };
+
+  // Show restaurants near the active location by default (empty query).
+  useEffect(() => {
+    if (isPlacesConfigured) runSearch('restaurant');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeQuery.ll, placeQuery.near]);
 
   const addAt = (p: PlaceResult) => {
     const q = (s: string) => encodeURIComponent(s);
@@ -49,7 +58,7 @@ export default function Search() {
             icon="search"
             value={query}
             onChangeText={setQuery}
-            onSubmitEditing={runSearch}
+            onSubmitEditing={() => runSearch()}
             returnKeyType="search"
             placeholder="Search restaurants & dishes"
             autoFocus
@@ -88,15 +97,20 @@ export default function Search() {
 
         {/* Real venues from Foursquare */}
         <View style={styles.fsqHead}>
-          <Text style={[styles.section, { color: colors.text, marginBottom: 0 }]}>
-            {isPlacesConfigured ? 'Add a plate somewhere new' : 'More restaurants'}
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.section, { color: colors.text, marginBottom: 0 }]}>
+              {query.trim() ? 'Results' : 'Restaurants near you'}
+            </Text>
+            <Text style={[styles.nearLabel, { color: colors.textMuted }]}>
+              <Ionicons name="location" size={12} color={colors.accent} /> {location.label}
+            </Text>
+          </View>
           {searching && <ActivityIndicator size="small" color={colors.accent} />}
         </View>
 
-        {isPlacesConfigured && places.length === 0 && (
+        {isPlacesConfigured && places.length === 0 && !searching && (
           <Text style={[styles.hint, { color: colors.textMuted }]}>
-            {query.trim() ? 'Press search to find real restaurants near you.' : 'Search to discover restaurants and rate a dish.'}
+            No restaurants found here yet — try a search, or change your location in Settings.
           </Text>
         )}
 
@@ -128,6 +142,7 @@ export default function Search() {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingBottom: 4 },
   section: { ...typography.heading, marginTop: spacing.lg, marginBottom: spacing.md },
+  nearLabel: { fontSize: 12, fontWeight: '600', marginTop: 2 },
   fsqHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: spacing.sm },
   hint: { fontSize: 13, fontWeight: '500', marginTop: spacing.md },
   row: {

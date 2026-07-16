@@ -9,6 +9,7 @@ import { warn } from '@/lib/haptics';
 import { buildInviteMessage } from '@/lib/invite';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
+import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, THEMES } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -16,6 +17,7 @@ export default function Settings() {
   const { colors, themeName } = useTheme();
   const { signOut } = useAuth();
   const { blockedUsers, currentUser } = useData();
+  const { location } = useLocation();
   const router = useRouter();
 
   const blockedCount = blockedUsers().length;
@@ -60,7 +62,13 @@ export default function Settings() {
             onPress={() => router.push('/settings/theme')}
           />
           <Row icon="notifications-outline" label="Notifications" value="On" />
-          <Row icon="location-outline" label="Location" value="New York, NY" last />
+          <Row
+            icon="location-outline"
+            label="Location"
+            value={location.label}
+            onPress={() => router.push('/settings/location')}
+            last
+          />
         </Section>
 
         <Section title="Account">
