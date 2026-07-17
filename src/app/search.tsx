@@ -1,17 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RatingBadge } from '@/components/RatingBadge';
+import { RestaurantActionSheet } from '@/components/RestaurantActionSheet';
 import { TextField } from '@/components/TextField';
+import { Restaurant } from '@/data/types';
 import { isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
+
+type Selected =
+  | { kind: 'db'; restaurant: Restaurant; rating?: number }
+  | { kind: 'fsq'; place: PlaceResult };
 
 export default function Search() {
   const { colors } = useTheme();
@@ -22,23 +28,28 @@ export default function Search() {
   const [query, setQuery] = useState('');
   const [places, setPlaces] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState<Selected | null>(null);
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Restaurants already on Plated (with a Plated's Rating), matched locally.
   const onPlated = useMemo(() => searchRestaurants(query), [searchRestaurants, query]);
 
-  const runSearch = async (q?: string) => {
+  const runSearch = async (term: string) => {
     if (!isPlacesConfigured) return;
-    const term = (q ?? query).trim() || 'restaurant';
     setSearching(true);
-    setPlaces(await searchPlaces(term, placeQuery));
+    setPlaces(await searchPlaces(term.trim() || 'restaurant', placeQuery));
     setSearching(false);
   };
 
-  // Show restaurants near the active location by default (empty query).
+  // Live typeahead — search as you type (debounced), no Enter required.
   useEffect(() => {
-    if (isPlacesConfigured) runSearch('restaurant');
+    if (!isPlacesConfigured) return;
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => runSearch(query), 350);
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placeQuery.ll, placeQuery.near]);
+  }, [query, placeQuery.ll, placeQuery.near]);
 
   const addAt = (p: PlaceResult) => {
     const q = (s: string) => encodeURIComponent(s);
@@ -58,7 +69,6 @@ export default function Search() {
             icon="search"
             value={query}
             onChangeText={setQuery}
-            onSubmitEditing={() => runSearch()}
             returnKeyType="search"
             placeholder="Search restaurants & dishes"
             autoFocus
@@ -79,7 +89,7 @@ export default function Search() {
               return (
                 <Pressable
                   key={item.id}
-                  onPress={() => router.push(`/restaurant/${item.id}`)}
+                  onPress={() => setSelected({ kind: 'db', restaurant: item, rating: withRating?.platedRating })}
                   style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Image source={{ uri: item.image }} style={[styles.img, { backgroundColor: colors.surface }]} contentFit="cover" />
                   <View style={{ flex: 1 }}>
@@ -101,10 +111,7 @@ export default function Search() {
             <Text style={[styles.section, { color: colors.text, marginBottom: 0 }]}>
               {query.trim() ? 'Results' : 'Restaurants near you'}
             </Text>
-            <Pressable
-              onPress={() => router.push('/settings/location')}
-              style={styles.nearRow}
-              hitSlop={8}>
+            <Pressable onPress={() => router.push('/settings/location')} style={styles.nearRow} hitSlop={8}>
               <Ionicons name="location" size={12} color={colors.accent} />
               <Text style={[styles.nearLabel, { color: colors.text }]}>{location.label}</Text>
               <Text style={[styles.nearChange, { color: colors.accent }]}>Change</Text>
@@ -132,7 +139,7 @@ export default function Search() {
         {places.map((p) => (
           <Pressable
             key={p.fsqId}
-            onPress={() => addAt(p)}
+            onPress={() => setSelected({ kind: 'fsq', place: p })}
             style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={[styles.venueIcon, { backgroundColor: colors.accentSoft }]}>
               <Ionicons name="restaurant" size={20} color={colors.accent} />
@@ -143,13 +150,41 @@ export default function Search() {
                 {p.cuisine}{p.location ? ` · ${p.location}` : ''}
               </Text>
             </View>
-            <View style={[styles.addPill, { backgroundColor: colors.accent }]}>
-              <Ionicons name="add" size={16} color={colors.accentText} />
-              <Text style={{ color: colors.accentText, fontWeight: '800', fontSize: 12 }}>Plate</Text>
-            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         ))}
       </ScrollView>
+
+      {/* Restaurant action tile: directions + reservations + primary action */}
+      {selected?.kind === 'db' && (
+        <RestaurantActionSheet
+          visible
+          onClose={() => setSelected(null)}
+          name={selected.restaurant.name}
+          cuisine={selected.restaurant.cuisine}
+          location={selected.restaurant.location}
+          lat={selected.restaurant.lat}
+          lng={selected.restaurant.lng}
+          rating={selected.rating}
+          primaryLabel="View on Plated"
+          primaryIcon="restaurant"
+          onPrimary={() => router.push(`/restaurant/${selected.restaurant.id}`)}
+        />
+      )}
+      {selected?.kind === 'fsq' && (
+        <RestaurantActionSheet
+          visible
+          onClose={() => setSelected(null)}
+          name={selected.place.name}
+          cuisine={selected.place.cuisine}
+          location={selected.place.location}
+          lat={selected.place.lat}
+          lng={selected.place.lng}
+          primaryLabel="Add a plate here"
+          primaryIcon="add"
+          onPrimary={() => addAt(selected.place)}
+        />
+      )}
     </View>
   );
 }
@@ -185,5 +220,4 @@ const styles = StyleSheet.create({
   venueIcon: { width: 54, height: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   name: { fontSize: 15, fontWeight: '800' },
   meta: { fontSize: 13, fontWeight: '500', marginTop: 2 },
-  addPill: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill },
 });

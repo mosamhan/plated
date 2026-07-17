@@ -18,20 +18,8 @@ import { useLocation } from '@/store/LocationContext';
 import { spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-const FILTERS = [
-  'Trending',
-  'Top Rated',
-  'Most Reordered',
-  'Nearby',
-  'Burgers',
-  'Ramen',
-  'Italian',
-  'Mexican',
-  'BBQ',
-  'Brunch',
-  'South Indian',
-  'Japanese',
-];
+// Kept minimal so the grid stays the focus — the core sort/scope lenses only.
+const FILTERS = ['Trending', 'Top Rated', 'Most Reordered', 'Nearby'];
 
 const GAP = spacing.md;
 const PADDING = spacing.lg;

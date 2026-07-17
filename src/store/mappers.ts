@@ -41,6 +41,8 @@ export function mapRestaurant(row: any): Restaurant {
     cuisine: row.cuisine ?? 'Restaurant',
     location: row.location ?? '',
     distance: '',
+    lat: row.lat ?? undefined,
+    lng: row.lng ?? undefined,
     priceLevel: (row.price_level as Restaurant['priceLevel']) ?? '$$',
   };
 }

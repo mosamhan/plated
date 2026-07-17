@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { FloatingAddButton } from '@/components/FloatingAddButton';
 import { PlateTile } from '@/components/PlateTile';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { openDirections, openReservation } from '@/lib/external';
 import { useData } from '@/store/DataContext';
 import { radius, ratingColor, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -75,6 +76,22 @@ export default function RestaurantDetail() {
             </View>
           </View>
 
+          {/* Directions + reservations */}
+          <View style={styles.actionRow}>
+            <Pressable
+              onPress={() => openDirections('google', restaurant)}
+              style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons name="navigate" size={17} color={colors.accent} />
+              <Text style={[styles.actionText, { color: colors.text }]}>Directions</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => openReservation('opentable', restaurant)}
+              style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons name="calendar" size={16} color={colors.accent} />
+              <Text style={[styles.actionText, { color: colors.text }]}>Reserve</Text>
+            </Pressable>
+          </View>
+
           <Text style={[typography.heading, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
             Plates here
           </Text>
@@ -114,5 +131,17 @@ const styles = StyleSheet.create({
   scoreText: { color: '#fff', fontSize: 26, fontWeight: '900', letterSpacing: -1 },
   ratingTitle: { fontSize: 17, fontWeight: '800' },
   ratingSub: { fontSize: 13, fontWeight: '500', marginTop: 3, lineHeight: 18 },
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: spacing.md },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  actionText: { fontSize: 14, fontWeight: '800' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
 });

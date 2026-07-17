@@ -29,6 +29,9 @@ export interface Restaurant {
   location: string;
   /** Rough distance label for "near you" UI. */
   distance: string;
+  /** Coordinates (from Foursquare) — used for directions + location filtering. */
+  lat?: number;
+  lng?: number;
   priceLevel: '$' | '$$' | '$$$';
 }
 
