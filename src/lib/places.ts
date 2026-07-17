@@ -76,8 +76,13 @@ export async function searchPlaces(
     // bias to food & dining venues
     fsq_category_ids: '4d4b7105d754a06374d81259',
   });
-  if (opts.ll) params.set('ll', opts.ll);
-  else params.set('near', opts.near || 'New York, NY');
+  if (opts.ll) {
+    params.set('ll', opts.ll);
+    // Cover the whole metro (25km) so a named spot a few miles away still shows.
+    params.set('radius', '25000');
+  } else {
+    params.set('near', opts.near || 'New York, NY');
+  }
 
   try {
     const res = await fetch(`${BASE}/places/search?${params.toString()}`, {

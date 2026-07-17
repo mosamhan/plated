@@ -101,17 +101,32 @@ export default function Search() {
             <Text style={[styles.section, { color: colors.text, marginBottom: 0 }]}>
               {query.trim() ? 'Results' : 'Restaurants near you'}
             </Text>
-            <Text style={[styles.nearLabel, { color: colors.textMuted }]}>
-              <Ionicons name="location" size={12} color={colors.accent} /> {location.label}
-            </Text>
+            <Pressable
+              onPress={() => router.push('/settings/location')}
+              style={styles.nearRow}
+              hitSlop={8}>
+              <Ionicons name="location" size={12} color={colors.accent} />
+              <Text style={[styles.nearLabel, { color: colors.text }]}>{location.label}</Text>
+              <Text style={[styles.nearChange, { color: colors.accent }]}>Change</Text>
+            </Pressable>
           </View>
           {searching && <ActivityIndicator size="small" color={colors.accent} />}
         </View>
 
         {isPlacesConfigured && places.length === 0 && !searching && (
-          <Text style={[styles.hint, { color: colors.textMuted }]}>
-            No restaurants found here yet — try a search, or change your location in Settings.
-          </Text>
+          <View style={styles.emptyBox}>
+            <Text style={[styles.hint, { color: colors.textMuted }]}>
+              {query.trim()
+                ? `No “${query.trim()}” found near ${location.label}. If it's in another city, change your location.`
+                : `No restaurants found near ${location.label} yet.`}
+            </Text>
+            <Pressable
+              onPress={() => router.push('/settings/location')}
+              style={[styles.changeBtn, { backgroundColor: colors.accent }]}>
+              <Ionicons name="navigate" size={15} color={colors.accentText} />
+              <Text style={[styles.changeBtnText, { color: colors.accentText }]}>Change location</Text>
+            </Pressable>
+          </View>
         )}
 
         {places.map((p) => (
@@ -142,9 +157,21 @@ export default function Search() {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingBottom: 4 },
   section: { ...typography.heading, marginTop: spacing.lg, marginBottom: spacing.md },
-  nearLabel: { fontSize: 12, fontWeight: '600', marginTop: 2 },
+  nearRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  nearLabel: { fontSize: 12, fontWeight: '700' },
+  nearChange: { fontSize: 12, fontWeight: '800', marginLeft: 4 },
   fsqHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: spacing.sm },
-  hint: { fontSize: 13, fontWeight: '500', marginTop: spacing.md },
+  emptyBox: { alignItems: 'flex-start', gap: spacing.md, marginTop: spacing.md },
+  hint: { fontSize: 13, fontWeight: '500', lineHeight: 19 },
+  changeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+  },
+  changeBtnText: { fontSize: 14, fontWeight: '800' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
