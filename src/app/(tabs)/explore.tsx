@@ -77,7 +77,7 @@ export default function Explore() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <View style={{ paddingTop: insets.top + 8 }}>
+      <View style={{ paddingTop: insets.top + 8, paddingBottom: spacing.md }}>
         <View style={styles.titleRow}>
           <Text style={[typography.title, { color: colors.text }]}>Explore</Text>
           <Pressable onPress={() => router.push('/settings/location')} style={styles.locChip} hitSlop={8}>

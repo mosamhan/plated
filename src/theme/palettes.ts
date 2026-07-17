@@ -1,12 +1,12 @@
 /**
  * Plated theme system.
  *
- * Four hand-tuned palettes the user can preview and switch between live.
- * Every screen/component reads colors from `useTheme()` (see ThemeContext),
- * so changing the active palette restyles the entire app instantly.
+ * Two hand-tuned palettes the user can switch between live: Saffron (the light
+ * default) and Noir Gold (dark). Every screen/component reads colors from
+ * `useTheme()` (see ThemeContext), so switching restyles the whole app instantly.
  */
 
-export type ThemeName = 'coral' | 'teal' | 'charcoal' | 'saffron' | 'noir';
+export type ThemeName = 'saffron' | 'noir';
 
 export interface Palette {
   /** Whether this is a dark theme (drives status bar style, etc.) */
@@ -53,66 +53,6 @@ export interface ThemeMeta {
   palette: Palette;
 }
 
-const coral: Palette = {
-  isDark: false,
-  background: '#FFFFFF',
-  surface: '#FFF6F4',
-  card: '#FFFFFF',
-  text: '#1A1413',
-  textMuted: '#8C817C',
-  border: '#F2E8E4',
-  accent: '#E03131',
-  accentSoft: '#FFE7E8',
-  accentText: '#FFFFFF',
-  success: '#23B26D',
-  ratingHigh: '#23B26D',
-  ratingMid: '#E08A00',
-  ratingLow: '#E25241',
-  shadow: '#3A1E18',
-  orderCta: '#E03131',
-  orderCtaText: '#FFFFFF',
-};
-
-const teal: Palette = {
-  isDark: false,
-  background: '#FFFFFF',
-  surface: '#F1FBF8',
-  card: '#FFFFFF',
-  text: '#102420',
-  textMuted: '#6B7B77',
-  border: '#E1F0EB',
-  accent: '#0B7B6C',
-  accentSoft: '#D6F4EE',
-  accentText: '#FFFFFF',
-  success: '#11B5A4',
-  ratingHigh: '#0FB89C',
-  ratingMid: '#E08A00',
-  ratingLow: '#E25241',
-  shadow: '#06302A',
-  orderCta: '#D9480F',
-  orderCtaText: '#FFFFFF',
-};
-
-const charcoal: Palette = {
-  isDark: true,
-  background: '#0E0F12',
-  surface: '#16181D',
-  card: '#1C1F27',
-  text: '#F4F6F8',
-  textMuted: '#9AA1AD',
-  border: '#2A2E38',
-  accent: '#C8FF4D',
-  accentSoft: '#26301A',
-  accentText: '#11150A',
-  success: '#5BE3A7',
-  ratingHigh: '#A6E84F',
-  ratingMid: '#FFCB47',
-  ratingLow: '#FF6B5E',
-  shadow: '#000000',
-  orderCta: '#FF7A45',
-  orderCtaText: '#1A0E06',
-};
-
 const saffron: Palette = {
   isDark: false,
   background: '#FFFDF8',
@@ -154,28 +94,10 @@ const noir: Palette = {
 };
 
 export const THEMES: Record<ThemeName, ThemeMeta> = {
-  coral: {
-    name: 'coral',
-    label: 'Coral',
-    description: 'Warm & appetizing — friendly social feel',
-    palette: coral,
-  },
-  teal: {
-    name: 'teal',
-    label: 'Fresh Teal',
-    description: 'Clean & trustworthy — Beli-inspired',
-    palette: teal,
-  },
-  charcoal: {
-    name: 'charcoal',
-    label: 'Midnight',
-    description: 'Bold dark mode with an electric accent',
-    palette: charcoal,
-  },
   saffron: {
     name: 'saffron',
     label: 'Saffron',
-    description: 'Upscale amber-gold on soft cream',
+    description: 'Upscale amber-gold on soft cream — the light theme',
     palette: saffron,
   },
   noir: {
@@ -186,7 +108,7 @@ export const THEMES: Record<ThemeName, ThemeMeta> = {
   },
 };
 
-export const THEME_ORDER: ThemeName[] = ['saffron', 'coral', 'teal', 'noir', 'charcoal'];
+export const THEME_ORDER: ThemeName[] = ['saffron', 'noir'];
 
 export const DEFAULT_THEME: ThemeName = 'saffron';
 
@@ -236,7 +158,7 @@ export function isTopRated(score: number): boolean {
 
 /**
  * Readable text color for an arbitrary background (YIQ luma). Rating colors
- * vary per theme (e.g. Midnight's bright lime), so badge text is computed,
+ * vary per theme (e.g. Noir Gold's brighter greens), so badge text is computed,
  * not hardcoded white.
  */
 export function contrastText(hexBg: string): string {

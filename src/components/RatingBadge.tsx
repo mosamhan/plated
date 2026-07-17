@@ -19,7 +19,7 @@ export function RatingBadge({ score, size = 'md' }: Props) {
   const { colors } = useTheme();
   const s = SIZES[size];
   const color = ratingColor(colors, score);
-  // Rating colors vary per theme (Midnight's lime is bright) — compute text color.
+  // Rating colors vary per theme (Noir Gold runs brighter) — compute text color.
   const fg = contrastText(color);
   // Flame marks 9.0+ so the signal survives grayscale and colorblindness.
   const flame = isTopRated(score);
