@@ -1,5 +1,6 @@
 /** Maps Supabase rows (snake_case) to the app's domain types (camelCase). */
 import { avatar, foodPhoto, restaurantPhoto } from '@/data/images';
+import { PlatoComment, PlatoVideo } from '@/data/platos';
 import { AppNotification, Comment, Order, Restaurant, User } from '@/data/types';
 
 function countOf(embedded: unknown): number {
@@ -69,6 +70,42 @@ export function mapComment(row: any): Comment {
     id: row.id,
     orderId: row.order_id,
     userId: row.user_id,
+    text: row.text,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapPlato(row: any): PlatoVideo {
+  const creator = row.creator ?? {};
+  return {
+    id: row.id,
+    videoUrl: row.video_url,
+    poster: row.poster_url || foodPhoto(hashToInt(row.id)),
+    creatorId: row.user_id,
+    creatorName: creator.name ?? 'Creator',
+    creatorHandle: creator.handle ?? 'creator',
+    avatar: creator.avatar_url || avatar(hashToInt(row.user_id)),
+    verified: !!creator.verified,
+    compensationEligible: !!creator.compensation_eligible,
+    dishName: row.dish_name,
+    restaurantName: row.restaurant_name,
+    restaurantId: row.restaurant_id ?? undefined,
+    rating: row.rating != null ? Number(row.rating) : 0,
+    caption: row.caption ?? '',
+    likes: countOf(row.likes),
+    comments: countOf(row.comments),
+  };
+}
+
+export function mapPlatoComment(row: any): PlatoComment {
+  const author = row.author ?? {};
+  return {
+    id: row.id,
+    platoId: row.plato_id,
+    userId: row.user_id,
+    name: author.name ?? 'Guest',
+    handle: author.handle ?? 'guest',
+    avatar: author.avatar_url || avatar(hashToInt(row.user_id)),
     text: row.text,
     createdAt: row.created_at,
   };

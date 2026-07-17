@@ -14,8 +14,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FilterChips } from '@/components/FilterChips';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
+import { tapLight } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
+import { usePlatos } from '@/store/PlatosContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -58,6 +60,7 @@ export default function Explore() {
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
   const { exploreOrders } = useData();
   const { location } = useLocation();
+  const { refresh: refreshPlatos } = usePlatos();
   const [filter, setFilter] = useState('Trending');
   const [mode, setMode] = useState<Mode>('discover');
 
@@ -70,6 +73,20 @@ export default function Explore() {
         <PlatosFeed bottomInset={insets.bottom + 58} />
         <View style={[styles.overlayToggle, { top: insets.top + 8 }]}>
           <ModeToggle mode={mode} setMode={setMode} overlay />
+        </View>
+        <View style={[styles.platosActions, { top: insets.top + 8 }]}>
+          <Pressable
+            onPress={() => {
+              tapLight();
+              refreshPlatos();
+            }}
+            hitSlop={6}
+            style={styles.roundBtn}>
+            <Ionicons name="shuffle" size={19} color="#fff" />
+          </Pressable>
+          <Pressable onPress={() => router.push('/create-plato')} hitSlop={6} style={styles.roundBtn}>
+            <Ionicons name="add" size={22} color="#fff" />
+          </Pressable>
         </View>
       </View>
     );
@@ -137,6 +154,15 @@ const styles = StyleSheet.create({
   seg: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 18, paddingVertical: 8, borderRadius: radius.pill },
   segText: { fontSize: 14, fontWeight: '800' },
   overlayToggle: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  platosActions: { position: 'absolute', right: PADDING, flexDirection: 'row', gap: 10 },
+  roundBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(20,20,20,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   search: {
     flexDirection: 'row',
     alignItems: 'center',

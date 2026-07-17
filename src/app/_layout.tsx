@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from '@/store/AuthContext';
 import { DataProvider } from '@/store/DataContext';
 import { LocationProvider } from '@/store/LocationContext';
+import { PlatosProvider } from '@/store/PlatosContext';
 import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -32,6 +33,7 @@ function RootNav() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="create" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="create-plato" options={{ presentation: 'modal' }} />
         <Stack.Screen name="edit-profile" options={{ presentation: 'modal' }} />
         <Stack.Screen name="report" options={{ presentation: 'modal' }} />
       </Stack>
@@ -57,7 +59,9 @@ export default function RootLayout() {
           <AuthProvider>
             <LocationProvider>
               <DataProvider>
-                <RootNav />
+                <PlatosProvider>
+                  <RootNav />
+                </PlatosProvider>
               </DataProvider>
             </LocationProvider>
           </AuthProvider>

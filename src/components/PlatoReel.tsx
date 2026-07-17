@@ -4,13 +4,16 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
+import { PlatoCommentsSheet } from '@/components/PlatoCommentsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { formatCount } from '@/components/StatPill';
 import { PlatoVideo } from '@/data/platos';
 import { tapLight, tapMedium } from '@/lib/haptics';
+import { buildPlatoShareMessage } from '@/lib/invite';
+import { usePlatos } from '@/store/PlatosContext';
 import { displayFont } from '@/theme/fonts';
 import { spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -25,14 +28,15 @@ interface Props {
 export function PlatoReel({ video, active, height, bottomInset }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
+  const { isLiked, toggleLike } = usePlatos();
   const player = useVideoPlayer(video.videoUrl, (p) => {
     p.loop = true;
     p.muted = false;
   });
   const [paused, setPaused] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [liked, setLiked] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const liked = isLiked(video.id);
 
   // Only the active (visible) reel plays.
   useEffect(() => {
@@ -40,9 +44,18 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
     else player.pause();
   }, [active, paused, player]);
 
-  useEffect(() => {
-    player.muted = muted;
-  }, [muted, player]);
+  const onShare = () => {
+    tapLight();
+    Share.share({
+      message: buildPlatoShareMessage({
+        dishName: video.dishName,
+        restaurantName: video.restaurantName,
+        creatorHandle: video.creatorHandle,
+        rating: video.rating,
+        earns: video.compensationEligible,
+      }),
+    }).catch(() => {});
+  };
 
   const railBtn = (icon: keyof typeof Ionicons.glyphMap, label: string, onPress: () => void, tint?: string) => (
     <Pressable style={styles.railBtn} onPress={onPress} hitSlop={6}>
@@ -82,20 +95,22 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
       <View style={[styles.rail, { bottom: bottomInset + 24 }]}>
         {railBtn(
           liked ? 'heart' : 'heart-outline',
-          formatCount(video.likes + (liked ? 1 : 0)),
+          formatCount(video.likes),
           () => {
-            setLiked((v) => !v);
+            toggleLike(video.id);
             tapLight();
           },
           liked ? '#FF4D6D' : '#fff',
         )}
-        {railBtn('chatbubble-ellipses', formatCount(video.comments), () => {})}
+        {railBtn('chatbubble-ellipses', formatCount(video.comments), () => {
+          tapLight();
+          setCommentsOpen(true);
+        })}
         {railBtn('bag-handle', 'Order', () => {
           tapMedium();
           setSheet(true);
         })}
-        {railBtn('arrow-redo', 'Share', () => {})}
-        {railBtn(muted ? 'volume-mute' : 'volume-high', muted ? 'Muted' : 'Sound', () => setMuted((m) => !m))}
+        {railBtn('arrow-redo', 'Share', onShare)}
       </View>
 
       {/* Bottom-left info */}
@@ -128,6 +143,12 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
         dishName={video.dishName}
         creatorHandle={video.creatorHandle}
         supportsCreator={video.compensationEligible}
+      />
+
+      <PlatoCommentsSheet
+        platoId={video.id}
+        visible={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
       />
     </View>
   );
