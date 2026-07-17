@@ -13,9 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FilterChips } from '@/components/FilterChips';
 import { PlateTile } from '@/components/PlateTile';
+import { PlatosFeed } from '@/components/PlatosFeed';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
-import { spacing, typography } from '@/theme/palettes';
+import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 // Kept minimal so the grid stays the focus — the core sort/scope lenses only.
@@ -23,6 +24,31 @@ const FILTERS = ['Trending', 'Top Rated', 'Most Reordered', 'Nearby'];
 
 const GAP = spacing.md;
 const PADDING = spacing.lg;
+
+type Mode = 'discover' | 'platos';
+
+function ModeToggle({ mode, setMode, overlay }: { mode: Mode; setMode: (m: Mode) => void; overlay?: boolean }) {
+  const { colors } = useTheme();
+  const bg = overlay ? 'rgba(20,20,20,0.55)' : colors.surface;
+  const seg = (m: Mode, icon: keyof typeof Ionicons.glyphMap, label: string) => {
+    const on = mode === m;
+    const inactive = overlay ? 'rgba(255,255,255,0.8)' : colors.textMuted;
+    return (
+      <Pressable
+        onPress={() => setMode(m)}
+        style={[styles.seg, on && { backgroundColor: colors.accent }]}>
+        <Ionicons name={icon} size={15} color={on ? colors.accentText : inactive} />
+        <Text style={[styles.segText, { color: on ? colors.accentText : inactive }]}>{label}</Text>
+      </Pressable>
+    );
+  };
+  return (
+    <View style={[styles.toggle, { backgroundColor: bg }]}>
+      {seg('discover', 'grid', 'Discover')}
+      {seg('platos', 'play-circle', 'Platos')}
+    </View>
+  );
+}
 
 export default function Explore() {
   const { colors } = useTheme();
@@ -33,8 +59,21 @@ export default function Explore() {
   const { exploreOrders } = useData();
   const { location } = useLocation();
   const [filter, setFilter] = useState('Trending');
+  const [mode, setMode] = useState<Mode>('discover');
 
   const data = useMemo(() => exploreOrders(filter), [exploreOrders, filter]);
+
+  // Platos — immersive vertical reels with the mode toggle floating on top.
+  if (mode === 'platos') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <PlatosFeed bottomInset={insets.bottom + 58} />
+        <View style={[styles.overlayToggle, { top: insets.top + 8 }]}>
+          <ModeToggle mode={mode} setMode={setMode} overlay />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -47,6 +86,9 @@ export default function Explore() {
               {location.label}
             </Text>
           </Pressable>
+        </View>
+        <View style={{ alignItems: 'center', marginTop: 12 }}>
+          <ModeToggle mode={mode} setMode={setMode} />
         </View>
         <Pressable
           onPress={() => router.push('/search')}
@@ -91,6 +133,10 @@ const styles = StyleSheet.create({
   },
   locChip: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 170 },
   locText: { fontSize: 13, fontWeight: '700' },
+  toggle: { flexDirection: 'row', borderRadius: radius.pill, padding: 3, gap: 2 },
+  seg: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 18, paddingVertical: 8, borderRadius: radius.pill },
+  segText: { fontSize: 14, fontWeight: '800' },
+  overlayToggle: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   search: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -11,8 +11,8 @@ import { useTheme } from '@/theme/ThemeContext';
 interface Props {
   visible: boolean;
   onClose: () => void;
-  /** The plate being ordered — hand-off records an attributed order on it. */
-  order: Order;
+  /** The plate being ordered — hand-off records an attributed order on it (optional for video/Platos). */
+  order?: Order;
   restaurantName: string;
   dishName: string;
   /** Handle of the person whose plate this is. */
@@ -78,7 +78,7 @@ export function OrderProviderSheet({
     tapMedium();
     // Mock attribution: production appends subId1=creatorId, subId2=plateId,
     // subId3=sessionId for affiliate-network tracking.
-    markReordered(order.id);
+    if (order) markReordered(order.id);
     const q = encodeURIComponent(restaurantName);
     Linking.openURL(p.url(q)).catch(() => {});
     onClose();
