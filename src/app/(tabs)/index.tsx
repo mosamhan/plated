@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -17,9 +17,23 @@ import { PlateCard } from '@/components/PlateCard';
 import { SectionHeader } from '@/components/SectionHeader';
 import { Skeleton } from '@/components/Skeleton';
 import { SuggestedFriendCard } from '@/components/SuggestedFriends';
+import { Contact, Order } from '@/data/types';
 import { useData } from '@/store/DataContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
+
+// Non-uniform cadence so suggestion blocks feel sprinkled in, not metronomic.
+const GAPS = [4, 6, 5, 7];
+const SUGGEST_SUBTITLES = [
+  'Friends from your contacts on Plated',
+  'People with taste like yours',
+  'New creators worth a follow',
+  'More foodies near you',
+];
+
+type FeedItem =
+  | { type: 'plate'; order: Order }
+  | { type: 'suggest'; key: string; contacts: Contact[]; subtitle: string };
 
 function FeedSkeleton() {
   return (
@@ -40,6 +54,22 @@ function FeedSkeleton() {
   );
 }
 
+function SuggestBlock({ contacts, subtitle }: { contacts: Contact[]; subtitle: string }) {
+  return (
+    <View style={{ marginBottom: spacing.lg }}>
+      <SectionHeader title="Suggested for you" subtitle={subtitle} />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: 12, paddingBottom: 4 }}>
+        {contacts.map((c) => (
+          <SuggestedFriendCard key={c.id} contact={c} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 export default function Home() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -49,8 +79,39 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
 
   const orders = feedOrders();
+  // Stable key: placement only recomputes when the set of plates changes,
+  // not when a like/save toggles a count (so blocks don't jump around).
+  const orderKey = orders.map((o) => o.id).join(',');
 
-  // Brief skeleton on first mount sells the loading experience (mock data is instant).
+  const items = useMemo<FeedItem[]>(() => {
+    const out: FeedItem[] = [];
+    let since = 0;
+    let block = 0;
+    const pushSuggest = () => {
+      const start = contacts.length ? (block * 2) % contacts.length : 0;
+      const rotated = [...contacts.slice(start), ...contacts.slice(0, start)];
+      out.push({
+        type: 'suggest',
+        key: `sug-${block}`,
+        contacts: rotated,
+        subtitle: SUGGEST_SUBTITLES[block % SUGGEST_SUBTITLES.length],
+      });
+      block += 1;
+      since = 0;
+    };
+    orders.forEach((o, idx) => {
+      out.push({ type: 'plate', order: o });
+      since += 1;
+      if (contacts.length && since >= GAPS[block % GAPS.length] && idx < orders.length - 1) {
+        pushSuggest();
+      }
+    });
+    // Short feed → still surface one block so discovery is always present.
+    if (block === 0 && contacts.length) pushSuggest();
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderKey, contacts]);
+
   useEffect(() => {
     const t = setTimeout(() => setBooting(false), 450);
     return () => clearTimeout(t);
@@ -87,9 +148,15 @@ export default function Home() {
         </View>
       ) : (
         <FlatList
-          data={orders}
-          keyExtractor={(o) => o.id}
-          renderItem={({ item }) => <PlateCard order={item} />}
+          data={items}
+          keyExtractor={(item) => (item.type === 'plate' ? item.order.id : item.key)}
+          renderItem={({ item }) =>
+            item.type === 'plate' ? (
+              <PlateCard order={item.order} />
+            ) : (
+              <SuggestBlock contacts={item.contacts} subtitle={item.subtitle} />
+            )
+          }
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: 110 }}
           refreshControl={
@@ -100,25 +167,6 @@ export default function Home() {
               colors={[colors.accent]}
               progressBackgroundColor={colors.card}
             />
-          }
-          ListHeaderComponent={
-            <View style={{ marginBottom: spacing.sm }}>
-              <SectionHeader
-                title="Suggested for you"
-                subtitle="Friends from your contacts on Plated"
-              />
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: 12, paddingBottom: 4 }}>
-                {contacts.map((c) => (
-                  <SuggestedFriendCard key={c.id} contact={c} />
-                ))}
-              </ScrollView>
-
-              <View style={{ height: spacing.xl }} />
-              <SectionHeader title="Your feed" subtitle="Fresh plates from people you follow" />
-            </View>
           }
         />
       )}
