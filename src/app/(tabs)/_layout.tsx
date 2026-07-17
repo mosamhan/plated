@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ActionSheet } from '@/components/ActionSheet';
 import { useAuth } from '@/store/AuthContext';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -28,6 +30,7 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const [chooser, setChooser] = useState(false);
 
   const renderTab = (routeName: string) => {
     const index = state.routes.findIndex((r) => r.name === routeName);
@@ -56,33 +59,53 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
   };
 
   return (
-    <View
-      style={[
-        styles.bar,
-        {
-          backgroundColor: colors.card,
-          borderTopColor: colors.border,
-          paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
-        },
-      ]}>
-      {renderTab('index')}
-      {renderTab('explore')}
+    <>
+      <View
+        style={[
+          styles.bar,
+          {
+            backgroundColor: colors.card,
+            borderTopColor: colors.border,
+            paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
+          },
+        ]}>
+        {renderTab('index')}
+        {renderTab('explore')}
 
-      {/* Center create button */}
-      <View style={styles.centerWrap}>
-        <Pressable
-          onPress={() => router.push('/create')}
-          style={({ pressed }) => [
-            styles.center,
-            { backgroundColor: colors.accent, shadowColor: colors.shadow, opacity: pressed ? 0.9 : 1 },
-          ]}>
-          <Ionicons name="add" size={32} color={colors.accentText} />
-        </Pressable>
+        {/* Center create button — chooses between a rated plate and a Plato video */}
+        <View style={styles.centerWrap}>
+          <Pressable
+            onPress={() => setChooser(true)}
+            style={({ pressed }) => [
+              styles.center,
+              { backgroundColor: colors.accent, shadowColor: colors.shadow, opacity: pressed ? 0.9 : 1 },
+            ]}>
+            <Ionicons name="add" size={32} color={colors.accentText} />
+          </Pressable>
+        </View>
+
+        {renderTab('leaderboard')}
+        {renderTab('profile')}
       </View>
 
-      {renderTab('leaderboard')}
-      {renderTab('profile')}
-    </View>
+      <ActionSheet
+        visible={chooser}
+        onClose={() => setChooser(false)}
+        title="Create"
+        actions={[
+          {
+            label: 'Rate a plate',
+            icon: 'restaurant',
+            onPress: () => router.push('/create'),
+          },
+          {
+            label: 'Post a Plato',
+            icon: 'videocam',
+            onPress: () => router.push('/create-plato'),
+          },
+        ]}
+      />
+    </>
   );
 }
 

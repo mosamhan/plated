@@ -16,6 +16,7 @@ import { ActionSheet } from '@/components/ActionSheet';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { PlateTile } from '@/components/PlateTile';
+import { PlatoTile } from '@/components/PlatoTile';
 import { RatingBadge } from '@/components/RatingBadge';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { SocialLinks } from '@/components/SocialLinks';
@@ -24,6 +25,7 @@ import { User } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
 import { useData } from '@/store/DataContext';
+import { usePlatos } from '@/store/PlatosContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -38,11 +40,13 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked, restaurantFor } = useData();
-  const [tab, setTab] = useState<'plates' | 'reviews'>('plates');
+  const { platos } = usePlatos();
+  const [tab, setTab] = useState<'plates' | 'reviews' | 'platos'>('plates');
   const [actionsOpen, setActionsOpen] = useState(false);
 
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
   const orders = ordersByUser(user.id);
+  const userPlatos = platos.filter((p) => p.creatorId === user.id);
   const following = isFollowing(user.id);
   const blocked = isBlocked(user.id);
 
@@ -154,9 +158,10 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
         <View style={[styles.tabRow, { borderColor: colors.border }]}>
           <TabButton label="Plates" active={tab === 'plates'} onPress={() => setTab('plates')} />
           <TabButton label="Reviews" active={tab === 'reviews'} onPress={() => setTab('reviews')} />
+          <TabButton label="Platos" active={tab === 'platos'} onPress={() => setTab('platos')} />
         </View>
 
-        {tab === 'plates' ? (
+        {tab === 'plates' && (
           <View style={styles.grid}>
             {orders.map((o) => (
               <PlateTile key={o.id} order={o} width={tileWidth} />
@@ -165,7 +170,9 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
               <Text style={[styles.empty, { color: colors.textMuted }]}>No plates yet.</Text>
             )}
           </View>
-        ) : (
+        )}
+
+        {tab === 'reviews' && (
           <View style={{ paddingHorizontal: PADDING, gap: 10, paddingTop: spacing.lg }}>
             {orders.map((o) => {
               const r = restaurantFor(o.restaurantId);
@@ -189,6 +196,22 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
                 </Pressable>
               );
             })}
+            {orders.length === 0 && (
+              <Text style={[styles.empty, { color: colors.textMuted }]}>No reviews yet.</Text>
+            )}
+          </View>
+        )}
+
+        {tab === 'platos' && (
+          <View style={styles.grid}>
+            {userPlatos.map((p) => (
+              <PlatoTile key={p.id} video={p} width={tileWidth} />
+            ))}
+            {userPlatos.length === 0 && (
+              <Text style={[styles.empty, { color: colors.textMuted }]}>
+                {isCurrent ? 'No Platos yet — tap + to post one.' : 'No Platos yet.'}
+              </Text>
+            )}
           </View>
         )}
       </ScrollView>
