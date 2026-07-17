@@ -29,6 +29,8 @@ interface PlatosContextValue {
   /** Live mode fetches a Plato's comments on demand (no-op in demo). */
   loadComments: (id: string) => void;
   addComment: (id: string, text: string) => void;
+  isCommentLiked: (commentId: string) => boolean;
+  toggleCommentLike: (platoId: string, commentId: string) => void;
   addPlato: (input: NewPlatoInput) => Promise<PlatoVideo | null>;
 }
 
@@ -61,6 +63,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
 
   const [platos, setPlatos] = useState<PlatoVideo[]>([]);
   const [liked, setLiked] = useState<Set<string>>(new Set());
+  const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
   const [commentsByPlato, setCommentsByPlato] = useState<Record<string, PlatoComment[]>>({});
   const [loadedComments, setLoadedComments] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<boolean>(live);
@@ -71,6 +74,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     setCommentsByPlato(groupComments(PLATO_COMMENTS));
     setLoadedComments(new Set(PLATOS.map((p) => p.id)));
     setLiked(new Set());
+    setLikedComments(new Set());
     setLoading(false);
   }, []);
 
@@ -92,6 +96,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         setCommentsByPlato({});
         setLoadedComments(new Set());
         setLiked(new Set((likesRes.data ?? []).map((r) => r.plato_id)));
+        setLikedComments(new Set());
         setLoading(false);
       } catch {
         seedFromDemo();
@@ -135,14 +140,26 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       setLoadedComments((p) => new Set(p).add(id));
       supabase
         .from('plato_comments')
-        .select('*, author:profiles!plato_comments_user_id_fkey(name,handle,avatar_url)')
+        .select('*, author:profiles!plato_comments_user_id_fkey(name,handle,avatar_url), likes:plato_comment_likes(count)')
         .eq('plato_id', id)
         .order('created_at', { ascending: true })
-        .then(({ data }) => {
-          if (data) setCommentsByPlato((m) => ({ ...m, [id]: data.map(mapPlatoComment) }));
+        .then(async ({ data }) => {
+          if (!data) return;
+          setCommentsByPlato((m) => ({ ...m, [id]: data.map(mapPlatoComment) }));
+          // Which of these comments has the current user already liked?
+          if (userId && data.length) {
+            const mine = await supabase
+              .from('plato_comment_likes')
+              .select('comment_id')
+              .eq('user_id', userId)
+              .in('comment_id', data.map((c) => c.id));
+            if (mine.data?.length) {
+              setLikedComments((p) => { const n = new Set(p); mine.data.forEach((r) => n.add(r.comment_id)); return n; });
+            }
+          }
         });
     },
-    [live, loadedComments],
+    [live, loadedComments, userId],
   );
 
   const addComment = useCallback(
@@ -156,6 +173,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         handle: currentUser.handle,
         avatar: currentUser.avatar,
         text,
+        likes: 0,
         createdAt: new Date().toISOString(),
       };
       setCommentsByPlato((m) => ({ ...m, [id]: [...(m[id] ?? []), optimistic] }));
@@ -175,6 +193,25 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [currentUser, live, userId],
+  );
+
+  const isCommentLiked = useCallback((commentId: string) => likedComments.has(commentId), [likedComments]);
+  const toggleCommentLike = useCallback(
+    (platoId: string, commentId: string) => {
+      const on = !likedComments.has(commentId);
+      setLikedComments((p) => { const n = new Set(p); on ? n.add(commentId) : n.delete(commentId); return n; });
+      setCommentsByPlato((m) => ({
+        ...m,
+        [platoId]: (m[platoId] ?? []).map((c) =>
+          c.id === commentId ? { ...c, likes: Math.max(0, c.likes + (on ? 1 : -1)) } : c,
+        ),
+      }));
+      if (live && userId) {
+        if (on) supabase.from('plato_comment_likes').insert({ comment_id: commentId, user_id: userId }).then(() => {});
+        else supabase.from('plato_comment_likes').delete().eq('comment_id', commentId).eq('user_id', userId).then(() => {});
+      }
+    },
+    [likedComments, live, userId],
   );
 
   const addPlato = useCallback(
@@ -233,8 +270,8 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, commentsFor, loadComments, addComment, addPlato }),
-    [platos, loading, refresh, refreshTick, isLiked, toggleLike, commentsFor, loadComments, addComment, addPlato],
+    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato }),
+    [platos, loading, refresh, refreshTick, isLiked, toggleLike, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;

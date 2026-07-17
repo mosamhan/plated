@@ -107,6 +107,7 @@ export function mapPlatoComment(row: any): PlatoComment {
     handle: author.handle ?? 'guest',
     avatar: author.avatar_url || avatar(hashToInt(row.user_id)),
     text: row.text,
+    likes: countOf(row.likes),
     createdAt: row.created_at,
   };
 }

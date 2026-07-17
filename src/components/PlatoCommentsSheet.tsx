@@ -38,7 +38,7 @@ export function PlatoCommentsSheet({ platoId, visible, onClose }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { commentsFor, loadComments, addComment } = usePlatos();
+  const { commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike } = usePlatos();
   const [draft, setDraft] = useState('');
 
   useEffect(() => {
@@ -74,29 +74,48 @@ export function PlatoCommentsSheet({ platoId, visible, onClose }: Props) {
               contentContainerStyle={{ paddingVertical: spacing.md, gap: spacing.md }}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}>
-              {comments.map((c) => (
-                <View key={c.id} style={styles.row}>
-                  <Image source={{ uri: c.avatar }} style={styles.avatar} contentFit="cover" />
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.head}>
-                      <Text style={[styles.name, { color: colors.text }]}>{c.name}</Text>
-                      <View style={styles.headRight}>
-                        <Text style={[styles.time, { color: colors.textMuted }]}>{timeAgo(c.createdAt)}</Text>
-                        {/* UGC needs a report path (Apple 1.2) */}
-                        <Pressable
-                          hitSlop={8}
-                          onPress={() => {
-                            onClose();
-                            router.push(`/report?targetType=comment&targetId=${c.id}`);
-                          }}>
-                          <Ionicons name="flag-outline" size={13} color={colors.textMuted} />
-                        </Pressable>
+              {comments.map((c) => {
+                const cLiked = isCommentLiked(c.id);
+                return (
+                  <View key={c.id} style={styles.row}>
+                    <Image source={{ uri: c.avatar }} style={styles.avatar} contentFit="cover" />
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.head}>
+                        <Text style={[styles.name, { color: colors.text }]}>{c.name}</Text>
+                        <View style={styles.headRight}>
+                          <Text style={[styles.time, { color: colors.textMuted }]}>{timeAgo(c.createdAt)}</Text>
+                          {/* UGC needs a report path (Apple 1.2) */}
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => {
+                              onClose();
+                              router.push(`/report?targetType=comment&targetId=${c.id}`);
+                            }}>
+                            <Ionicons name="flag-outline" size={13} color={colors.textMuted} />
+                          </Pressable>
+                        </View>
                       </View>
+                      <Text style={[styles.text, { color: colors.text }]}>{c.text}</Text>
                     </View>
-                    <Text style={[styles.text, { color: colors.text }]}>{c.text}</Text>
+                    <Pressable
+                      style={styles.heartCol}
+                      hitSlop={6}
+                      onPress={() => {
+                        toggleCommentLike(platoId, c.id);
+                        tapLight();
+                      }}>
+                      <Ionicons
+                        name={cLiked ? 'heart' : 'heart-outline'}
+                        size={16}
+                        color={cLiked ? '#FF4D6D' : colors.textMuted}
+                      />
+                      {c.likes > 0 && (
+                        <Text style={[styles.heartCount, { color: colors.textMuted }]}>{c.likes}</Text>
+                      )}
+                    </Pressable>
                   </View>
-                </View>
-              ))}
+                );
+              })}
               {comments.length === 0 && (
                 <Text style={{ color: colors.textMuted, fontSize: 14, paddingVertical: 8 }}>
                   No comments yet — be the first.
@@ -143,6 +162,8 @@ const styles = StyleSheet.create({
   name: { fontSize: 13, fontWeight: '800' },
   time: { fontSize: 12, fontWeight: '500' },
   text: { fontSize: 14, fontWeight: '500', lineHeight: 19 },
+  heartCol: { alignItems: 'center', width: 30, paddingTop: 2, gap: 2 },
+  heartCount: { fontSize: 11, fontWeight: '700' },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
