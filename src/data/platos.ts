@@ -29,6 +29,8 @@ export interface PlatoComment {
   id: string;
   platoId: string;
   userId: string;
+  /** Set when this comment is a reply — points at the top-level comment it threads under. */
+  parentId?: string;
   /** Display fields captured at write time so demo comments render without a profile lookup. */
   name: string;
   handle: string;
@@ -116,6 +118,7 @@ export const PLATOS: PlatoVideo[] = [
 /** A few demo comments per Plato so the comments sheet isn't empty before real ones land. */
 export const PLATO_COMMENTS: PlatoComment[] = [
   { id: 'pc1', platoId: 'p1', userId: 'u3', name: 'Priya Nair', handle: 'priyabites', avatar: avatar(12), text: 'The crust cup situation is unreal 🔥', likes: 24, createdAt: '2026-07-15T18:20:00Z' },
+  { id: 'pc1r1', platoId: 'p1', parentId: 'pc1', userId: 'u1', name: 'Olivia Chen', handle: 'oliviaeats', avatar: avatar(5), text: 'Right?? The cup char is the whole point.', likes: 6, createdAt: '2026-07-15T18:41:00Z' },
   { id: 'pc2', platoId: 'p1', userId: 'u2', name: 'Marcus Reed', handle: 'marcuseats', avatar: avatar(33), text: 'Adding this to the list this weekend.', likes: 8, createdAt: '2026-07-15T19:02:00Z' },
   { id: 'pc3', platoId: 'p2', userId: 'u1', name: 'Olivia Chen', handle: 'oliviaeats', avatar: avatar(5), text: 'Pickles carry the whole sandwich, agreed.', likes: 41, createdAt: '2026-07-15T20:10:00Z' },
   { id: 'pc4', platoId: 'p3', userId: 'u4', name: 'Diego Marte', handle: 'diegoforks', avatar: avatar(21), text: 'Rezdôra never misses. That ragù 👌', likes: 17, createdAt: '2026-07-15T21:30:00Z' },

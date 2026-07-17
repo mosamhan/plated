@@ -28,7 +28,8 @@ interface PlatosContextValue {
   commentsFor: (id: string) => PlatoComment[];
   /** Live mode fetches a Plato's comments on demand (no-op in demo). */
   loadComments: (id: string) => void;
-  addComment: (id: string, text: string) => void;
+  /** parentId set → this is a threaded reply to that top-level comment. */
+  addComment: (id: string, text: string, parentId?: string) => void;
   isCommentLiked: (commentId: string) => boolean;
   toggleCommentLike: (platoId: string, commentId: string) => void;
   addPlato: (input: NewPlatoInput) => Promise<PlatoVideo | null>;
@@ -163,11 +164,12 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addComment = useCallback(
-    (id: string, text: string) => {
+    (id: string, text: string, parentId?: string) => {
       const tempId = `pc${Date.now()}`;
       const optimistic: PlatoComment = {
         id: tempId,
         platoId: id,
+        parentId,
         userId: currentUser.id,
         name: currentUser.name,
         handle: currentUser.handle,
@@ -181,7 +183,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       if (live && userId) {
         supabase
           .from('plato_comments')
-          .insert({ plato_id: id, user_id: userId, text })
+          .insert({ plato_id: id, user_id: userId, text, parent_id: parentId ?? null })
           .select('*, author:profiles!plato_comments_user_id_fkey(name,handle,avatar_url)')
           .single()
           .then(({ data }) => {

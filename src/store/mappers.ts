@@ -103,6 +103,7 @@ export function mapPlatoComment(row: any): PlatoComment {
     id: row.id,
     platoId: row.plato_id,
     userId: row.user_id,
+    parentId: row.parent_id ?? undefined,
     name: author.name ?? 'Guest',
     handle: author.handle ?? 'guest',
     avatar: author.avatar_url || avatar(hashToInt(row.user_id)),
