@@ -1,19 +1,32 @@
 import { decode } from 'base64-arraybuffer';
 import * as ImagePicker from 'expo-image-picker';
 
+import { showAlert } from '@/lib/dialog';
 import { supabase } from '@/lib/supabase';
 
 export type Bucket = 'plates' | 'avatars' | 'platos';
 
+function alertPermissionDenied(camera: boolean) {
+  showAlert(
+    camera ? 'Camera access needed' : 'Photo library access needed',
+    `Plated can't ${camera ? 'take a photo or video' : 'pick a photo or video'} without permission — enable it in Settings and try again.`,
+  );
+}
+
 /**
  * Launch the camera or photo library and return the picked asset (with base64).
- * Returns null if the user cancels or permission is denied.
+ * Returns null if the user cancels or permission is denied — permission
+ * denial also surfaces an alert, since silently returning null there is
+ * indistinguishable from a cancel and leaves the user tapping a dead button.
  */
 export async function pickImage(opts: { camera?: boolean; square?: boolean } = {}): Promise<ImagePicker.ImagePickerAsset | null> {
   const perm = opts.camera
     ? await ImagePicker.requestCameraPermissionsAsync()
     : await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) return null;
+  if (!perm.granted) {
+    alertPermissionDenied(!!opts.camera);
+    return null;
+  }
 
   const common: ImagePicker.ImagePickerOptions = {
     mediaTypes: ['images'],
@@ -32,13 +45,17 @@ export async function pickImage(opts: { camera?: boolean; square?: boolean } = {
 
 /**
  * Record or pick a short vertical video for a Plato. Caps duration so uploads
- * stay reasonable. Returns null if the user cancels or permission is denied.
+ * stay reasonable. Returns null if the user cancels or permission is denied —
+ * permission denial also surfaces an alert (see pickImage above).
  */
 export async function pickVideo(opts: { camera?: boolean; maxSeconds?: number } = {}): Promise<ImagePicker.ImagePickerAsset | null> {
   const perm = opts.camera
     ? await ImagePicker.requestCameraPermissionsAsync()
     : await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) return null;
+  if (!perm.granted) {
+    alertPermissionDenied(!!opts.camera);
+    return null;
+  }
 
   const common: ImagePicker.ImagePickerOptions = {
     mediaTypes: ['videos'],

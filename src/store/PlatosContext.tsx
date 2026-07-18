@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { PLATO_COMMENTS, PLATOS, PlatoComment, PlatoVideo } from '@/data/platos';
+import { showAlert } from '@/lib/dialog';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
@@ -126,8 +127,17 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       setLiked((p) => { const n = new Set(p); on ? n.add(id) : n.delete(id); return n; });
       adjustCount(id, 'likes', on ? 1 : -1);
       if (live && userId) {
-        if (on) supabase.from('plato_likes').insert({ plato_id: id, user_id: userId }).then(() => {});
-        else supabase.from('plato_likes').delete().eq('plato_id', id).eq('user_id', userId).then(() => {});
+        const q = on
+          ? supabase.from('plato_likes').insert({ plato_id: id, user_id: userId })
+          : supabase.from('plato_likes').delete().eq('plato_id', id).eq('user_id', userId);
+        q.then(({ error }) => {
+          if (!error) return;
+          console.warn(`[platos] like ${on ? 'insert' : 'delete'} failed:`, error.message);
+          // Server disagrees — put the UI back rather than showing a like that
+          // won't survive a reload.
+          setLiked((p) => { const n = new Set(p); on ? n.delete(id) : n.add(id); return n; });
+          adjustCount(id, 'likes', on ? -1 : 1);
+        });
       }
     },
     [liked, live, userId],
@@ -186,8 +196,16 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
           .insert({ plato_id: id, user_id: userId, text, parent_id: parentId ?? null })
           .select('*, author:profiles!plato_comments_user_id_fkey(name,handle,avatar_url)')
           .single()
-          .then(({ data }) => {
-            if (data) setCommentsByPlato((m) => ({
+          .then(({ data, error }) => {
+            if (error || !data) {
+              console.warn('[platos] comment insert failed:', error?.message ?? 'no row returned');
+              // Drop the optimistic comment — leaving it implies it was saved.
+              setCommentsByPlato((m) => ({ ...m, [id]: (m[id] ?? []).filter((c) => c.id !== tempId) }));
+              adjustCount(id, 'comments', -1);
+              showAlert('Comment not posted', 'Your comment could not be saved — please try again.');
+              return;
+            }
+            setCommentsByPlato((m) => ({
               ...m,
               [id]: (m[id] ?? []).map((c) => (c.id === tempId ? mapPlatoComment(data) : c)),
             }));
@@ -209,8 +227,20 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         ),
       }));
       if (live && userId) {
-        if (on) supabase.from('plato_comment_likes').insert({ comment_id: commentId, user_id: userId }).then(() => {});
-        else supabase.from('plato_comment_likes').delete().eq('comment_id', commentId).eq('user_id', userId).then(() => {});
+        const q = on
+          ? supabase.from('plato_comment_likes').insert({ comment_id: commentId, user_id: userId })
+          : supabase.from('plato_comment_likes').delete().eq('comment_id', commentId).eq('user_id', userId);
+        q.then(({ error }) => {
+          if (!error) return;
+          console.warn(`[platos] comment like ${on ? 'insert' : 'delete'} failed:`, error.message);
+          setLikedComments((p) => { const n = new Set(p); on ? n.delete(commentId) : n.add(commentId); return n; });
+          setCommentsByPlato((m) => ({
+            ...m,
+            [platoId]: (m[platoId] ?? []).map((c) =>
+              c.id === commentId ? { ...c, likes: Math.max(0, c.likes + (on ? -1 : 1)) } : c,
+            ),
+          }));
+        });
       }
     },
     [likedComments, live, userId],
@@ -240,8 +270,18 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       setLoadedComments((p) => new Set(p).add(local.id));
 
       if (live && userId) {
+        // Roll the optimistic post back out of the feed. Keeping it would show
+        // the creator a Plato that silently vanishes on next launch.
+        const rollback = (reason: string) => {
+          console.warn('[platos] failed to save Plato:', reason);
+          setPlatos((p) => p.filter((x) => x.id !== local.id));
+          setLoadedComments((p) => { const n = new Set(p); n.delete(local.id); return n; });
+        };
         try {
-          const { data } = await supabase
+          // supabase-js reports query failures in `error` rather than throwing,
+          // so this must be read explicitly — the catch below only sees network
+          // and client-side faults.
+          const { data, error } = await supabase
             .from('plato_videos')
             .insert({
               user_id: userId,
@@ -255,15 +295,17 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
             })
             .select(PLATO_SELECT)
             .single();
-          // Swap the temp row for the persisted one (keeps the local one if the
-          // table isn't there yet — the post still shows for this session).
-          if (data) {
-            const saved = mapPlato(data);
-            setPlatos((p) => p.map((x) => (x.id === local.id ? saved : x)));
-            return saved;
+          if (error || !data) {
+            rollback(error?.message ?? 'no row returned');
+            return null;
           }
-        } catch {
-          /* keep the local optimistic Plato */
+          // Swap the temp row for the persisted one.
+          const saved = mapPlato(data);
+          setPlatos((p) => p.map((x) => (x.id === local.id ? saved : x)));
+          return saved;
+        } catch (e) {
+          rollback(e instanceof Error ? e.message : String(e));
+          return null;
         }
       }
       return local;
