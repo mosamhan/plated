@@ -62,6 +62,11 @@ export function mapOrder(row: any): Order {
     reorders: countOf(row.reorders),
     createdAt: row.created_at,
     tags: row.tags ?? [],
+    items: Array.isArray(row.order_items)
+      ? row.order_items
+          .map((it: any) => ({ name: it.name, rating: Number(it.rating) }))
+          .sort((a: any, b: any) => b.rating - a.rating)
+      : undefined,
   };
 }
 

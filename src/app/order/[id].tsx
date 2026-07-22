@@ -172,6 +172,21 @@ export default function OrderDetail() {
           <Animated.View entering={FadeInDown.delay(120).duration(300)}>
             <Text style={[styles.desc, { color: colors.text }]}>{order.description}</Text>
 
+            {/* The rest of the order — other menu items, each with its rating. */}
+            {order.items && order.items.length > 1 && (
+              <View style={{ marginTop: spacing.md }}>
+                <Text style={[styles.alsoLabel, { color: colors.textMuted }]}>ALSO ON THIS ORDER</Text>
+                {order.items
+                  .filter((it) => it.name !== order.dishName)
+                  .map((it) => (
+                    <View key={it.name} style={[styles.alsoRow, { borderBottomColor: colors.border }]}>
+                      <Text style={[styles.alsoName, { color: colors.text }]} numberOfLines={1}>{it.name}</Text>
+                      <RatingBadge score={it.rating} size="sm" />
+                    </View>
+                  ))}
+              </View>
+            )}
+
             <View style={styles.tags}>
               {order.tags.map((t) => (
                 <View key={t} style={[styles.tag, { backgroundColor: colors.accentSoft }]}>
@@ -322,6 +337,16 @@ const styles = StyleSheet.create({
   creatorMeta: { fontSize: 13, fontWeight: '500', marginTop: 1 },
   followBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.pill },
   desc: { fontSize: 15, fontWeight: '500', lineHeight: 22, marginTop: spacing.lg },
+  alsoLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 4 },
+  alsoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  alsoName: { flex: 1, fontSize: 14, fontWeight: '600' },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.lg },
   tag: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill },
   tagText: { fontSize: 13, fontWeight: '700' },

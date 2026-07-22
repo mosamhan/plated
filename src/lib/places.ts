@@ -60,6 +60,34 @@ function normalize(p: FsqPlace): PlaceResult {
   };
 }
 
+/**
+ * Best-effort structured menu from Foursquare's premium menu field. This is the
+ * "API" half of the hybrid menu (the crowd-sourced half lives in DataContext's
+ * menuForRestaurant). Returns [] whenever the field is absent, the tier doesn't
+ * include it, or credits are exhausted — the crowd-sourced menu then stands
+ * alone. Requires an fsqId (only available for Foursquare-backed restaurants).
+ */
+export async function fetchMenuItems(fsqId: string): Promise<string[]> {
+  if (!KEY || !fsqId) return [];
+  try {
+    const res = await fetch(`${BASE}/places/${fsqId}?fields=menu`, {
+      headers: {
+        Authorization: `Bearer ${KEY}`,
+        'X-Places-Api-Version': API_VERSION,
+        Accept: 'application/json',
+      },
+    });
+    if (!res.ok) return []; // 402 (no credits) / 404 / tier without menu → degrade
+    const json = (await res.json()) as { menu?: { items?: { name?: string }[]; sections?: { items?: { name?: string }[] }[] } };
+    const flat: string[] = [];
+    for (const it of json.menu?.items ?? []) if (it.name) flat.push(it.name);
+    for (const sec of json.menu?.sections ?? []) for (const it of sec.items ?? []) if (it.name) flat.push(it.name);
+    return Array.from(new Set(flat));
+  } catch {
+    return [];
+  }
+}
+
 export interface PlaceSuggestion {
   id: string;
   /** Primary label, e.g. "Chicago". */

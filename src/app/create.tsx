@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -22,7 +22,7 @@ import { TextField } from '@/components/TextField';
 import { foodPhoto } from '@/data/images';
 import { showAlert } from '@/lib/dialog';
 import { success } from '@/lib/haptics';
-import { isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
+import { fetchMenuItems, isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
 import { pickImage, uploadAsset } from '@/lib/upload';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
@@ -43,7 +43,7 @@ export default function CreatePlate() {
     fsqCuisine?: string;
     fsqLocation?: string;
   }>();
-  const { restaurants, restaurantFor, addOrder } = useData();
+  const { restaurants, restaurantFor, addOrder, menuForRestaurant } = useData();
   const { userId } = useAuth();
   const { placeQuery } = useLocation();
 
@@ -64,11 +64,31 @@ export default function CreatePlate() {
   const [searching, setSearching] = useState(false);
 
   const [photo, setPhoto] = useState<string>(SAMPLE_PHOTOS[0]);
-  const [dishName, setDishName] = useState('');
   const [description, setDescription] = useState('');
-  const [rating, setRating] = useState(8);
   const [posting, setPosting] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // Multi-item order: capture every dish the user had, each with its own
+  // rating. The post's headline is auto-computed as the highest-rated item.
+  const [items, setItems] = useState<{ name: string; rating: number }[]>([]);
+  const [draftName, setDraftName] = useState('');
+  const [draftRating, setDraftRating] = useState(8);
+  // Structured menu from the paid API (when available) — merged with the
+  // crowd-sourced menu for suggestions. Best-effort; empty is fine.
+  const [apiMenu, setApiMenu] = useState<string[]>([]);
+
+  // Pull the API menu once a Foursquare place is chosen.
+  useEffect(() => {
+    let alive = true;
+    if (place?.fsqId) {
+      fetchMenuItems(place.fsqId).then((m) => alive && setApiMenu(m));
+    } else {
+      setApiMenu([]);
+    }
+    return () => {
+      alive = false;
+    };
+  }, [place?.fsqId]);
 
   const pickAndUpload = async (camera: boolean) => {
     const asset = await pickImage({ camera });
@@ -86,7 +106,36 @@ export default function CreatePlate() {
 
   const selectedRestaurant = restaurantId ? restaurantFor(restaurantId) : undefined;
   const selectedLabel = selectedRestaurant?.name ?? place?.name;
-  const canPost = (!!restaurantId || !!place) && dishName.trim().length > 0 && !posting;
+  const canPost = (!!restaurantId || !!place) && items.length > 0 && !posting;
+
+  // Headline = highest-rated item (mirrors what the post will show).
+  const headline = items.length ? [...items].sort((a, b) => b.rating - a.rating)[0] : null;
+
+  // Menu suggestions: hybrid of the crowd-sourced menu (dishes already posted
+  // here) + the paid API menu, deduped, minus what's already on this order,
+  // filtered by the current draft text.
+  const menuSuggestions = (() => {
+    const crowd = restaurantId ? menuForRestaurant(restaurantId) : [];
+    const seen = new Map<string, string>();
+    for (const n of [...crowd, ...apiMenu]) {
+      const key = n.trim().toLowerCase();
+      if (key && !seen.has(key)) seen.set(key, n.trim());
+    }
+    return [...seen.values()]
+      .filter((n) => !items.some((it) => it.name.toLowerCase() === n.toLowerCase()))
+      .filter((n) => !draftName.trim() || n.toLowerCase().includes(draftName.trim().toLowerCase()))
+      .slice(0, 6);
+  })();
+
+  const addItem = (name: string, ratingVal: number) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (items.some((it) => it.name.toLowerCase() === trimmed.toLowerCase())) return;
+    setItems((p) => [...p, { name: trimmed, rating: ratingVal }]);
+    setDraftName('');
+    setDraftRating(8);
+  };
+  const removeItem = (name: string) => setItems((p) => p.filter((it) => it.name !== name));
 
   const runSearch = async () => {
     if (!query.trim()) return;
@@ -103,21 +152,25 @@ export default function CreatePlate() {
   };
 
   const onPost = async () => {
-    if (!canPost) return;
+    if (!canPost || !headline) return;
     setPosting(true);
     const order = await addOrder({
       restaurantId,
       place: place ?? undefined,
-      dishName: dishName.trim(),
+      // Headline mirrors the highest-rated item; items carries the full order.
+      dishName: headline.name,
+      rating: headline.rating,
+      items,
       photo,
       description: description.trim() || 'No notes yet.',
-      rating,
       tags: ['Nearby'],
     });
     setPosting(false);
     if (order) {
       success();
       router.back();
+    } else {
+      showAlert('Could not post', 'Something went wrong posting your plate — please try again.');
     }
   };
 
@@ -236,9 +289,70 @@ export default function CreatePlate() {
           </View>
         )}
 
-        {/* Dish + description */}
+        {/* Items you had — rate each dish; the post highlights the best one. */}
+        <Text style={[typography.heading, { color: colors.text, marginTop: spacing.xl, marginBottom: 4 }]}>
+          What did you have?
+        </Text>
+        <Text style={[styles.subhint, { color: colors.textMuted }]}>
+          Rate each dish. Your post highlights the highest-rated one — the rest give the
+          restaurant’s other dishes their own ratings.
+        </Text>
+
+        {/* Added items */}
+        {items.map((it) => {
+          const isBest = headline?.name === it.name;
+          return (
+            <View key={it.name} style={[styles.itemRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={[styles.itemScore, { backgroundColor: colors.accent }]}>
+                <Text style={[styles.itemScoreText, { color: colors.accentText }]}>{it.rating.toFixed(1)}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.itemName, { color: colors.text }]} numberOfLines={1}>{it.name}</Text>
+                {isBest && <Text style={[styles.bestTag, { color: colors.accent }]}>★ Highlighted dish</Text>}
+              </View>
+              <Pressable onPress={() => removeItem(it.name)} hitSlop={8}>
+                <Ionicons name="close-circle" size={22} color={colors.textMuted} />
+              </Pressable>
+            </View>
+          );
+        })}
+
+        {/* Menu suggestions from what others posted here */}
+        {menuSuggestions.length > 0 && (
+          <>
+            <Text style={[styles.fieldLabel, { color: colors.textMuted, marginTop: spacing.md }]}>On the menu here</Text>
+            <View style={styles.suggestWrap}>
+              {menuSuggestions.map((name) => (
+                <Pressable
+                  key={name}
+                  onPress={() => setDraftName(name)}
+                  style={[styles.suggestChip, { backgroundColor: colors.accentSoft, borderColor: colors.border }]}>
+                  <Ionicons name="add" size={13} color={colors.accent} />
+                  <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>{name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* Draft item: name + rating + add */}
+        <View style={{ marginTop: spacing.md }}>
+          <TextField label="Dish name" value={draftName} onChangeText={setDraftName} placeholder="e.g. Truffle Smash Burger" />
+          <View style={[styles.ratingBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <RatingInput value={draftRating} onChange={setDraftRating} />
+          </View>
+          <Button
+            label={items.length ? 'Add another item' : 'Add item'}
+            variant="secondary"
+            icon="add"
+            style={{ marginTop: spacing.md }}
+            disabled={!draftName.trim()}
+            onPress={() => addItem(draftName, draftRating)}
+          />
+        </View>
+
+        {/* Notes */}
         <View style={{ marginTop: spacing.xl }}>
-          <TextField label="Dish name" value={dishName} onChangeText={setDishName} placeholder="e.g. Truffle Smash Burger" />
           <TextField
             label="Your notes"
             value={description}
@@ -248,17 +362,18 @@ export default function CreatePlate() {
             style={{ minHeight: 80, textAlignVertical: 'top' }}
           />
         </View>
-
-        {/* Rating */}
-        <Text style={[typography.heading, { color: colors.text, marginTop: spacing.md, marginBottom: spacing.md }]}>Your rating</Text>
-        <View style={[styles.ratingBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <RatingInput value={rating} onChange={setRating} />
-        </View>
       </ScrollView>
 
       {/* Post CTA */}
       <View style={[styles.cta, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
-        <Button label="Post plate" size="lg" icon="checkmark" onPress={onPost} disabled={!canPost} loading={posting} />
+        <Button
+          label={items.length > 1 ? `Post plate · ${items.length} items` : 'Post plate'}
+          size="lg"
+          icon="checkmark"
+          onPress={onPost}
+          disabled={!canPost}
+          loading={posting}
+        />
       </View>
     </KeyboardAvoidingView>
   );
@@ -330,6 +445,30 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   ratingBox: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth },
+  subhint: { fontSize: 13, fontWeight: '500', lineHeight: 18, marginBottom: spacing.md },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 8,
+  },
+  itemScore: { minWidth: 44, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  itemScoreText: { fontSize: 15, fontWeight: '900' },
+  itemName: { fontSize: 15, fontWeight: '700' },
+  bestTag: { fontSize: 12, fontWeight: '800', marginTop: 2 },
+  suggestWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  suggestChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   cta: {
     position: 'absolute',
     bottom: 0,

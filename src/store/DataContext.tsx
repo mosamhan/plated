@@ -36,6 +36,12 @@ export interface NewOrderInput {
   description: string;
   rating: number;
   tags?: string[];
+  /**
+   * Every menu item on this order (name + its own rating). The headline dish
+   * is the highest-rated of these; if omitted, falls back to the single
+   * dishName/rating (legacy single-dish post).
+   */
+  items?: { name: string; rating: number }[];
 }
 
 interface DataContextValue {
@@ -65,6 +71,8 @@ interface DataContextValue {
   suggestedUsers: () => User[];
   exploreOrders: (filter: string) => Order[];
   searchRestaurants: (query: string) => Restaurant[];
+  /** Crowd-sourced menu: distinct dish names posted at a restaurant. */
+  menuForRestaurant: (restaurantId: string) => string[];
 
   // interactions
   isLiked: (orderId: string) => boolean;
@@ -147,7 +155,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           .from('profiles')
           .select('*, followers:follows!follows_following_id_fkey(count), following:follows!follows_follower_id_fkey(count)'),
         supabase.from('restaurants').select('*'),
-        supabase.from('orders').select('*, likes(count), comments(count), reorders(count)').order('created_at', { ascending: false }),
+        supabase.from('orders').select('*, likes(count), comments(count), reorders(count), order_items(name, rating, position)').order('created_at', { ascending: false }),
         supabase.from('comments').select('*').order('created_at', { ascending: true }),
         supabase.from('likes').select('order_id').eq('user_id', uid),
         supabase.from('saves').select('order_id').eq('user_id', uid),
@@ -278,6 +286,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     },
     [restaurantMap],
   );
+  // Crowd-sourced menu — distinct dish names people have posted at a restaurant
+  // (across every order's items, plus each order's headline dish). Powers the
+  // "items you had" suggestions when posting.
+  const menuForRestaurant = useCallback(
+    (restaurantId: string): string[] => {
+      const seen = new Map<string, string>(); // lowercased → original casing
+      for (const o of orders) {
+        if (o.restaurantId !== restaurantId) continue;
+        const names = o.items?.length ? o.items.map((i) => i.name) : [o.dishName];
+        for (const n of names) {
+          const key = n.trim().toLowerCase();
+          if (key && !seen.has(key)) seen.set(key, n.trim());
+        }
+      }
+      return [...seen.values()];
+    },
+    [orders],
+  );
 
   // ── Interactions (optimistic state update + background Supabase write) ──────
   const adjustOrderCount = (id: string, field: 'likes' | 'comments' | 'reorders', delta: number) =>
@@ -391,21 +417,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Create a plate ──────────────────────────────────────────────────────────
   const addOrder = useCallback(
     async (input: NewOrderInput): Promise<Order | null> => {
+      // Normalize items → headline is the highest-rated. Fall back to the
+      // single dish/rating for legacy single-dish posts.
+      const items = (input.items?.length ? input.items : [{ name: input.dishName, rating: input.rating }])
+        .filter((i) => i.name.trim())
+        .sort((a, b) => b.rating - a.rating);
+      const headline = items[0] ?? { name: input.dishName, rating: input.rating };
+
       if (!live || !userId) {
         // mock mode
         const order: Order = {
           id: makeOrderId(),
           userId: currentUserId,
           restaurantId: input.restaurantId ?? 'r1',
-          dishName: input.dishName,
+          dishName: headline.name,
           photo: input.photo,
           description: input.description,
-          rating: input.rating,
+          rating: headline.rating,
           likes: 0,
           comments: 0,
           createdAt: new Date().toISOString(),
           tags: input.tags ?? [],
           reorders: 0,
+          items,
         };
         setOrders((p) => [order, ...p]);
         return order;
@@ -434,10 +468,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         .insert({
           user_id: userId,
           restaurant_id: restaurantId,
-          dish_name: input.dishName,
+          dish_name: headline.name,
           photo_url: input.photo,
           description: input.description,
-          rating: input.rating,
+          rating: headline.rating,
           tags: input.tags ?? [],
         })
         .select('*, likes(count), comments(count), reorders(count)')
@@ -446,7 +480,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         if (__DEV__) console.warn('[Plated] addOrder failed', error);
         return null;
       }
-      const order = mapOrder(data);
+
+      // Persist every item; failure here is non-fatal (the post already exists).
+      const { error: itemsError } = await supabase.from('order_items').insert(
+        items.map((it, i) => ({ order_id: data.id, name: it.name.trim(), rating: it.rating, position: i })),
+      );
+      if (itemsError && __DEV__) console.warn('[Plated] order_items insert failed', itemsError);
+
+      const order = { ...mapOrder(data), items };
       setOrders((p) => [order, ...p]);
       return order;
     },
@@ -492,6 +533,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       suggestedUsers,
       exploreOrders,
       searchRestaurants,
+      menuForRestaurant,
       isLiked,
       toggleLike,
       isSaved,
@@ -513,7 +555,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateProfile,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, updateProfile],
+    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, updateProfile],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

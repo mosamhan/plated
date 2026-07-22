@@ -36,6 +36,13 @@ export interface Restaurant {
 }
 
 /** An "order" / "plate" — a single dish someone rated. The core unit of Plated. */
+/** One menu item on a post, with its own rating. */
+export interface OrderItem {
+  name: string;
+  /** 0–10 personal rating for this specific item. */
+  rating: number;
+}
+
 export interface Order {
   id: string;
   userId: string;
@@ -43,8 +50,13 @@ export interface Order {
   dishName: string;
   photo: string;
   description: string;
-  /** 0–10 personal rating. */
+  /** 0–10 personal rating (the headline item's rating). */
   rating: number;
+  /**
+   * Every item the user had on this order, best-rated first. The headline
+   * dishName/rating mirror items[0]. Empty for legacy single-dish posts.
+   */
+  items?: OrderItem[];
   likes: number;
   comments: number;
   /** ISO date string. */
