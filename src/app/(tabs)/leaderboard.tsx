@@ -6,20 +6,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FilterChips } from '@/components/FilterChips';
 import { RankRow } from '@/components/RankRow';
-import { formatCount } from '@/components/StatPill';
 import { distanceKm, NEAR_RADIUS_KM } from '@/lib/geo';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-const TABS = ['Best Plates', 'Best Restaurants', 'Top Creators'];
+const TABS = ['Best Plates', 'Best Restaurants'];
 
 export default function Leaderboard() {
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { topRestaurants, topPlates, topCreators, userFor, restaurantFor } = useData();
+  const { topRestaurants, topPlates, userFor, restaurantFor } = useData();
   const { location } = useLocation();
   const [tab, setTab] = useState(TABS[0]);
 
@@ -44,12 +43,9 @@ export default function Leaderboard() {
     [topPlates, restaurantFor, near, origin?.lat, origin?.lng], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const creatorsTab = tab === 'Top Creators';
-  const subtitle = creatorsTab
-    ? 'Top creators across Plated, ranked by followers'
-    : near
-      ? `The best-rated in ${location.label}, by the community`
-      : 'The best-rated across Plated, by the community';
+  const subtitle = near
+    ? `The best-rated in ${location.label}, by the community`
+    : 'The best-rated across Plated, by the community';
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -57,14 +53,11 @@ export default function Leaderboard() {
         <Text style={[typography.title, { color: colors.text, paddingHorizontal: spacing.lg }]}>Ranks</Text>
         <Text style={[styles.sub, { color: colors.textMuted }]}>{subtitle}</Text>
 
-        {/* Location scope — hidden on the (global-by-nature) creators tab */}
-        {!creatorsTab && (
-          <View style={styles.scopeRow}>
-            <ScopeChip label={hasCoords ? `Near ${location.label}` : 'Near me'} active={scope === 'near'} onPress={() => setScope('near')} icon="location" />
-            <ScopeChip label="Global" active={scope === 'global'} onPress={() => setScope('global')} icon="earth" />
-          </View>
-        )}
-        {!creatorsTab && scope === 'near' && !hasCoords && (
+        <View style={styles.scopeRow}>
+          <ScopeChip label={hasCoords ? `Near ${location.label}` : 'Near me'} active={scope === 'near'} onPress={() => setScope('near')} icon="location" />
+          <ScopeChip label="Global" active={scope === 'global'} onPress={() => setScope('global')} icon="earth" />
+        </View>
+        {scope === 'near' && !hasCoords && (
           <Pressable onPress={() => router.push('/settings/location')} style={styles.locHintRow}>
             <Text style={[styles.locHint, { color: colors.accent }]}>Set your location to rank nearby →</Text>
           </Pressable>
@@ -111,20 +104,6 @@ export default function Leaderboard() {
             })
           ) : (
             <Empty text={`No ranked plates in ${location.label} yet.`} />
-          ))}
-
-        {tab === 'Top Creators' &&
-          topCreators().map((u, i) => (
-            <RankRow
-              key={u.id}
-              rank={i + 1}
-              image={u.avatar}
-              rounded
-              title={u.name}
-              subtitle={`@${u.handle}${u.compensationEligible ? ' · earns commission' : ''}`}
-              trailing={`${formatCount(u.followers)} followers`}
-              onPress={() => router.push(`/user/${u.id}`)}
-            />
           ))}
       </ScrollView>
     </View>

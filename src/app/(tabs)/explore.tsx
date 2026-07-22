@@ -37,27 +37,24 @@ const PADDING = spacing.lg;
 
 type Mode = 'platos' | 'discover' | 'map';
 
-function ModeToggle({ mode, setMode, overlay, compact }: { mode: Mode; setMode: (m: Mode) => void; overlay?: boolean; compact?: boolean }) {
+// The mode toggle reads the same in every Explore mode: only the ACTIVE segment
+// shows its label, the other two are icon-only. Keeps a consistent, compact
+// shape whether you're on Discover, Platos, or Map.
+function ModeToggle({ mode, setMode, overlay }: { mode: Mode; setMode: (m: Mode) => void; overlay?: boolean }) {
   const { colors } = useTheme();
   const bg = overlay ? 'rgba(20,20,20,0.55)' : colors.surface;
   const seg = (m: Mode, icon: keyof typeof Ionicons.glyphMap, label: string) => {
     const on = mode === m;
     const inactive = overlay ? 'rgba(255,255,255,0.8)' : colors.textMuted;
-    // Compact (map top row, where the toggle shares space with the gear +
-    // bookmark): only the active segment shows its label, so the pill stays
-    // narrow enough that nothing clips off the edge.
-    const showLabel = !compact || on;
     return (
-      <Pressable
-        onPress={() => setMode(m)}
-        style={[compact ? styles.segCompact : styles.seg, on && { backgroundColor: colors.accent }]}>
+      <Pressable onPress={() => setMode(m)} style={[styles.segCompact, on && { backgroundColor: colors.accent }]}>
         <Ionicons name={icon} size={15} color={on ? colors.accentText : inactive} />
-        {showLabel && <Text style={[styles.segText, { color: on ? colors.accentText : inactive }]}>{label}</Text>}
+        {on && <Text style={[styles.segText, { color: colors.accentText }]}>{label}</Text>}
       </Pressable>
     );
   };
   return (
-    <View style={[styles.toggle, { backgroundColor: bg }]}>
+    <View style={[styles.toggle, { backgroundColor: bg, alignSelf: 'center' }]}>
       {seg('discover', 'grid', 'Discover')}
       {seg('platos', 'play-circle', 'Platos')}
       {seg('map', 'map', 'Map')}
@@ -198,7 +195,7 @@ export default function Explore() {
             style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="options-outline" size={20} color={colors.text} />
           </Pressable>
-          <ModeToggle mode={mode} setMode={setMode} overlay compact />
+          <ModeToggle mode={mode} setMode={setMode} overlay />
           <Pressable
             onPress={() => setActiveSheet('collections')}
             style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -210,7 +207,7 @@ export default function Explore() {
             Sits just above the tab bar (~85pt tall). Hidden while the
             restaurant overlay or a route banner is showing (design §2). */}
         {!selectedRestaurant && !route && (
-          <View style={[styles.mapBottomRow, { bottom: insets.bottom + 62 }]}>
+          <View style={[styles.mapBottomRow, { bottom: 16 }]}>
             <Pressable
               onPress={() => router.push('/search')}
               style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -229,7 +226,7 @@ export default function Explore() {
         {/* In-app route banner — distance + ETA, with clear + hand-off options.
             Sits above the tab bar; replaces the filter row while a route is up. */}
         {route && (
-          <View style={[styles.routeBanner, { bottom: insets.bottom + 62, backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.routeBanner, { bottom: 16, backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={[styles.routeIcon, { backgroundColor: colors.accentSoft }]}>
               <Ionicons name="navigate" size={18} color={colors.accent} />
             </View>

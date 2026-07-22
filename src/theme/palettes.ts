@@ -96,13 +96,13 @@ const noir: Palette = {
 export const THEMES: Record<ThemeName, ThemeMeta> = {
   saffron: {
     name: 'saffron',
-    label: 'Saffron',
+    label: 'Light (Saffron)',
     description: 'Upscale amber-gold on soft cream — the light theme',
     palette: saffron,
   },
   noir: {
     name: 'noir',
-    label: 'Noir Gold',
+    label: 'Dark (Noir Gold)',
     description: 'Premium dark — charcoal & warm gold',
     palette: noir,
   },
