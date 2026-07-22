@@ -11,13 +11,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ExploreMap, deriveCategory, type MapRestaurant, type PinCategory } from '@/components/ExploreMap';
 import { FilterChips } from '@/components/FilterChips';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
+import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
+import type { Region } from 'react-native-maps';
 
 // Kept minimal so the grid stays the focus — the core sort/scope lenses only.
 const FILTERS = ['Trending', 'Top Rated', 'Most Reordered', 'Nearby'];
@@ -25,7 +28,7 @@ const FILTERS = ['Trending', 'Top Rated', 'Most Reordered', 'Nearby'];
 const GAP = spacing.md;
 const PADDING = spacing.lg;
 
-type Mode = 'discover' | 'platos';
+type Mode = 'platos' | 'discover' | 'map';
 
 function ModeToggle({ mode, setMode, overlay }: { mode: Mode; setMode: (m: Mode) => void; overlay?: boolean }) {
   const { colors } = useTheme();
@@ -46,9 +49,14 @@ function ModeToggle({ mode, setMode, overlay }: { mode: Mode; setMode: (m: Mode)
     <View style={[styles.toggle, { backgroundColor: bg }]}>
       {seg('discover', 'grid', 'Discover')}
       {seg('platos', 'play-circle', 'Platos')}
+      {seg('map', 'map', 'Map')}
     </View>
   );
 }
+
+// Default map focus when the user has no location fix yet (NYC — where the
+// seeded restaurants live).
+const DEFAULT_REGION: Region = { latitude: 40.73, longitude: -73.98, latitudeDelta: 0.09, longitudeDelta: 0.09 };
 
 export default function Explore() {
   const { colors } = useTheme();
@@ -56,12 +64,54 @@ export default function Explore() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
-  const { exploreOrders } = useData();
+  const { exploreOrders, topRestaurants, ordersByRestaurant } = useData();
   const { location } = useLocation();
+  const { isSaved } = useCollections();
   const [filter, setFilter] = useState('Trending');
   const [mode, setMode] = useState<Mode>('discover');
 
+  // Map state (design §1 + §"State").
+  const [mapQuery, setMapQuery] = useState('');
+  const [activeTypes, setActiveTypes] = useState<PinCategory[]>(['loved', 'been', 'dining']);
+  const [myTableOnly, setMyTableOnly] = useState(false);
+  const mapTheme: 'light' | 'dark' = colors.isDark ? 'dark' : 'light';
+
   const data = useMemo(() => exploreOrders(filter), [exploreOrders, filter]);
+
+  // Restaurants that have coordinates, tagged with their per-user category.
+  const mapRestaurants = useMemo<MapRestaurant[]>(() => {
+    return topRestaurants()
+      .filter((r) => r.lat != null && r.lng != null)
+      .map((r) => {
+        const saved = isSaved({ type: 'restaurant', id: r.id });
+        const rated = ordersByRestaurant(r.id).length > 0;
+        return {
+          ...r,
+          lat: r.lat as number,
+          lng: r.lng as number,
+          saved,
+          category: deriveCategory({ saved, rated, priceLevel: r.priceLevel }),
+        };
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topRestaurants, ordersByRestaurant, isSaved]);
+
+  const visiblePins = useMemo(() => {
+    const q = mapQuery.trim().toLowerCase();
+    return mapRestaurants.filter(
+      (r) =>
+        (!q || r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.location.toLowerCase().includes(q)) &&
+        activeTypes.includes(r.category) &&
+        (!myTableOnly || r.saved),
+    );
+  }, [mapRestaurants, mapQuery, activeTypes, myTableOnly]);
+
+  const region: Region = useMemo(() => {
+    if (location.lat != null && location.lng != null) {
+      return { latitude: location.lat, longitude: location.lng, latitudeDelta: 0.09, longitudeDelta: 0.09 };
+    }
+    return DEFAULT_REGION;
+  }, [location.lat, location.lng]);
 
   // Platos — immersive vertical reels with the mode toggle floating on top.
   if (mode === 'platos') {
@@ -70,6 +120,55 @@ export default function Explore() {
         <PlatosFeed bottomInset={12} />
         <View style={[styles.overlayToggle, { top: insets.top + 8 }]}>
           <ModeToggle mode={mode} setMode={setMode} overlay />
+        </View>
+      </View>
+    );
+  }
+
+  // Map — full-bleed map with floating control rows (design §1).
+  if (mode === 'map') {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <ExploreMap
+          restaurants={visiblePins}
+          region={region}
+          mapTheme={mapTheme}
+          onSelect={(r) => router.push(`/restaurant/${r.id}`)}
+        />
+
+        {/* Top row: settings gear · mode toggle · collections bookmark */}
+        <View style={[styles.mapTopRow, { top: insets.top + 14 }]}>
+          <Pressable style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="options-outline" size={20} color={colors.text} />
+          </Pressable>
+          <ModeToggle mode={mode} setMode={setMode} overlay />
+          <Pressable style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="bookmark-outline" size={19} color={colors.text} />
+          </Pressable>
+        </View>
+
+        {/* Bottom row: search · categories · My Table · Platers */}
+        <View style={[styles.mapBottomRow, { bottom: insets.bottom + 90 }]}>
+          <Pressable
+            onPress={() => router.push('/search')}
+            style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="search" size={19} color={colors.text} />
+          </Pressable>
+          <Pressable style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="options" size={19} color={colors.text} />
+          </Pressable>
+          <MapPill
+            label="My Table"
+            icon="bookmark"
+            active={myTableOnly}
+            onPress={() => setMyTableOnly(true)}
+          />
+          <MapPill
+            label="Platers"
+            icon="earth"
+            active={!myTableOnly}
+            onPress={() => setMyTableOnly(false)}
+          />
         </View>
       </View>
     );
@@ -123,6 +222,31 @@ export default function Explore() {
   );
 }
 
+function MapPill({
+  label,
+  icon,
+  active,
+  onPress,
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.mapPill,
+        { backgroundColor: active ? colors.accent : colors.card, borderColor: active ? colors.accent : colors.border },
+      ]}>
+      <Ionicons name={icon} size={14} color={active ? colors.accentText : colors.textMuted} />
+      <Text style={{ color: active ? colors.accentText : colors.textMuted, fontWeight: '800', fontSize: 13 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
@@ -152,4 +276,42 @@ const styles = StyleSheet.create({
   searchText: { fontSize: 14, fontWeight: '500' },
   count: { fontSize: 13, fontWeight: '600', paddingHorizontal: PADDING, marginBottom: spacing.md },
   empty: { textAlign: 'center', marginTop: 40, fontSize: 14, fontWeight: '500' },
+  mapTopRow: {
+    position: 'absolute',
+    left: PADDING,
+    right: PADDING,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  mapBottomRow: {
+    position: 'absolute',
+    left: PADDING,
+    right: PADDING,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mapCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  mapPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    height: 44,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
 });

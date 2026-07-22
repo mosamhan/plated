@@ -68,6 +68,7 @@ const config: ExpoConfig = {
       },
     ],
     'expo-video',
+    'expo-image',
     'expo-dev-client',
     [
       'react-native-maps',
