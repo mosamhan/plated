@@ -60,6 +60,61 @@ function normalize(p: FsqPlace): PlaceResult {
   };
 }
 
+export interface PlaceSuggestion {
+  id: string;
+  /** Primary label, e.g. "Chicago". */
+  label: string;
+  /** Secondary context, e.g. "IL, United States". */
+  detail: string;
+  lat?: number;
+  lng?: number;
+}
+
+/**
+ * Type-ahead location autocomplete (cities / neighborhoods) for the location
+ * picker. Returns geo suggestions with their center coordinates so selecting
+ * one sets both the label AND lat/lng (needed for map routing & "near me").
+ * Returns [] on missing key / failure so the caller can degrade gracefully.
+ */
+export async function autocompleteLocations(query: string): Promise<PlaceSuggestion[]> {
+  const q = query.trim();
+  if (!KEY || q.length < 2) return [];
+  const params = new URLSearchParams({ query: q, types: 'geo', limit: '8' });
+  try {
+    const res = await fetch(`${BASE}/autocomplete?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${KEY}`,
+        'X-Places-Api-Version': API_VERSION,
+        Accept: 'application/json',
+      },
+    });
+    if (!res.ok) {
+      if (__DEV__) console.warn('[Plated] autocomplete failed', res.status);
+      return [];
+    }
+    const json = (await res.json()) as { results?: any[] };
+    return (json.results ?? [])
+      .map((r, i): PlaceSuggestion | null => {
+        const center = r.geo?.center;
+        const primary = r.text?.primary ?? r.geo?.name;
+        if (!primary) return null;
+        // Foursquare's `secondary` here is a "Search for …" prompt, not a real
+        // subtitle; primary already carries the region (e.g. "Chicago, IL").
+        return {
+          id: `${primary}-${i}`,
+          label: primary,
+          detail: r.geo?.cc && r.geo.cc !== 'US' ? r.geo.cc : '',
+          lat: center?.latitude,
+          lng: center?.longitude,
+        };
+      })
+      .filter((s): s is PlaceSuggestion => s != null && s.lat != null);
+  } catch (e) {
+    if (__DEV__) console.warn('[Plated] autocomplete error', e);
+    return [];
+  }
+}
+
 /**
  * Search restaurants near a place string (e.g. "New York, NY") or lat/lng.
  * Returns [] (and logs) if the key is missing or the request fails, so callers

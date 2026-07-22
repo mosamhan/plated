@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { tick } from '@/lib/haptics';
-import { searchPlaces } from '@/lib/places';
+import { autocompleteLocations, searchPlaces, type PlaceSuggestion } from '@/lib/places';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -19,6 +19,34 @@ export default function LocationSettings() {
   const { location, useDeviceLocation, setManualLocation, busy, error } = useLocation();
   const [city, setCity] = useState('');
   const [geocoding, setGeocoding] = useState(false);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reqSeq = useRef(0);
+
+  // Debounced type-ahead: fetch location suggestions ~250ms after typing stops.
+  useEffect(() => {
+    const q = city.trim();
+    if (debounce.current) clearTimeout(debounce.current);
+    if (q.length < 2) {
+      setSuggestions([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    debounce.current = setTimeout(async () => {
+      const seq = ++reqSeq.current;
+      const res = await autocompleteLocations(q);
+      // Ignore results from a stale keystroke.
+      if (seq === reqSeq.current) {
+        setSuggestions(res);
+        setSearching(false);
+      }
+    }, 250);
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    };
+  }, [city]);
 
   const onUseDevice = async () => {
     tick();
@@ -26,9 +54,16 @@ export default function LocationSettings() {
     if (ok) router.back();
   };
 
+  // Pick an autocomplete suggestion — it already carries coordinates.
+  const onPickSuggestion = (s: PlaceSuggestion) => {
+    tick();
+    setManualLocation(s.label, s.lat != null ? { lat: s.lat, lng: s.lng! } : undefined);
+    router.back();
+  };
+
+  // Fallback for a free-typed city with no suggestion tapped: geocode it.
   const onSetCity = async (label: string) => {
     tick();
-    // Geocode the city via Foursquare so we get real lat/lng for "near me" search.
     setGeocoding(true);
     const results = await searchPlaces('restaurant', { near: label });
     setGeocoding(false);
@@ -78,13 +113,32 @@ export default function LocationSettings() {
             onChangeText={setCity}
             onSubmitEditing={() => city.trim() && onSetCity(city.trim())}
             returnKeyType="go"
-            placeholder="e.g. Seattle, WA"
+            placeholder="Search a city or neighborhood"
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
             autoCapitalize="words"
+            autoCorrect={false}
           />
-          {geocoding && <ActivityIndicator size="small" color={colors.accent} />}
+          {(geocoding || searching) && <ActivityIndicator size="small" color={colors.accent} />}
         </View>
+
+        {/* Autocomplete suggestions */}
+        {suggestions.length > 0 && (
+          <View style={[styles.suggestions, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            {suggestions.map((s, i) => (
+              <Pressable
+                key={s.id}
+                onPress={() => onPickSuggestion(s)}
+                style={[styles.suggestRow, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
+                <Ionicons name="location-outline" size={17} color={colors.accent} />
+                <Text style={[styles.suggestText, { color: colors.text }]} numberOfLines={1}>
+                  {s.label}
+                  {s.detail ? <Text style={{ color: colors.textMuted }}> · {s.detail}</Text> : null}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         <Text style={[styles.presetLabel, { color: colors.textMuted }]}>Or try a market</Text>
         <View style={styles.presets}>
@@ -139,6 +193,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   searchInput: { flex: 1, fontSize: 15, fontWeight: '500', paddingVertical: 12 },
+  suggestions: { marginTop: spacing.sm, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  suggestRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 13 },
+  suggestText: { flex: 1, fontSize: 15, fontWeight: '600' },
   presetLabel: { fontSize: 13, fontWeight: '700', marginTop: spacing.lg, marginBottom: spacing.sm },
   presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   preset: {
