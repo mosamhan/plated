@@ -24,6 +24,7 @@ import { formatCount, StatPill } from '@/components/StatPill';
 import { User } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
+import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { usePlatos } from '@/store/PlatosContext';
@@ -44,6 +45,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked, restaurantFor } = useData();
   const { location } = useLocation();
   const { platos } = usePlatos();
+  const { openSaveSheet, isSaved: isSavedInCollections } = useCollections();
   const [tab, setTab] = useState<'plates' | 'reviews' | 'platos'>('plates');
   const [actionsOpen, setActionsOpen] = useState(false);
 
@@ -202,7 +204,13 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
         {tab === 'platos' && (
           <View style={styles.grid}>
             {userPlatos.map((p) => (
-              <PlatoTile key={p.id} video={p} width={tileWidth} />
+              <PlatoTile
+                key={p.id}
+                video={p}
+                width={tileWidth}
+                onSave={() => openSaveSheet({ type: 'plato', id: p.id })}
+                savedOverride={isSavedInCollections({ type: 'plato', id: p.id })}
+              />
             ))}
             {userPlatos.length === 0 && (
               <Text style={[styles.empty, { color: colors.textMuted }]}>

@@ -21,7 +21,17 @@ import { useTheme } from '@/theme/ThemeContext';
 
 const DOUBLE_TAP_MS = 200;
 
-export function PlateCard({ order }: { order: Order }) {
+export function PlateCard({
+  order,
+  onSave,
+  savedOverride,
+}: {
+  order: Order;
+  /** When set, the bookmark opens the Save-to picker instead of the quick save. */
+  onSave?: () => void;
+  /** Drives the bookmark's filled state when saving is collection-backed. */
+  savedOverride?: boolean;
+}) {
   const { colors } = useTheme();
   const router = useRouter();
   const { isLiked, toggleLike, isSaved, toggleSave, userFor, restaurantFor } = useData();
@@ -43,7 +53,7 @@ export function PlateCard({ order }: { order: Order }) {
   const user = userFor(order.userId);
   const restaurant = restaurantFor(order.restaurantId);
   const liked = isLiked(order.id);
-  const saved = isSaved(order.id);
+  const saved = savedOverride ?? isSaved(order.id);
 
   const onPhotoPress = () => {
     const now = Date.now();
@@ -190,7 +200,10 @@ export function PlateCard({ order }: { order: Order }) {
         <Pressable
           style={styles.action}
           onPress={() => {
-            toggleSave(order.id);
+            // When a Save-to picker handler is supplied, the bookmark opens it
+            // (multi-list membership); otherwise it's the quick single-tap save.
+            if (onSave) onSave();
+            else toggleSave(order.id);
             tapLight();
           }}
           hitSlop={8}>

@@ -18,6 +18,7 @@ import { SectionHeader } from '@/components/SectionHeader';
 import { Skeleton } from '@/components/Skeleton';
 import { SuggestedFriendCard } from '@/components/SuggestedFriends';
 import { Contact, Order } from '@/data/types';
+import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -75,6 +76,7 @@ export default function Home() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { feedOrders, contacts, unreadCount } = useData();
+  const { openSaveSheet, isSaved: isSavedInCollections } = useCollections();
   const [booting, setBooting] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -152,7 +154,11 @@ export default function Home() {
           keyExtractor={(item) => (item.type === 'plate' ? item.order.id : item.key)}
           renderItem={({ item }) =>
             item.type === 'plate' ? (
-              <PlateCard order={item.order} />
+              <PlateCard
+                order={item.order}
+                onSave={() => openSaveSheet({ type: 'plate', id: item.order.id })}
+                savedOverride={isSavedInCollections({ type: 'plate', id: item.order.id })}
+              />
             ) : (
               <SuggestBlock contacts={item.contacts} subtitle={item.subtitle} />
             )

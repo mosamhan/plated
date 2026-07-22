@@ -1,8 +1,16 @@
+import { Ionicons } from '@expo/vector-icons';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/Button';
 import { showAlert } from '@/lib/dialog';
+import { tapLight } from '@/lib/haptics';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/AuthContext';
+import { displayFont } from '@/theme/fonts';
+import { radius, spacing } from '@/theme/palettes';
+import { useTheme } from '@/theme/ThemeContext';
 
 /** A saved item can be a restaurant, a plate (order), or a plato (reel). */
 export type SavedItemType = 'restaurant' | 'plate' | 'plato';
@@ -32,6 +40,12 @@ interface CollectionsContextValue {
   /** Rename / delete a list. */
   renameCollection: (collectionId: string, name: string) => void;
   deleteCollection: (collectionId: string) => void;
+
+  // App-wide Save-to picker. Any component calls openSaveSheet(item); a single
+  // <SaveToSheet> mounted at the provider root renders for whatever's targeted.
+  saveTarget: SavedItem | null;
+  openSaveSheet: (item: SavedItem) => void;
+  closeSaveSheet: () => void;
 }
 
 const CollectionsContext = createContext<CollectionsContextValue | undefined>(undefined);
@@ -52,6 +66,7 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState<boolean>(live);
+  const [saveTarget, setSaveTarget] = useState<SavedItem | null>(null);
 
   // ── Load from Supabase (collections + their items in two reads) ─────────────
   const loadFromSupabase = useCallback(async () => {
@@ -232,6 +247,9 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
     [collections, live, userId],
   );
 
+  const openSaveSheet = useCallback((item: SavedItem) => setSaveTarget(item), []);
+  const closeSaveSheet = useCallback(() => setSaveTarget(null), []);
+
   const value = useMemo(
     () => ({
       collections,
@@ -242,11 +260,19 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
       createCollection,
       renameCollection,
       deleteCollection,
+      saveTarget,
+      openSaveSheet,
+      closeSaveSheet,
     }),
-    [collections, loading, collectionsWith, isSaved, toggleInCollection, createCollection, renameCollection, deleteCollection],
+    [collections, loading, collectionsWith, isSaved, toggleInCollection, createCollection, renameCollection, deleteCollection, saveTarget, openSaveSheet, closeSaveSheet],
   );
 
-  return <CollectionsContext.Provider value={value}>{children}</CollectionsContext.Provider>;
+  return (
+    <CollectionsContext.Provider value={value}>
+      {children}
+      <SaveToSheet />
+    </CollectionsContext.Provider>
+  );
 }
 
 export function useCollections(): CollectionsContextValue {
@@ -254,3 +280,141 @@ export function useCollections(): CollectionsContextValue {
   if (!ctx) throw new Error('useCollections must be used within a CollectionsProvider');
   return ctx;
 }
+
+/**
+ * App-wide "Save to…" bottom sheet. Mounted once inside the provider; opens
+ * whenever `openSaveSheet(item)` is called from anywhere (PlateCard bookmark,
+ * PlatoTile, restaurant detail, …). Toggles the item across the user's named
+ * lists and can create a new list inline.
+ */
+function SaveToSheet() {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { collections, saveTarget, closeSaveSheet, toggleInCollection, createCollection } = useCollections();
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+
+  const visible = saveTarget != null;
+  const target = saveTarget;
+
+  const reset = () => {
+    setCreating(false);
+    setName('');
+  };
+  const close = () => {
+    reset();
+    closeSaveSheet();
+  };
+  const onAdd = async () => {
+    if (!name.trim() || !target) return;
+    await createCollection(name.trim(), target);
+    reset();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+      <Pressable style={saveStyles.backdrop} onPress={close}>
+        <Pressable
+          style={[saveStyles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 20 }]}
+          onPress={(e) => e.stopPropagation()}>
+          <View style={[saveStyles.grabber, { backgroundColor: colors.border }]} />
+          <Text style={[saveStyles.title, { color: colors.text, fontFamily: displayFont }]}>Save to…</Text>
+
+          {collections.map((c) => {
+            const on = target ? c.items.some((i) => i.type === target.type && i.id === target.id) : false;
+            const icon = c.name === 'Favorites' ? 'heart' : c.name === 'Want to try' ? 'bookmark' : 'albums';
+            return (
+              <Pressable
+                key={c.id}
+                onPress={() => {
+                  if (target) toggleInCollection(c.id, target);
+                  tapLight();
+                }}
+                style={[saveStyles.row, { borderBottomColor: colors.border }]}>
+                <View style={[saveStyles.rowIcon, { backgroundColor: colors.accentSoft }]}>
+                  <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={18} color={colors.accent} />
+                </View>
+                <Text style={[saveStyles.rowLabel, { color: colors.text }]} numberOfLines={1}>
+                  {c.name}
+                </Text>
+                <Ionicons
+                  name={on ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={on ? colors.accent : colors.textMuted}
+                />
+              </Pressable>
+            );
+          })}
+
+          {creating ? (
+            <View style={saveStyles.createRow}>
+              <TextInput
+                autoFocus
+                value={name}
+                onChangeText={setName}
+                placeholder="New collection name"
+                placeholderTextColor={colors.textMuted}
+                onSubmitEditing={onAdd}
+                returnKeyType="done"
+                style={[saveStyles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+              />
+              <Button label="Add" onPress={onAdd} />
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => setCreating(true)}
+              style={[saveStyles.newBtn, { borderColor: colors.border }]}>
+              <Ionicons name="add" size={18} color={colors.accent} />
+              <Text style={[saveStyles.newBtnText, { color: colors.accent }]}>New collection</Text>
+            </Pressable>
+          )}
+
+          <Button label="Done" size="lg" style={{ marginTop: 16 }} onPress={close} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const saveStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: {
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 12,
+  },
+  grabber: { width: 40, height: 5, borderRadius: 3, alignSelf: 'center', marginBottom: 14 },
+  title: { fontSize: 20, fontWeight: '600', marginBottom: 14 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  rowIcon: { width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  rowLabel: { flex: 1, fontSize: 15, fontWeight: '700' },
+  createRow: { flexDirection: 'row', gap: 8, marginTop: 14, alignItems: 'center' },
+  input: {
+    flex: 1,
+    height: 44,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  newBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 16,
+    paddingVertical: 13,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: 'dashed',
+  },
+  newBtnText: { fontSize: 14, fontWeight: '800' },
+});

@@ -1,22 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { RatingBadge } from '@/components/RatingBadge';
 import { formatCount } from '@/components/StatPill';
 import { PlatoVideo } from '@/data/platos';
+import { tapLight } from '@/lib/haptics';
 import { radius } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 interface Props {
   video: PlatoVideo;
   width?: number;
+  /** When set, shows a bookmark that opens the Save-to picker for this plato. */
+  onSave?: () => void;
+  /** Drives the bookmark's filled state (collection membership). */
+  savedOverride?: boolean;
 }
 
 /** Grid thumbnail for a Plato (creator video). Taps into the full-screen player. */
-export function PlatoTile({ video, width }: Props) {
+export function PlatoTile({ video, width, onSave, savedOverride }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
 
@@ -35,6 +40,21 @@ export function PlatoTile({ video, width }: Props) {
         <View style={styles.playGlyph}>
           <Ionicons name="play" size={12} color="#fff" />
         </View>
+        {onSave && (
+          <Pressable
+            onPress={() => {
+              onSave();
+              tapLight();
+            }}
+            hitSlop={8}
+            style={styles.saveBtn}>
+            <Ionicons
+              name={savedOverride ? 'bookmark' : 'bookmark-outline'}
+              size={13}
+              color={savedOverride ? colors.accent : '#fff'}
+            />
+          </Pressable>
+        )}
         <View style={styles.likes}>
           <Ionicons name="heart" size={11} color="#fff" />
           <Text style={styles.likesText}>{formatCount(video.likes)}</Text>
@@ -61,6 +81,17 @@ const styles = StyleSheet.create({
   playGlyph: {
     position: 'absolute',
     right: 8,
+    top: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveBtn: {
+    position: 'absolute',
+    left: 8,
     top: 8,
     width: 24,
     height: 24,
