@@ -10,12 +10,13 @@ export interface MapPlace {
 const enc = encodeURIComponent;
 
 /** Open turn-by-turn directions in Apple or Google Maps. */
-export function openDirections(provider: 'apple' | 'google', place: MapPlace) {
+export function openDirections(provider: 'apple' | 'google', place: MapPlace, opts: { avoidTolls?: boolean } = {}) {
   const dest = place.lat != null && place.lng != null ? `${place.lat},${place.lng}` : `${place.name} ${place.location ?? ''}`.trim();
   const url =
     provider === 'apple'
-      ? `http://maps.apple.com/?daddr=${enc(dest)}&q=${enc(place.name)}`
-      : `https://www.google.com/maps/dir/?api=1&destination=${enc(dest)}`;
+      ? // Apple Maps: dirflg=t adds tolls to the avoid set.
+        `http://maps.apple.com/?daddr=${enc(dest)}&q=${enc(place.name)}${opts.avoidTolls ? '&dirflg=t' : ''}`
+      : `https://www.google.com/maps/dir/?api=1&destination=${enc(dest)}${opts.avoidTolls ? '&avoid=tolls' : ''}`;
   Linking.openURL(url).catch(() => {});
 }
 

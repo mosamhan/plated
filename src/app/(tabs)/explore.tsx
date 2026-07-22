@@ -15,6 +15,7 @@ import { ExploreMap, deriveCategory, type MapRestaurant, type PinCategory } from
 import { FilterChips } from '@/components/FilterChips';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
+import { RestaurantDetailSheet } from '@/components/RestaurantDetailSheet';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
@@ -74,6 +75,7 @@ export default function Explore() {
   const [mapQuery, setMapQuery] = useState('');
   const [activeTypes, setActiveTypes] = useState<PinCategory[]>(['loved', 'been', 'dining']);
   const [myTableOnly, setMyTableOnly] = useState(false);
+  const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null);
   const mapTheme: 'light' | 'dark' = colors.isDark ? 'dark' : 'light';
 
   const data = useMemo(() => exploreOrders(filter), [exploreOrders, filter]);
@@ -133,7 +135,7 @@ export default function Explore() {
           restaurants={visiblePins}
           region={region}
           mapTheme={mapTheme}
-          onSelect={(r) => router.push(`/restaurant/${r.id}`)}
+          onSelect={(r) => setSelectedRestaurant(r.id)}
         />
 
         {/* Top row: settings gear · mode toggle · collections bookmark */}
@@ -147,29 +149,24 @@ export default function Explore() {
           </Pressable>
         </View>
 
-        {/* Bottom row: search · categories · My Table · Platers */}
-        <View style={[styles.mapBottomRow, { bottom: insets.bottom + 90 }]}>
-          <Pressable
-            onPress={() => router.push('/search')}
-            style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="search" size={19} color={colors.text} />
-          </Pressable>
-          <Pressable style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="options" size={19} color={colors.text} />
-          </Pressable>
-          <MapPill
-            label="My Table"
-            icon="bookmark"
-            active={myTableOnly}
-            onPress={() => setMyTableOnly(true)}
-          />
-          <MapPill
-            label="Platers"
-            icon="earth"
-            active={!myTableOnly}
-            onPress={() => setMyTableOnly(false)}
-          />
-        </View>
+        {/* Bottom row: search · categories · My Table · Platers.
+            Hidden while the restaurant overlay is open (design §2). */}
+        {!selectedRestaurant && (
+          <View style={[styles.mapBottomRow, { bottom: insets.bottom + 90 }]}>
+            <Pressable
+              onPress={() => router.push('/search')}
+              style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="search" size={19} color={colors.text} />
+            </Pressable>
+            <Pressable style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="options" size={19} color={colors.text} />
+            </Pressable>
+            <MapPill label="My Table" icon="bookmark" active={myTableOnly} onPress={() => setMyTableOnly(true)} />
+            <MapPill label="Platers" icon="earth" active={!myTableOnly} onPress={() => setMyTableOnly(false)} />
+          </View>
+        )}
+
+        <RestaurantDetailSheet restaurantId={selectedRestaurant} onClose={() => setSelectedRestaurant(null)} />
       </View>
     );
   }
