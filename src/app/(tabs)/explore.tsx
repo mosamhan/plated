@@ -188,40 +188,24 @@ export default function Explore() {
           routeColor={colors.accent}
         />
 
-        {/* Top row: settings gear · mode toggle · collections bookmark */}
+        {/* Top row: a single controls menu (left) + the mode toggle. Everything
+            that used to be in the bottom bar now lives in the menu — press or
+            hold the menu button to open it. My-Table/Platers is shown as a small
+            state badge on the button so the active filter stays visible. */}
         <View style={[styles.mapTopRow, { top: insets.top + 14 }]}>
           <Pressable
             onPress={() => setActiveSheet('settings')}
+            onLongPress={() => setActiveSheet('settings')}
+            delayLongPress={200}
             style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="options-outline" size={20} color={colors.text} />
+            <Ionicons name="menu" size={22} color={colors.text} />
+            <View style={[styles.menuBadge, { backgroundColor: colors.accent, borderColor: colors.card }]}>
+              <Ionicons name={myTableOnly ? 'bookmark' : 'earth'} size={9} color={colors.accentText} />
+            </View>
           </Pressable>
           <ModeToggle mode={mode} setMode={setMode} overlay />
-          <Pressable
-            onPress={() => setActiveSheet('collections')}
-            style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="bookmark-outline" size={19} color={colors.text} />
-          </Pressable>
+          <View style={styles.mapCircleGhost} />
         </View>
-
-        {/* Bottom row: search · categories · My Table · Platers.
-            Sits just above the tab bar (~85pt tall). Hidden while the
-            restaurant overlay or a route banner is showing (design §2). */}
-        {!selectedRestaurant && !route && (
-          <View style={[styles.mapBottomRow, { bottom: 16 }]}>
-            <Pressable
-              onPress={() => router.push('/search')}
-              style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Ionicons name="search" size={19} color={colors.text} />
-            </Pressable>
-            <Pressable
-              onPress={() => setActiveSheet('categories')}
-              style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Ionicons name="options" size={19} color={colors.text} />
-            </Pressable>
-            <MapPill label="My Table" icon="bookmark" active={myTableOnly} onPress={() => setMyTableOnly(true)} />
-            <MapPill label="Platers" icon="earth" active={!myTableOnly} onPress={() => setMyTableOnly(false)} />
-          </View>
-        )}
 
         {/* In-app route banner — distance + ETA, with clear + hand-off options.
             Sits above the tab bar; replaces the filter row while a route is up. */}
@@ -274,6 +258,9 @@ export default function Explore() {
             setMapTheme={setMapThemeOverride}
             avoidTolls={avoidTolls}
             setAvoidTolls={setAvoidTolls}
+            myTableOnly={myTableOnly}
+            setMyTableOnly={setMyTableOnly}
+            onSearch={() => router.push('/search')}
             onOpenCollections={() => setActiveSheet('collections')}
             onOpenCategories={() => setActiveSheet('categories')}
           />
@@ -339,31 +326,6 @@ export default function Explore() {
   );
 }
 
-function MapPill({
-  label,
-  icon,
-  active,
-  onPress,
-}: {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  active: boolean;
-  onPress: () => void;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[
-        styles.mapPill,
-        { backgroundColor: active ? colors.accent : colors.card, borderColor: active ? colors.accent : colors.border },
-      ]}>
-      <Ionicons name={icon} size={14} color={active ? colors.accentText : colors.textMuted} />
-      <Text style={{ color: active ? colors.accentText : colors.textMuted, fontWeight: '800', fontSize: 13 }}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
@@ -402,14 +364,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  mapBottomRow: {
-    position: 'absolute',
-    left: PADDING,
-    right: PADDING,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   mapCircle: {
     width: 44,
     height: 44,
@@ -423,14 +377,18 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
   },
-  mapPill: {
-    flexDirection: 'row',
+  // Invisible spacer opposite the menu button so the toggle stays centered.
+  mapCircleGhost: { width: 44, height: 44 },
+  menuBadge: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 14,
-    height: 44,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+    borderWidth: 2,
   },
   routeBanner: {
     position: 'absolute',

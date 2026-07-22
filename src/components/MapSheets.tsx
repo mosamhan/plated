@@ -24,13 +24,21 @@ function SheetShell({ children, onClose }: { children: React.ReactNode; onClose:
   );
 }
 
-/** Map appearance (Light/Dark) · Avoid tolls · links to Collections & Categories. */
+/**
+ * The map's single "controls" menu, opened from the top-left button. Gathers
+ * everything that used to live in the bottom control bar — who to show
+ * (My Table / Platers), search, categories — plus map appearance, avoid-tolls,
+ * and collections. One place for every map option.
+ */
 export function MapSettingsSheet({
   onClose,
   mapTheme,
   setMapTheme,
   avoidTolls,
   setAvoidTolls,
+  myTableOnly,
+  setMyTableOnly,
+  onSearch,
   onOpenCollections,
   onOpenCategories,
 }: {
@@ -39,6 +47,9 @@ export function MapSettingsSheet({
   setMapTheme: (t: 'light' | 'dark') => void;
   avoidTolls: boolean;
   setAvoidTolls: (v: boolean) => void;
+  myTableOnly: boolean;
+  setMyTableOnly: (v: boolean) => void;
+  onSearch: () => void;
   onOpenCollections: () => void;
   onOpenCategories: () => void;
 }) {
@@ -58,6 +69,18 @@ export function MapSettingsSheet({
     );
   };
 
+  const showSeg = (val: boolean, label: string, icon: keyof typeof Ionicons.glyphMap) => {
+    const on = myTableOnly === val;
+    return (
+      <Pressable
+        onPress={() => setMyTableOnly(val)}
+        style={[styles.seg, { borderColor: on ? colors.accent : colors.border, backgroundColor: on ? colors.accentSoft : colors.surface }]}>
+        <Ionicons name={icon} size={16} color={on ? colors.accent : colors.textMuted} />
+        <Text style={[styles.segText, { color: colors.text }]}>{label}</Text>
+      </Pressable>
+    );
+  };
+
   const linkRow = (icon: keyof typeof Ionicons.glyphMap, label: string, value: string | null, onPress: () => void) => (
     <Pressable onPress={onPress} style={[styles.linkRow, { borderBottomColor: colors.border }]}>
       <Ionicons name={icon} size={20} color={colors.accent} />
@@ -69,9 +92,29 @@ export function MapSettingsSheet({
 
   return (
     <SheetShell onClose={onClose}>
-      <Text style={[styles.title, { color: colors.text }]}>Map settings</Text>
+      <Text style={[styles.title, { color: colors.text }]}>Map controls</Text>
 
-      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>MAP APPEARANCE</Text>
+      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>SHOW</Text>
+      <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+        {showSeg(true, 'My Table', 'bookmark')}
+        {showSeg(false, 'Platers', 'earth')}
+      </View>
+
+      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>FIND</Text>
+      {linkRow('search', 'Search places', null, () => {
+        onClose();
+        onSearch();
+      })}
+      {linkRow('pricetags-outline', 'Categories', null, () => {
+        onClose();
+        onOpenCategories();
+      })}
+      {linkRow('bookmark-outline', 'Collections', `${savedCount} saved`, () => {
+        onClose();
+        onOpenCollections();
+      })}
+
+      <Text style={[styles.sectionLabel, { color: colors.textMuted, marginTop: 20 }]}>MAP APPEARANCE</Text>
       <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
         {seg('light', 'Light', 'sunny-outline')}
         {seg('dark', 'Dark', 'moon-outline')}
@@ -88,16 +131,6 @@ export function MapSettingsSheet({
           thumbColor="#fff"
         />
       </View>
-
-      <Text style={[styles.sectionLabel, { color: colors.textMuted, marginTop: 8 }]}>SAVED &amp; FILTERS</Text>
-      {linkRow('bookmark-outline', 'Collections', `${savedCount} saved`, () => {
-        onClose();
-        onOpenCollections();
-      })}
-      {linkRow('pricetags-outline', 'Categories', null, () => {
-        onClose();
-        onOpenCategories();
-      })}
     </SheetShell>
   );
 }
