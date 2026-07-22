@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+import { forwardRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 
+import type { LatLng } from '@/lib/directions';
 import { mapStyleDark, mapStyleLight } from '@/lib/mapStyles';
 import { RestaurantWithRating } from '@/store/DataContext';
 
@@ -27,18 +29,28 @@ interface Props {
   mapTheme: 'light' | 'dark';
   onSelect: (r: MapRestaurant) => void;
   onRegionChange?: (r: Region) => void;
+  /** When set, a route line is drawn on top of the pins (in-app routing). */
+  routeCoords?: LatLng[];
+  routeColor?: string;
 }
 
 /**
  * The Explore map: a Google-provider MapView with a custom Plated style and a
  * pill marker per restaurant (category-colored dot + score, gold ★ when saved),
  * per design/handoff/README.md §1. Recreated natively — no Leaflet/OSM.
+ *
+ * Forwards a ref to the underlying MapView so the screen can animate to a pin
+ * or fit the camera to a drawn route (fitToCoordinates).
  */
-export function ExploreMap({ restaurants, region, mapTheme, onSelect, onRegionChange }: Props) {
+export const ExploreMap = forwardRef<MapView, Props>(function ExploreMap(
+  { restaurants, region, mapTheme, onSelect, onRegionChange, routeCoords, routeColor = '#B07207' },
+  ref,
+) {
   const style = mapTheme === 'dark' ? mapStyleDark : mapStyleLight;
 
   return (
     <MapView
+      ref={ref}
       provider={PROVIDER_GOOGLE}
       style={StyleSheet.absoluteFill}
       initialRegion={region}
@@ -58,9 +70,12 @@ export function ExploreMap({ restaurants, region, mapTheme, onSelect, onRegionCh
           <Pin category={r.category} score={r.platedRating} saved={r.saved} />
         </Marker>
       ))}
+      {routeCoords && routeCoords.length > 1 && (
+        <Polyline coordinates={routeCoords} strokeColor={routeColor} strokeWidth={5} lineCap="round" lineJoin="round" />
+      )}
     </MapView>
   );
-}
+});
 
 function Pin({ category, score, saved }: { category: PinCategory; score: number; saved: boolean }) {
   const meta = PIN_META[category];

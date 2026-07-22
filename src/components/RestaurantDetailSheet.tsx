@@ -23,10 +23,13 @@ export function RestaurantDetailSheet({
   restaurantId,
   onClose,
   avoidTolls = false,
+  onRoute,
 }: {
   restaurantId: string | null;
   onClose: () => void;
   avoidTolls?: boolean;
+  /** When provided, "Directions" draws an in-app route instead of leaving. */
+  onRoute?: (restaurantId: string) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -97,7 +100,12 @@ export function RestaurantDetailSheet({
               {/* Directions · Reserve · Save */}
               <View style={styles.actionRow}>
                 <Pressable
-                  onPress={() => openDirections('google', restaurant, { avoidTolls })}
+                  onPress={() => {
+                    // Prefer the in-app route (keeps the user in Plated); fall
+                    // back to an external maps hand-off only where unwired.
+                    if (onRoute && restaurantId) onRoute(restaurantId);
+                    else openDirections('google', restaurant, { avoidTolls });
+                  }}
                   style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Ionicons name="navigate" size={16} color={colors.accent} />
                   <Text style={[styles.actionText, { color: colors.text }]}>Directions</Text>

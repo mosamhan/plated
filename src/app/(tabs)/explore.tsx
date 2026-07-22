@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -9,6 +10,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import type MapView from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExploreMap, deriveCategory, type MapRestaurant, type PinCategory } from '@/components/ExploreMap';
@@ -17,11 +19,14 @@ import { CategoriesSheet, CollectionsSheet, MapSettingsSheet } from '@/component
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
 import { RestaurantDetailSheet } from '@/components/RestaurantDetailSheet';
+import { fetchRoute, type RouteResult } from '@/lib/directions';
+import { openMap } from '@/lib/external';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
+import { showAlert } from '@/lib/dialog';
 import type { Region } from 'react-native-maps';
 
 // Kept minimal so the grid stays the focus — the core sort/scope lenses only.
@@ -32,18 +37,22 @@ const PADDING = spacing.lg;
 
 type Mode = 'platos' | 'discover' | 'map';
 
-function ModeToggle({ mode, setMode, overlay }: { mode: Mode; setMode: (m: Mode) => void; overlay?: boolean }) {
+function ModeToggle({ mode, setMode, overlay, compact }: { mode: Mode; setMode: (m: Mode) => void; overlay?: boolean; compact?: boolean }) {
   const { colors } = useTheme();
   const bg = overlay ? 'rgba(20,20,20,0.55)' : colors.surface;
   const seg = (m: Mode, icon: keyof typeof Ionicons.glyphMap, label: string) => {
     const on = mode === m;
     const inactive = overlay ? 'rgba(255,255,255,0.8)' : colors.textMuted;
+    // Compact (map top row, where the toggle shares space with the gear +
+    // bookmark): only the active segment shows its label, so the pill stays
+    // narrow enough that nothing clips off the edge.
+    const showLabel = !compact || on;
     return (
       <Pressable
         onPress={() => setMode(m)}
-        style={[styles.seg, on && { backgroundColor: colors.accent }]}>
+        style={[compact ? styles.segCompact : styles.seg, on && { backgroundColor: colors.accent }]}>
         <Ionicons name={icon} size={15} color={on ? colors.accentText : inactive} />
-        <Text style={[styles.segText, { color: on ? colors.accentText : inactive }]}>{label}</Text>
+        {showLabel && <Text style={[styles.segText, { color: on ? colors.accentText : inactive }]}>{label}</Text>}
       </Pressable>
     );
   };
@@ -66,9 +75,10 @@ export default function Explore() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
-  const { exploreOrders, topRestaurants, ordersByRestaurant } = useData();
+  const { exploreOrders, topRestaurants, ordersByRestaurant, restaurantFor } = useData();
   const { location } = useLocation();
   const { isSaved } = useCollections();
+  const mapRef = useRef<MapView>(null);
   const [filter, setFilter] = useState('Trending');
   const [mode, setMode] = useState<Mode>('discover');
 
@@ -81,7 +91,42 @@ export default function Explore() {
   // Map appearance can be overridden independently of the app theme (design §3).
   const [mapThemeOverride, setMapThemeOverride] = useState<'light' | 'dark' | null>(null);
   const [activeSheet, setActiveSheet] = useState<null | 'settings' | 'collections' | 'categories'>(null);
+  const [route, setRoute] = useState<(RouteResult & { restaurantId: string }) | null>(null);
+  const [routing, setRouting] = useState(false);
   const mapTheme: 'light' | 'dark' = mapThemeOverride ?? (colors.isDark ? 'dark' : 'light');
+
+  // Draw a driving route from the user to a restaurant, inside the app: fetch
+  // the Directions polyline, close the overlay, and fit the camera to the line.
+  const startRoute = async (restaurantId: string) => {
+    const dest = restaurantFor(restaurantId);
+    if (location.lat == null || location.lng == null) {
+      showAlert('Location needed', 'Set your location so Plated can draw a route from where you are.');
+      return;
+    }
+    if (dest?.lat == null || dest?.lng == null) {
+      showAlert('No coordinates', "We don't have this place's location yet.");
+      return;
+    }
+    setRouting(true);
+    const result = await fetchRoute(
+      { latitude: location.lat, longitude: location.lng },
+      { latitude: dest.lat, longitude: dest.lng },
+      { avoidTolls },
+    );
+    setRouting(false);
+    if (!result) {
+      showAlert('Could not build a route', 'Please try again in a moment.');
+      return;
+    }
+    setSelectedRestaurant(null);
+    setRoute({ ...result, restaurantId });
+    requestAnimationFrame(() => {
+      mapRef.current?.fitToCoordinates(result.coordinates, {
+        edgePadding: { top: 120, right: 60, bottom: 200, left: 60 },
+        animated: true,
+      });
+    });
+  };
 
   const data = useMemo(() => exploreOrders(filter), [exploreOrders, filter]);
 
@@ -137,10 +182,13 @@ export default function Explore() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <ExploreMap
+          ref={mapRef}
           restaurants={visiblePins}
           region={region}
           mapTheme={mapTheme}
           onSelect={(r) => setSelectedRestaurant(r.id)}
+          routeCoords={route?.coordinates}
+          routeColor={colors.accent}
         />
 
         {/* Top row: settings gear · mode toggle · collections bookmark */}
@@ -150,7 +198,7 @@ export default function Explore() {
             style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="options-outline" size={20} color={colors.text} />
           </Pressable>
-          <ModeToggle mode={mode} setMode={setMode} overlay />
+          <ModeToggle mode={mode} setMode={setMode} overlay compact />
           <Pressable
             onPress={() => setActiveSheet('collections')}
             style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -159,9 +207,10 @@ export default function Explore() {
         </View>
 
         {/* Bottom row: search · categories · My Table · Platers.
-            Hidden while the restaurant overlay is open (design §2). */}
-        {!selectedRestaurant && (
-          <View style={[styles.mapBottomRow, { bottom: insets.bottom + 90 }]}>
+            Sits just above the tab bar (~85pt tall). Hidden while the
+            restaurant overlay or a route banner is showing (design §2). */}
+        {!selectedRestaurant && !route && (
+          <View style={[styles.mapBottomRow, { bottom: insets.bottom + 62 }]}>
             <Pressable
               onPress={() => router.push('/search')}
               style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -177,10 +226,48 @@ export default function Explore() {
           </View>
         )}
 
+        {/* In-app route banner — distance + ETA, with clear + hand-off options.
+            Sits above the tab bar; replaces the filter row while a route is up. */}
+        {route && (
+          <View style={[styles.routeBanner, { bottom: insets.bottom + 62, backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.routeIcon, { backgroundColor: colors.accentSoft }]}>
+              <Ionicons name="navigate" size={18} color={colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.routeTitle, { color: colors.text }]} numberOfLines={1}>
+                {restaurantFor(route.restaurantId)?.name ?? 'Route'}
+              </Text>
+              <Text style={[styles.routeMeta, { color: colors.textMuted }]}>
+                {route.distanceText} · {route.durationText} drive
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                const r = restaurantFor(route.restaurantId);
+                if (r) openMap(r);
+              }}
+              style={[styles.routeGo, { backgroundColor: colors.accent }]}>
+              <Ionicons name="navigate" size={14} color={colors.accentText} />
+              <Text style={[styles.routeGoText, { color: colors.accentText }]}>Navigate</Text>
+            </Pressable>
+            <Pressable onPress={() => setRoute(null)} hitSlop={8} style={styles.routeClose}>
+              <Ionicons name="close" size={20} color={colors.textMuted} />
+            </Pressable>
+          </View>
+        )}
+
+        {routing && (
+          <View style={[styles.routingToast, { top: insets.top + 70, backgroundColor: colors.card, borderColor: colors.border }]}>
+            <ActivityIndicator size="small" color={colors.accent} />
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Building route…</Text>
+          </View>
+        )}
+
         <RestaurantDetailSheet
           restaurantId={selectedRestaurant}
           onClose={() => setSelectedRestaurant(null)}
           avoidTolls={avoidTolls}
+          onRoute={startRoute}
         />
 
         {activeSheet === 'settings' && (
@@ -292,6 +379,7 @@ const styles = StyleSheet.create({
   locText: { fontSize: 13, fontWeight: '700' },
   toggle: { flexDirection: 'row', borderRadius: radius.pill, padding: 3, gap: 2 },
   seg: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 18, paddingVertical: 8, borderRadius: radius.pill },
+  segCompact: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill },
   segText: { fontSize: 14, fontWeight: '800' },
   overlayToggle: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   search: {
@@ -344,6 +432,39 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingHorizontal: 14,
     height: 44,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  routeBanner: {
+    position: 'absolute',
+    left: PADDING,
+    right: PADDING,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 10,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  routeIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  routeTitle: { fontSize: 15, fontWeight: '800' },
+  routeMeta: { fontSize: 13, fontWeight: '600', marginTop: 1 },
+  routeGo: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, height: 36, borderRadius: radius.pill },
+  routeGoText: { fontSize: 13, fontWeight: '800' },
+  routeClose: { padding: 2 },
+  routingToast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
   },
