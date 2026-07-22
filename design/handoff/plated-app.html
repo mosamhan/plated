@@ -1,0 +1,905 @@
+<!-- Plated mobile app — click-through web prototype (design reference for the handoff). See README.md. -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Plated</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js" type="module"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../_ds_bundle.js"></script>
+<style>html,body{margin:0;background:#EFE9DD}#root{display:flex;justify-content:center;padding:28px 0}
+.plated-map.light .leaflet-tile{filter:saturate(0.82) brightness(1.06) contrast(0.93) sepia(0.14) hue-rotate(-6deg)}
+.plated-map.dark .leaflet-tile{filter:invert(0.92) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.7) sepia(0.15)}
+.plated-map .leaflet-control-attribution{font-size:9px;background:rgba(255,253,248,0.7)}
+.plated-map.light{background:#F3EBD9}.plated-map.dark{background:#14120F}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const NS = window.PlatedDesignSystem_ce9150;
+const { Logo, PlateCard, PlateTile, PlatoTile, SuggestedFriendCard, RankRow, Avatar, StatPill, SocialLinks,
+  TabBar, ScreenHeader, SectionHeader, FilterChips, ActionSheet, TextField, RatingInput, Button, RatingBadge, FloatingAddButton, ThemePreviewCard } = NS;
+
+const food = (i) => `https://images.unsplash.com/photo-${['1568901346375-23c9450c58cd','1565299624946-b28f40a0ae38','1551782450-a2132b4ba21d','1567620905732-2d1ec7ab7445','1565958011703-44f9829ba187','1607330289024-1535c6b4e1c1','1579871494447-9811cf80d66c'][i%7]}?auto=format&fit=crop&w=900&q=80`;
+const avatar = (i) => `https://i.pravatar.cc/300?img=${(i%70)+1}`;
+
+const FEED = [
+  { userName:'Olivia Chen', avatar:avatar(5), verified:true, compensationEligible:true, restaurantName:'Sushi Yasuda', photo:food(6), dishName:'Omakase Set', rating:9.5, reorders:12, description:'Omakase Set — a genuine standout. Order it and thank me later.', likes:340, comments:28 },
+  { userName:'Marcus Reed', avatar:avatar(14), verified:true, compensationEligible:true, restaurantName:'Los Tacos No. 1', photo:food(2), dishName:'Al Pastor Tacos', rating:9.2, reorders:6, description:'Late-night staple. The pineapple char is everything.', likes:512, comments:41 },
+  { userName:'Priya Nair', avatar:avatar(23), verified:false, compensationEligible:false, restaurantName:'Ippudo', photo:food(4), dishName:'Tonkotsu Black', rating:9.1, reorders:3, description:'Rich, silky broth — worth the wait in line.', likes:198, comments:12 },
+];
+const DISCOVER = [
+  { photo:food(2), dishName:'Al Pastor Tacos', rating:9.2, restaurantName:'Los Tacos No. 1', handle:'marcuseats', compensationEligible:true },
+  { photo:food(1), dishName:'Margherita DOP', rating:8.9, restaurantName:'Tappo', handle:'oliviaeats' },
+  { photo:food(4), dishName:'Tonkotsu Black', rating:9.1, restaurantName:'Ippudo', handle:'marcuseats', compensationEligible:true },
+  { photo:food(6), dishName:'Omakase Set', rating:9.5, restaurantName:'Sushi Yasuda', handle:'oliviaeats', compensationEligible:true },
+];
+const PLATOS = [
+  { poster:food(2), dishName:'Crispy Chicken Sandwich', rating:9.4, restaurantName:'Blue Ribbon Fried Chicken', likes:3200 },
+  { poster:food(5), dishName:'Late-night Ramen', rating:9.0, restaurantName:'Ippudo', likes:1450 },
+];
+const RANKS_DATA = {
+  restaurants: {
+    nearby: [
+      { image:food(6), title:'Sushi Yasuda', subtitle:'Japanese · East Village', score:9.4 },
+      { image:food(2), title:'Los Tacos No. 1', subtitle:'Mexican · Chelsea', score:9.2 },
+      { image:food(4), title:'Ippudo', subtitle:'Ramen · East Village', score:9.0 },
+    ],
+    global: [
+      { image:food(1), title:'Pizzeria Gabbiano', subtitle:'Italian · Rome', score:9.7 },
+      { image:food(6), title:'Sukiyabashi Jiro', subtitle:'Sushi · Tokyo', score:9.6 },
+      { image:food(2), title:'El Califa de León', subtitle:'Tacos · Mexico City', score:9.5 },
+    ],
+  },
+  plates: {
+    nearby: [
+      { image:food(6), title:'Omakase Set', subtitle:'Sushi Yasuda · @oliviaeats', score:9.5 },
+      { image:food(2), title:'Al Pastor Tacos', subtitle:'Los Tacos No. 1 · @marcuseats', score:9.2 },
+      { image:food(4), title:'Tonkotsu Black', subtitle:'Ippudo · @priyaeats', score:9.1 },
+    ],
+    global: [
+      { image:food(2), title:'Al Pastor Taco', subtitle:'El Califa de León · Mexico City', score:9.8 },
+      { image:food(1), title:'Margherita DOP', subtitle:'Pizzeria Gabbiano · Rome', score:9.6 },
+      { image:food(5), title:'Tonkotsu Ramen', subtitle:'Ichiran · Fukuoka', score:9.5 },
+    ],
+  },
+};
+const CONTACTS = [
+  { name:'Jamie Lin', avatar:avatar(32), mutualFriends:4, onPlated:true },
+  { name:'Theo Park', avatar:avatar(41), mutualFriends:1, onPlated:false },
+];
+
+const NOTIFS = [
+  { id:'n1', icon:'heart', tint:'#E4483B', avatar:avatar(14), name:'Marcus Reed', text:'liked your Omakase Set plate', time:'2m', unread:true },
+  { id:'n2', icon:'person-add', tint:'#2E9E63', avatar:avatar(23), name:'Priya Nair', text:'started following you', time:'18m', unread:true },
+  { id:'n3', icon:'repeat', tint:'#B07207', avatar:avatar(41), name:'Theo Park', text:'reordered your Al Pastor Tacos', time:'1h', unread:true },
+  { id:'n4', icon:'chatbubble', tint:'#8C7B61', avatar:avatar(32), name:'Jamie Lin', text:'commented: "adding this to my list!"', time:'3h', unread:false },
+  { id:'n5', icon:'flame', tint:'#D9480F', avatar:avatar(5), name:'Plated', text:'your Tonkotsu Black hit a 9.1 — top-rated!', time:'1d', unread:false },
+];
+
+const PEOPLE = {
+  following: [
+    { name:'Marcus Reed', handle:'marcuseats', avatar:avatar(14), following:true },
+    { name:'Priya Nair', handle:'priyaeats', avatar:avatar(23), following:true },
+  ],
+  followers: [
+    { name:'Theo Park', handle:'theopark', avatar:avatar(41), following:false },
+    { name:'Jamie Lin', handle:'jamielin', avatar:avatar(32), following:true },
+    { name:'Sam Ortiz', handle:'sameats', avatar:avatar(51), following:false },
+  ],
+  suggested: [
+    { name:'Jamie Lin', avatar:avatar(32), mutualFriends:4, onPlated:true },
+    { name:'Sam Ortiz', avatar:avatar(51), mutualFriends:2, onPlated:true },
+    { name:'Theo Park', avatar:avatar(41), mutualFriends:1, onPlated:false },
+  ],
+};
+
+// Real Chicago restaurant coordinates for the explore map.
+const CHI = [
+  { id:'alinea', type:'dining', name:'Alinea', cuisine:'Fine Dining', area:'Lincoln Park', lat:41.9134, lng:-87.6486, rating:9.6, reviews:214,
+    plates:[{name:'Black Truffle Explosion',score:9.8,photo:food(3)},{name:'Edible Balloon',score:9.4,photo:food(5)}],
+    reviewers:[{name:'@oliviaeats',avatar:avatar(5),score:9.7},{name:'@marcuseats',avatar:avatar(14),score:9.5}] },
+  { id:'goat', type:'loved', name:'Girl & the Goat', cuisine:'New American', area:'West Loop', lat:41.8842, lng:-87.6516, rating:9.2, reviews:389,
+    plates:[{name:'Wood-Fired Pig Face',score:9.5,photo:food(0)},{name:'Goat Empanadas',score:9.0,photo:food(4)}],
+    reviewers:[{name:'@priyaeats',avatar:avatar(23),score:9.3},{name:'@oliviaeats',avatar:avatar(5),score:9.1}] },
+  { id:'lou', type:'tried', name:"Lou Malnati's", cuisine:'Deep-Dish Pizza', area:'River North', lat:41.8925, lng:-87.6316, rating:9.0, reviews:1204,
+    plates:[{name:'The Malnati Deep Dish',score:9.3,photo:food(1)},{name:'Sausage & Giardiniera',score:8.8,photo:food(1)}],
+    reviewers:[{name:'@marcuseats',avatar:avatar(14),score:9.1},{name:'@theopark',avatar:avatar(41),score:8.9}] },
+  { id:'aucheval', type:'loved', name:'Au Cheval', cuisine:'Diner', area:'West Loop', lat:41.8847, lng:-87.6479, rating:9.4, reviews:672,
+    plates:[{name:'Single Cheeseburger',score:9.7,photo:food(0)},{name:'Bologna Sandwich',score:9.1,photo:food(4)}],
+    reviewers:[{name:'@oliviaeats',avatar:avatar(5),score:9.5},{name:'@priyaeats',avatar:avatar(23),score:9.2}] },
+  { id:'pequods', type:'tried', name:"Pequod's Pizza", cuisine:'Pan Pizza', area:'Lincoln Park', lat:41.9186, lng:-87.6641, rating:9.1, reviews:842,
+    plates:[{name:'Caramelized-Crust Pan',score:9.4,photo:food(1)},{name:'Pepperoni Pan',score:8.9,photo:food(1)}],
+    reviewers:[{name:'@marcuseats',avatar:avatar(14),score:9.2},{name:'@oliviaeats',avatar:avatar(5),score:9.0}] },
+  { id:'purplepig', type:'dining', name:'The Purple Pig', cuisine:'Mediterranean', area:'Mag Mile', lat:41.8907, lng:-87.6244, rating:8.9, reviews:531,
+    plates:[{name:'Milk-Braised Pork',score:9.2,photo:food(4)},{name:'JLT Sandwich',score:8.7,photo:food(0)}],
+    reviewers:[{name:'@priyaeats',avatar:avatar(23),score:9.0},{name:'@theopark',avatar:avatar(41),score:8.8}] },
+];
+
+function ExploreToggle({ mode, setMode, overlay }) {
+  const bg = overlay ? 'rgba(20,20,20,0.55)' : 'var(--surface)';
+  const inactive = overlay ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)';
+  const seg = (m, label) => (
+    <button onClick={() => setMode(m)} style={{ padding:'8px 16px', borderRadius:999, border:'none', cursor:'pointer', fontWeight:800, fontSize:13,
+      background: mode===m ? 'var(--accent)' : 'transparent', color: mode===m ? 'var(--accent-text)' : inactive }}>{label}</button>
+  );
+  return (
+    <div style={{ display:'flex', background:bg, borderRadius:999, padding:3 }}>
+      {seg('platos','Platos')}{seg('discover','Discover')}{seg('map','Map')}
+    </div>
+  );
+}
+
+const PIN_ICON = {
+  loved: { color:'#E4483B', svg:'<path d="M12 21s-7-4.6-9.3-9C1 8 3 5 6 5c2 0 3.2 1.3 4 2.3C10.8 6.3 12 5 14 5c3 0 5 3 3.3 7C19 16.4 12 21 12 21z"/>' },
+  tried: { color:'#2E9E63', svg:'<path d="M5 12l5 5 9-11" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' },
+  dining:{ color:'#251B10', svg:'<path d="M8 3v6.2c0 .9.6 1.6 1.4 1.8V21h1.2v-9.9c.8-.2 1.4-1 1.4-1.9V3h-1v5.4h-.9V3H9.1v5.4h-.9V3H8zm7.6 0c-1.3 0-2.1 2-2.1 4.6 0 2.2.7 3.4 1.5 3.7V21h1.2V3h-.6z"/>' },
+};
+
+function ExploreMap({ onSelect, saved, query, mapTheme, activeTypes, hitOnly }) {
+  const ref = React.useRef(null);
+  const mapRef = React.useRef(null);
+  const layerRef = React.useRef(null);
+  React.useEffect(() => {
+    const map = window.L.map(ref.current, { zoomControl:false, attributionControl:true }).setView([41.8955, -87.643], 13);
+    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap contributors', maxZoom:19 }).addTo(map);
+    layerRef.current = window.L.layerGroup().addTo(map);
+    mapRef.current = map;
+    setTimeout(() => map.invalidateSize(), 200);
+    return () => map.remove();
+  }, []);
+  React.useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    const q = (query || '').trim().toLowerCase();
+    CHI.filter((r) => (!q || r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.area.toLowerCase().includes(q))
+        && activeTypes.includes(r.type) && (!hitOnly || saved.includes(r.id))).forEach((r) => {
+      const isSaved = saved.includes(r.id);
+      const p = PIN_ICON[r.type];
+      const icon = window.L.divIcon({ className:'', iconSize:[62,34], iconAnchor:[31,34], html:
+        `<div style="display:flex;align-items:center;gap:5px;background:#FFFDF8;padding:4px 9px 4px 4px;border-radius:999px;box-shadow:0 4px 10px rgba(37,27,16,0.32);border:2px solid ${isSaved ? '#B07207' : '#fff'}">
+          <span style="width:20px;height:20px;border-radius:50%;background:${p.color};display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="13" height="13" fill="#fff">${p.svg}</svg></span>
+          <span style="color:#1A1413;font:800 13px/1 -apple-system,sans-serif">${r.rating.toFixed(1)}</span>
+          ${isSaved ? '<span style="color:#B07207;font-size:12px;margin-left:-1px">&#9733;</span>' : ''}
+        </div>` });
+      window.L.marker([r.lat, r.lng], { icon }).addTo(layer).on('click', () => onSelect(r));
+    });
+  }, [saved, query, activeTypes, hitOnly]);
+  return <div ref={ref} className={`plated-map ${mapTheme}`} style={{ position:'absolute', inset:0, zIndex:0 }} />;
+}
+
+function RestaurantDetail({ r, onClose, isSaved, onSaveClick, onSelect, avoidTolls }) {
+  const similar = CHI.filter((x) => x.id !== r.id).slice(0, 4);
+  return (
+    <div onClick={onClose} style={{ position:'absolute', inset:0, background:'transparent', display:'flex', alignItems:'flex-end', zIndex:60 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width:'100%', maxHeight:'82%', overflowY:'auto', background:'var(--card)', borderTopLeftRadius:'var(--radius-xl)', borderTopRightRadius:'var(--radius-xl)', paddingBottom:28, fontFamily:'var(--font-sans)', boxShadow:'0 -12px 40px -12px rgba(0,0,0,0.5)', animation:'plated-sheet-up 260ms cubic-bezier(.22,1,.36,1)' }}>
+        <div style={{ position:'relative', height:170, borderTopLeftRadius:'var(--radius-xl)', borderTopRightRadius:'var(--radius-xl)', overflow:'hidden' }}>
+          <img src={r.plates[0].photo} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+          <div style={{ position:'absolute', inset:0, background:'linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0.72))' }} />
+          <div style={{ position:'absolute', top:10, left:0, right:0, display:'flex', justifyContent:'center' }}><div style={{ width:40, height:5, borderRadius:3, background:'rgba(255,255,255,0.7)' }} /></div>
+          <button onClick={onClose} title="Close" style={{ position:'absolute', top:12, right:12, width:34, height:34, borderRadius:17, border:'none', background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', backdropFilter:'blur(4px)' }}><ion-icon name="close" style={{ fontSize:20, color:'#fff' }}></ion-icon></button>
+          <div style={{ position:'absolute', left:16, right:16, bottom:14, display:'flex', alignItems:'flex-end', gap:12 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:24, color:'#fff', textShadow:'0 1px 6px rgba(0,0,0,0.5)' }}>{r.name}</div>
+              <div style={{ fontSize:13, color:'rgba(255,255,255,0.9)', marginTop:2, fontWeight:600 }}>{r.cuisine} · {r.area}</div>
+            </div>
+            <div style={{ textAlign:'center' }}>
+              <RatingBadge score={r.rating} size="lg" />
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.9)', marginTop:4, fontWeight:700 }}>Plated's Rating</div>
+            </div>
+          </div>
+        </div>
+        <div style={{ padding:'0 16px' }}>
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:12 }}>Average of {r.reviews} Plated ratings</div>
+
+        <div style={{ display:'flex', gap:10, marginTop:16 }}>
+          <Button label="Directions" variant="secondary" icon="navigate" style={{ flex:1 }} />
+          <Button label="Reserve" variant="primary" icon="calendar" style={{ flex:1 }} />
+          <button onClick={onSaveClick} title="Save to collection" style={{ width:52, borderRadius:'var(--radius-lg)', border:`1px solid ${isSaved ? 'var(--accent)' : 'var(--border)'}`, background: isSaved ? 'var(--accent-soft)' : 'var(--surface)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <ion-icon name={isSaved ? 'bookmark' : 'bookmark-outline'} style={{ fontSize:20, color:'var(--accent)' }}></ion-icon>
+          </button>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:12, fontSize:13, color:'var(--text-muted)' }}>
+          <ion-icon name="location-outline" style={{ fontSize:15, color:'var(--accent)' }}></ion-icon>{r.area}, Chicago, IL{avoidTolls ? ' · directions avoid tolls' : ''}
+        </div>
+
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginTop:20, marginBottom:10 }}>TOP-RATED PLATES HERE</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {r.plates.map((p) => (
+            <div key={p.name} style={{ display:'flex', alignItems:'center', gap:12, padding:8, borderRadius:'var(--radius-md)', border:'1px solid var(--border)', background:'var(--surface)' }}>
+              <img src={p.photo} style={{ width:48, height:48, borderRadius:10, objectFit:'cover' }} />
+              <div style={{ flex:1, fontSize:14, fontWeight:700, color:'var(--text)' }}>{p.name}</div>
+              <RatingBadge score={p.score} size="sm" />
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginTop:20, marginBottom:10 }}>TOP RATERS</div>
+        <div style={{ display:'flex', gap:16 }}>
+          {r.reviewers.map((u) => (
+            <div key={u.name} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
+              <Avatar src={u.avatar} size={48} />
+              <div style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>{u.name}</div>
+              <RatingBadge score={u.score} size="sm" />
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginTop:20, marginBottom:10 }}>TOP PLATOS HERE</div>
+        <div style={{ display:'flex', gap:12, overflowX:'auto', paddingBottom:4 }}>
+          {PLATOS.map((v) => (
+            <div key={v.dishName} style={{ width:120, flexShrink:0 }}><PlatoTile video={{ ...v, restaurantName:r.name }} /></div>
+          ))}
+        </div>
+
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginTop:20, marginBottom:10 }}>SIMILAR PLACES</div>
+        <div style={{ display:'flex', gap:12, overflowX:'auto', paddingBottom:4 }}>
+          {similar.map((s) => (
+            <div key={s.id} onClick={() => onSelect && onSelect(s)} style={{ width:150, flexShrink:0, borderRadius:'var(--radius-lg)', border:'1px solid var(--border)', overflow:'hidden', background:'var(--surface)', cursor:'pointer' }}>
+              <div style={{ position:'relative' }}>
+                <img src={s.plates[0].photo} style={{ width:'100%', height:90, objectFit:'cover', display:'block' }} />
+                <div style={{ position:'absolute', right:8, bottom:8 }}><RatingBadge score={s.rating} size="sm" /></div>
+              </div>
+              <div style={{ padding:'8px 10px' }}>
+                <div style={{ fontSize:14, fontWeight:800, letterSpacing:-0.2, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.name}</div>
+                <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>{s.cuisine} · {s.area}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginTop:20, marginBottom:10 }}>PLATERS TO FOLLOW HERE</div>
+        <div style={{ display:'flex', gap:16 }}>
+          {r.reviewers.map((u) => (
+            <div key={u.name+'p'} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px 8px 8px', borderRadius:'var(--radius-pill)', border:'1px solid var(--border)', background:'var(--surface)' }}>
+              <Avatar src={u.avatar} size={30} />
+              <span style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>{u.name}</span>
+            </div>
+          ))}
+        </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function itemLabel(item) {
+  if (item.type === 'restaurant') { const r = CHI.find((x) => x.id === item.id); return r ? { title:r.name, sub:`${r.cuisine} · ${r.area}`, rating:r.rating, restaurant:r } : null; }
+  return { title:item.name, sub:item.sub, rating:item.rating, restaurant:null };
+}
+
+function CollectionsSheet({ collections, onClose, onSelect, onRemove, onCreate }) {
+  const [openId, setOpenId] = React.useState(null);
+  const [creating, setCreating] = React.useState(false);
+  const [name, setName] = React.useState('');
+  const active = collections.find((c) => c.id === openId);
+  const total = collections.reduce((n, c) => n + c.items.length, 0);
+  return (
+    <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'flex-end', zIndex:70 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width:'100%', maxHeight:'82%', overflowY:'auto', background:'var(--card)', borderTopLeftRadius:'var(--radius-xl)', borderTopRightRadius:'var(--radius-xl)', padding:'12px 16px 28px', fontFamily:'var(--font-sans)', animation:'plated-sheet-up 260ms cubic-bezier(.22,1,.36,1)' }}>
+        <div style={{ width:40, height:5, borderRadius:3, background:'var(--border)', margin:'0 auto 14px' }} />
+        {active ? (
+          <div>
+            <button onClick={() => setOpenId(null)} style={{ display:'flex', alignItems:'center', gap:4, background:'none', border:'none', cursor:'pointer', color:'var(--accent)', fontWeight:700, fontSize:14, padding:0, marginBottom:10 }}><ion-icon name="chevron-back" style={{ fontSize:16 }}></ion-icon>Collections</button>
+            <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:20, color:'var(--text)' }}>{active.name}</div>
+            <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:14 }}>{active.items.length} item{active.items.length===1?'':'s'}</div>
+            {active.items.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'32px 20px', color:'var(--text-muted)', fontSize:13 }}>Empty — save restaurants, plates, or platos here.</div>
+            ) : active.items.map((it) => {
+              const info = itemLabel(it); if (!info) return null;
+              const badge = { restaurant:'restaurant', plate:'fast-food', plato:'play-circle' }[it.type];
+              return (
+                <div key={it.type+it.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 4px', borderBottom:'1px solid var(--border)' }}>
+                  <span style={{ width:34, height:34, borderRadius:'50%', background:'var(--accent-soft)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><ion-icon name={badge} style={{ fontSize:16, color:'var(--accent)' }}></ion-icon></span>
+                  <div onClick={() => { if (info.restaurant) { onClose(); onSelect(info.restaurant); } }} style={{ flex:1, minWidth:0, cursor: info.restaurant?'pointer':'default' }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{info.title}</div>
+                    <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:1 }}>{it.type === 'restaurant' ? info.sub : it.type === 'plate' ? 'Saved plate' : 'Saved Plato'}</div>
+                  </div>
+                  {info.rating != null && <RatingBadge score={info.rating} size="sm" />}
+                  <button onClick={() => onRemove(active.id, it)} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}><ion-icon name="close" style={{ fontSize:18, color:'var(--text-muted)' }}></ion-icon></button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+              <ion-icon name="bookmark" style={{ fontSize:20, color:'var(--accent)' }}></ion-icon>
+              <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:20, color:'var(--text)' }}>Collections</div>
+            </div>
+            <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:16 }}>{total} saved · synced to @oliviaeats</div>
+            {collections.map((c) => (
+              <button key={c.id} onClick={() => setOpenId(c.id)} style={{ display:'flex', alignItems:'center', gap:12, width:'100%', padding:'12px 4px', background:'none', border:'none', borderBottom:'1px solid var(--border)', cursor:'pointer', textAlign:'left' }}>
+                <span style={{ width:40, height:40, borderRadius:12, background:'var(--accent-soft)', display:'flex', alignItems:'center', justifyContent:'center' }}><ion-icon name={c.system ? (c.id==='fav'?'heart':'bookmark') : 'albums'} style={{ fontSize:19, color:'var(--accent)' }}></ion-icon></span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:15, fontWeight:700, color:'var(--text)' }}>{c.name}</div>
+                  <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:1 }}>{c.items.length} item{c.items.length===1?'':'s'}</div>
+                </div>
+                <ion-icon name="chevron-forward" style={{ fontSize:18, color:'var(--text-muted)' }}></ion-icon>
+              </button>
+            ))}
+            {creating ? (
+              <div style={{ display:'flex', gap:8, marginTop:14 }}>
+                <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Collection name" style={{ flex:1, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'var(--surface)', padding:'0 12px', height:44, fontFamily:'var(--font-sans)', fontSize:14, color:'var(--text)', outline:'none' }} />
+                <Button label="Create" onClick={() => { if (name.trim()) { onCreate(name.trim()); setName(''); setCreating(false); } }} />
+              </div>
+            ) : (
+              <button onClick={() => setCreating(true)} style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, width:'100%', marginTop:16, padding:'13px 0', borderRadius:'var(--radius-lg)', border:'1px dashed var(--border)', background:'none', cursor:'pointer', color:'var(--accent)', fontWeight:800, fontSize:14, fontFamily:'var(--font-sans)' }}><ion-icon name="add" style={{ fontSize:18 }}></ion-icon>New collection</button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SaveSheet({ item, collections, onClose, onToggle, onCreate }) {
+  const [creating, setCreating] = React.useState(false);
+  const [name, setName] = React.useState('');
+  const has = (c) => c.items.some((i) => i.type === item.type && i.id === item.id);
+  return (
+    <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'flex-end', zIndex:80 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width:'100%', background:'var(--card)', borderTopLeftRadius:'var(--radius-xl)', borderTopRightRadius:'var(--radius-xl)', padding:'12px 16px 28px', fontFamily:'var(--font-sans)', animation:'plated-sheet-up 260ms cubic-bezier(.22,1,.36,1)' }}>
+        <div style={{ width:40, height:5, borderRadius:3, background:'var(--border)', margin:'0 auto 14px' }} />
+        <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:20, color:'var(--text)', marginBottom:14 }}>Save to…</div>
+        {collections.map((c) => {
+          const on = has(c);
+          return (
+            <button key={c.id} onClick={() => onToggle(c.id, item)} style={{ display:'flex', alignItems:'center', gap:12, width:'100%', padding:'12px 4px', background:'none', border:'none', borderBottom:'1px solid var(--border)', cursor:'pointer', textAlign:'left' }}>
+              <span style={{ width:38, height:38, borderRadius:11, background:'var(--accent-soft)', display:'flex', alignItems:'center', justifyContent:'center' }}><ion-icon name={c.system ? (c.id==='fav'?'heart':'bookmark') : 'albums'} style={{ fontSize:18, color:'var(--accent)' }}></ion-icon></span>
+              <span style={{ flex:1, fontSize:15, fontWeight:700, color:'var(--text)' }}>{c.name}</span>
+              <ion-icon name={on?'checkbox':'square-outline'} style={{ fontSize:22, color: on?'var(--accent)':'var(--text-muted)' }}></ion-icon>
+            </button>
+          );
+        })}
+        {creating ? (
+          <div style={{ display:'flex', gap:8, marginTop:14 }}>
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="New collection name" style={{ flex:1, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'var(--surface)', padding:'0 12px', height:44, fontFamily:'var(--font-sans)', fontSize:14, color:'var(--text)', outline:'none' }} />
+            <Button label="Add" onClick={() => { if (name.trim()) { onCreate(name.trim(), item); setName(''); setCreating(false); } }} />
+          </div>
+        ) : (
+          <button onClick={() => setCreating(true)} style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, width:'100%', marginTop:16, padding:'13px 0', borderRadius:'var(--radius-lg)', border:'1px dashed var(--border)', background:'none', cursor:'pointer', color:'var(--accent)', fontWeight:800, fontSize:14, fontFamily:'var(--font-sans)' }}><ion-icon name="add" style={{ fontSize:18 }}></ion-icon>New collection</button>
+        )}
+        <Button label="Done" size="lg" style={{ width:'100%', marginTop:16 }} onClick={onClose} />
+      </div>
+    </div>
+  );
+}
+
+function MapSettingsSheet({ onClose, mapTheme, setMapTheme, avoidTolls, setAvoidTolls, onOpenCollections, onOpenCategories, savedCount }) {
+  const seg = (val, label, icon) => (
+    <button onClick={() => setMapTheme(val)} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px 0', borderRadius:'var(--radius-md)', border:`1px solid ${mapTheme===val?'var(--accent)':'var(--border)'}`, background: mapTheme===val?'var(--accent-soft)':'var(--surface)', color:'var(--text)', fontWeight:700, fontSize:14, cursor:'pointer' }}>
+      <ion-icon name={icon} style={{ fontSize:16, color: mapTheme===val?'var(--accent)':'var(--text-muted)' }}></ion-icon>{label}
+    </button>
+  );
+  const linkRow = (icon, label, value, onClick) => (
+    <button onClick={onClick} style={{ display:'flex', alignItems:'center', gap:12, width:'100%', padding:'14px 4px', background:'none', border:'none', borderBottom:'1px solid var(--border)', cursor:'pointer', textAlign:'left' }}>
+      <ion-icon name={icon} style={{ fontSize:20, color:'var(--accent)' }}></ion-icon>
+      <span style={{ flex:1, fontSize:15, fontWeight:600, color:'var(--text)' }}>{label}</span>
+      {value && <span style={{ fontSize:13, color:'var(--text-muted)' }}>{value}</span>}
+      <ion-icon name="chevron-forward" style={{ fontSize:18, color:'var(--text-muted)' }}></ion-icon>
+    </button>
+  );
+  return (
+    <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'flex-end', zIndex:75 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width:'100%', background:'var(--card)', borderTopLeftRadius:'var(--radius-xl)', borderTopRightRadius:'var(--radius-xl)', padding:'12px 16px 28px', fontFamily:'var(--font-sans)', animation:'plated-sheet-up 260ms cubic-bezier(.22,1,.36,1)' }}>
+        <div style={{ width:40, height:5, borderRadius:3, background:'var(--border)', margin:'0 auto 14px' }} />
+        <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:20, color:'var(--text)', marginBottom:16 }}>Map settings</div>
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginBottom:8 }}>MAP APPEARANCE</div>
+        <div style={{ display:'flex', gap:10, marginBottom:20 }}>{seg('light','Light','sunny-outline')}{seg('dark','Dark','moon-outline')}</div>
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginBottom:8 }}>DIRECTIONS</div>
+        <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 4px', marginBottom:12 }}>
+          <ion-icon name="cash-outline" style={{ fontSize:20, color:'var(--text)' }}></ion-icon>
+          <span style={{ flex:1, fontSize:15, fontWeight:600, color:'var(--text)' }}>Avoid tolls</span>
+          <button onClick={() => setAvoidTolls(!avoidTolls)} style={{ width:48, height:28, borderRadius:999, border:'none', cursor:'pointer', background: avoidTolls?'var(--accent)':'var(--border)', position:'relative', transition:'background 150ms ease' }}>
+            <span style={{ position:'absolute', top:3, left: avoidTolls?23:3, width:22, height:22, borderRadius:'50%', background:'#fff', transition:'left 150ms ease', boxShadow:'0 1px 3px rgba(0,0,0,0.3)' }}></span>
+          </button>
+        </div>
+        <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginTop:8, marginBottom:2 }}>SAVED & FILTERS</div>
+        {linkRow('bookmark-outline', 'Collections', `${savedCount} saved`, () => { onClose(); onOpenCollections(); })}
+        {linkRow('pricetags-outline', 'Categories', null, () => { onClose(); onOpenCategories(); })}
+      </div>
+    </div>
+  );
+}
+
+const CATS = [
+  { key:'loved', label:'Loved', icon:'heart', color:'#E4483B' },
+  { key:'tried', label:'Been there', icon:'checkmark-circle', color:'#2E9E63' },
+  { key:'dining', label:'Fine dining', icon:'restaurant', color:'#251B10' },
+];
+
+function CategoriesSheet({ onClose, activeTypes, setActiveTypes }) {
+  const toggle = (k) => setActiveTypes((prev) => prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]);
+  return (
+    <div onClick={onClose} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'flex-end', zIndex:75 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width:'100%', background:'var(--card)', borderTopLeftRadius:'var(--radius-xl)', borderTopRightRadius:'var(--radius-xl)', padding:'12px 16px 28px', fontFamily:'var(--font-sans)', animation:'plated-sheet-up 260ms cubic-bezier(.22,1,.36,1)' }}>
+        <div style={{ width:40, height:5, borderRadius:3, background:'var(--border)', margin:'0 auto 14px' }} />
+        <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:20, color:'var(--text)', marginBottom:4 }}>Categories</div>
+        <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:16 }}>Choose which pins show on the map.</div>
+        {CATS.map((c) => {
+          const on = activeTypes.includes(c.key);
+          return (
+            <button key={c.key} onClick={() => toggle(c.key)} style={{ display:'flex', alignItems:'center', gap:12, width:'100%', padding:'12px 4px', background:'none', border:'none', borderBottom:'1px solid var(--border)', cursor:'pointer', textAlign:'left' }}>
+              <span style={{ width:32, height:32, borderRadius:'50%', background:c.color, display:'flex', alignItems:'center', justifyContent:'center' }}><ion-icon name={c.icon} style={{ fontSize:17, color:'#fff' }}></ion-icon></span>
+              <span style={{ flex:1, fontSize:15, fontWeight:700, color:'var(--text)' }}>{c.label}</span>
+              <ion-icon name={on?'checkbox':'square-outline'} style={{ fontSize:22, color: on?'var(--accent)':'var(--text-muted)' }}></ion-icon>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SettingsScreen({ onClose, appTheme, setAppTheme }) {
+  const [showAppearance, setShowAppearance] = React.useState(false);
+  const THEME_META = {
+    saffron: { label:'Saffron', description:'Upscale amber-gold on soft cream', palette:{ background:'#FFFDF8',surface:'#FBF3E2',card:'#FFFFFF',text:'#251B10',textMuted:'#8C7B61',border:'#EFE3CC',accent:'#B07207',accentSoft:'#FBEDCE',ratingHigh:'#2E9E63',ratingMid:'#D98E0B' } },
+    noir: { label:'Noir Gold', description:'Premium dark — charcoal & warm gold', palette:{ background:'#121110',surface:'#1C1813',card:'#221C14',text:'#F5F1E8',textMuted:'#A99F8C',border:'#33291B',accent:'#D9A441',accentSoft:'#2E2415',ratingHigh:'#6BD98A',ratingMid:'#E0A93E' } },
+  };
+  const Row = ({ icon, label, value, destructive, last, onClick }) => (
+    <button onClick={onClick} style={{ display:'flex', alignItems:'center', gap:14, width:'100%', padding:'15px 16px', background:'none', border:'none', borderBottom: last ? 'none' : '1px solid var(--border)', cursor:'pointer', textAlign:'left' }}>
+      <ion-icon name={icon} style={{ fontSize:20, color: destructive ? 'var(--rating-low)' : 'var(--text)' }}></ion-icon>
+      <span style={{ flex:1, fontSize:15, fontWeight:600, color: destructive ? 'var(--rating-low)' : 'var(--text)' }}>{label}</span>
+      {value && <span style={{ fontSize:14, color:'var(--text-muted)' }}>{value}</span>}
+      <ion-icon name="chevron-forward" style={{ fontSize:18, color:'var(--text-muted)' }}></ion-icon>
+    </button>
+  );
+  const Section = ({ title, children }) => (
+    <div style={{ marginBottom:24 }}>
+      <div style={{ fontSize:12, fontWeight:800, letterSpacing:0.5, color:'var(--text-muted)', marginBottom:8, marginLeft:4 }}>{title}</div>
+      <div style={{ borderRadius:'var(--radius-lg)', border:'1px solid var(--border)', overflow:'hidden', background:'var(--card)' }}>{children}</div>
+    </div>
+  );
+  return (
+    <div style={{ position:'absolute', inset:0, background:'var(--background)', display:'flex', flexDirection:'column', zIndex:70 }}>
+      <ScreenHeader title={showAppearance ? 'Appearance' : 'Settings'} closeMode={!showAppearance} onBack={() => showAppearance ? setShowAppearance(false) : onClose()} />
+      <div style={{ flex:1, overflowY:'auto', padding:16, fontFamily:'var(--font-sans)' }}>
+        {showAppearance ? (
+          <div>
+            <div style={{ fontSize:14, color:'var(--text-muted)', lineHeight:1.5, marginBottom:16 }}>Pick a theme — it applies instantly across the whole app.</div>
+            {['saffron','noir'].map((k) => (
+              <ThemePreviewCard key={k} theme={THEME_META[k]} selected={appTheme===k} onClick={() => setAppTheme(k)} />
+            ))}
+          </div>
+        ) : (
+          <>
+            <Section title="PREFERENCES">
+              <Row icon="color-palette-outline" label="Appearance" value={appTheme==='noir'?'Noir Gold':'Saffron'} onClick={() => setShowAppearance(true)} />
+              <Row icon="notifications-outline" label="Notifications" value="On" />
+              <Row icon="location-outline" label="Location" value="Chicago, IL" last />
+            </Section>
+            <Section title="ACCOUNT">
+              <Row icon="person-outline" label="Edit profile" />
+              <Row icon="cash-outline" label="Creator dashboard" />
+              <Row icon="hand-left-outline" label="Blocked users" value="None" />
+              <Row icon="trash-outline" label="Delete account" destructive last />
+            </Section>
+            <Section title="LEGAL & SAFETY">
+              <Row icon="document-text-outline" label="Terms & Community Guidelines" />
+              <Row icon="shield-checkmark-outline" label="Privacy Policy" />
+              <Row icon="mail-outline" label="Contact us" last />
+            </Section>
+            <Section title="MORE">
+              <Row icon="gift-outline" label="Invite friends" />
+              <Row icon="information-circle-outline" label="About Plated" value="v1.0" last />
+            </Section>
+            <button style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'15px 0', borderRadius:'var(--radius-lg)', border:'1px solid var(--border)', background:'none', cursor:'pointer' }}>
+              <ion-icon name="log-out-outline" style={{ fontSize:20, color:'var(--rating-low)' }}></ion-icon>
+              <span style={{ fontSize:15, fontWeight:800, color:'var(--rating-low)' }}>Sign out</span>
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Explore({ store }) {
+  const [filter, setFilter] = React.useState('Trending');
+  const [mode, setMode] = React.useState('platos');
+  const [selected, setSelected] = React.useState(null);
+  const [query, setQuery] = React.useState('');
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const [showCollections, setShowCollections] = React.useState(false);
+  const [showMapSettings, setShowMapSettings] = React.useState(false);
+  const [showCategories, setShowCategories] = React.useState(false);
+  const [mapTheme, setMapTheme] = React.useState('light');
+  const [avoidTolls, setAvoidTolls] = React.useState(false);
+  const [activeTypes, setActiveTypes] = React.useState(['loved','tried','dining']);
+  const [hitOnly, setHitOnly] = React.useState(false);
+  const { collections, savedIds, isSaved, toggleInCollection, createCollection, openSave } = store;
+  if (mode === 'platos') {
+    return (
+      <div style={{ flex:1, background:'#000', position:'relative', overflow:'hidden' }}>
+        <img src={PLATOS[0].poster} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+        <div style={{ position:'absolute', inset:0, background:'linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.85))' }} />
+        <div style={{ position:'absolute', top:14, left:0, right:0, display:'flex', justifyContent:'center' }}>
+          <ExploreToggle mode={mode} setMode={setMode} overlay />
+        </div>
+        <div style={{ position:'absolute', right:12, bottom:120, display:'flex', flexDirection:'column', gap:20, alignItems:'center' }}>
+          {[['heart','3.2K'],['chatbubble-ellipses','96'],['bag-handle','Order'],['arrow-redo','Share']].map(([icon,label]) => (
+            <div key={icon} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+              <ion-icon name={icon} style={{ fontSize:28, color:'#fff' }}></ion-icon>
+              <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>{label}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ position:'absolute', left:16, right:84, bottom:100 }}>
+          <div style={{ color:'#fff', fontWeight:800, fontSize:15, marginBottom:8 }}>Marcus Reed</div>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ fontFamily:'var(--font-display)', color:'#fff', fontSize:22 }}>{PLATOS[0].dishName}</div>
+            <RatingBadge score={PLATOS[0].rating} size="sm" />
+          </div>
+          <div style={{ color:'#FFD98A', fontSize:13, fontWeight:700, marginTop:6 }}>{PLATOS[0].restaurantName}</div>
+        </div>
+      </div>
+    );
+  }
+  if (mode === 'map') {
+    const circleBtn = { width:44, height:44, borderRadius:22, border:'1px solid var(--border)', background:'var(--card)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 3px 10px -4px rgba(58,42,14,0.3)' };
+    const pill = (active, onClick, children) => (
+      <button onClick={onClick} style={{ display:'flex', alignItems:'center', gap:6, padding:'0 16px', height:44, borderRadius:999, border:`1px solid ${active?'var(--accent)':'var(--border)'}`, background: active?'var(--card)':'var(--card)', color: active?'var(--accent)':'var(--text)', fontFamily:'var(--font-sans)', fontWeight:800, fontSize:13, cursor:'pointer', boxShadow:'0 3px 10px -4px rgba(58,42,14,0.3)', whiteSpace:'nowrap' }}>{children}</button>
+    );
+    return (
+      <div style={{ flex:1, position:'relative', overflow:'hidden' }}>
+        <ExploreMap onSelect={setSelected} saved={savedIds} query={query} mapTheme={mapTheme} activeTypes={activeTypes} hitOnly={hitOnly} />
+        {/* top row */}
+        <div style={{ position:'absolute', top:14, left:14, right:14, zIndex:500, display:'flex', alignItems:'flex-start', gap:10 }}>
+          <button onClick={() => setShowMapSettings(true)} title="Map settings" style={circleBtn}><ion-icon name="settings-outline" style={{ fontSize:20, color:'var(--text)' }}></ion-icon></button>
+          <div style={{ flex:1 }} />
+          <div style={{ boxShadow:'0 4px 14px -6px rgba(58,42,14,0.4)', borderRadius:999 }}><ExploreToggle mode={mode} setMode={setMode} /></div>
+          <div style={{ flex:1 }} />
+          <button onClick={() => setShowCollections(true)} title="Collection" style={circleBtn}><ion-icon name="bookmark" style={{ fontSize:20, color:'var(--accent)' }}></ion-icon></button>
+        </div>
+        {searchOpen && (
+          <div style={{ position:'absolute', top:70, left:14, right:14, zIndex:500, display:'flex', alignItems:'center', gap:8, background:'var(--card)', border:'1px solid var(--border)', borderRadius:999, padding:'0 14px', height:46, boxShadow:'0 4px 14px -6px rgba(58,42,14,0.4)' }}>
+            <ion-icon name="search" style={{ fontSize:18, color:'var(--text-muted)' }}></ion-icon>
+            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search restaurants, cuisines" style={{ flex:1, border:'none', outline:'none', background:'transparent', fontFamily:'var(--font-sans)', fontSize:14, fontWeight:500, color:'var(--text)' }} />
+            <ion-icon name="close-circle" onClick={() => { setQuery(''); setSearchOpen(false); }} style={{ fontSize:18, color:'var(--text-muted)', cursor:'pointer' }}></ion-icon>
+          </div>
+        )}
+        {/* bottom filter bar (Biter-style) — hidden while a place is open */}
+        {!selected && (
+        <div style={{ position:'absolute', bottom:34, left:0, right:0, zIndex:400, display:'flex', gap:10, padding:'0 14px', alignItems:'center', overflowX:'auto' }}>
+          <button onClick={() => setSearchOpen((v) => !v)} style={circleBtn}><ion-icon name="search" style={{ fontSize:19, color:'var(--text)' }}></ion-icon></button>
+          <button onClick={() => setShowCategories(true)} style={circleBtn}><ion-icon name="options-outline" style={{ fontSize:19, color:'var(--text)' }}></ion-icon></button>
+          {pill(hitOnly, () => setHitOnly(true), <><ion-icon name="bookmark" style={{ fontSize:16, color: hitOnly?'var(--accent)':'var(--text)' }}></ion-icon>My Table</>)}
+          {pill(!hitOnly, () => setHitOnly(false), <><ion-icon name="people-outline" style={{ fontSize:16 }}></ion-icon>Platers</>)}
+        </div>
+        )}
+        {selected && <RestaurantDetail r={selected} onClose={() => setSelected(null)} isSaved={isSaved(selected.id)} onSaveClick={() => openSave({ type:'restaurant', id:selected.id })} onSelect={setSelected} avoidTolls={avoidTolls} />}
+        {showCollections && <CollectionsSheet collections={collections} onClose={() => setShowCollections(false)} onSelect={setSelected} onRemove={toggleInCollection} onCreate={createCollection} />}
+        {showMapSettings && <MapSettingsSheet onClose={() => setShowMapSettings(false)} mapTheme={mapTheme} setMapTheme={setMapTheme} avoidTolls={avoidTolls} setAvoidTolls={setAvoidTolls} onOpenCollections={() => setShowCollections(true)} onOpenCategories={() => setShowCategories(true)} savedCount={savedIds.length} />}
+        {showCategories && <CategoriesSheet onClose={() => setShowCategories(false)} activeTypes={activeTypes} setActiveTypes={setActiveTypes} />}
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex:1, overflowY:'auto' }}>
+      <div style={{ padding:'16px 16px 0' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:24, letterSpacing:-0.5, color:'var(--text)' }}>Discover</div>
+          <div style={{ display:'flex', alignItems:'center', gap:4, color:'var(--text-muted)', fontSize:13, fontWeight:700 }}><ion-icon name="location" style={{ color:'var(--accent)', fontSize:13 }}></ion-icon>Chicago, IL</div>
+        </div>
+        <div style={{ display:'flex', justifyContent:'center', margin:'12px 0' }}>
+          <ExploreToggle mode={mode} setMode={setMode} />
+        </div>
+        <FilterChips options={['Trending','Top Rated','Most Reordered','Nearby']} value={filter} onChange={setFilter} />
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, padding:16 }}>
+        {DISCOVER.map((d, i) => (
+          <div key={d.dishName} onClick={() => setSelected(CHI[i % CHI.length])} style={{ cursor:'pointer' }}>
+            <PlateTile order={d} />
+          </div>
+        ))}
+      </div>
+      {selected && <RestaurantDetail r={selected} onClose={() => setSelected(null)} isSaved={isSaved(selected.id)} onSaveClick={() => openSave({ type:'restaurant', id:selected.id })} onSelect={setSelected} avoidTolls={avoidTolls} />}
+    </div>
+  );
+}
+
+function Phone({ children, theme }) {
+  return (
+    <div data-theme={theme === 'noir' ? 'noir' : undefined} style={{ width:390, height:780, background:'var(--background)', borderRadius:44, boxShadow:'0 30px 60px -20px rgba(0,0,0,0.35)', overflow:'hidden', position:'relative', display:'flex', flexDirection:'column', border:'8px solid #1a1a1a' }}>
+      {children}
+    </div>
+  );
+}
+
+function Onboarding({ onStart }) {
+  return (
+    <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 28px', fontFamily:'var(--font-sans)', background:'var(--background)', textAlign:'center' }}>
+      <div style={{ width:132, height:132, borderRadius:30, background:'linear-gradient(135deg,#F4B12A,#D9830B)', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', boxShadow:'0 16px 36px -14px rgba(217,131,11,0.6)' }}>
+        <span style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:38, letterSpacing:-1, color:'#2B1B08' }}>Plated</span>
+      </div>
+      <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:28, letterSpacing:-0.5, color:'var(--text)', marginTop:28, lineHeight:1.2 }}>Rate the dish,<br/>not the restaurant.</div>
+      <div style={{ fontSize:15, color:'var(--text-muted)', marginTop:12, lineHeight:1.5, maxWidth:280 }}>Discover the exact plates people love — then order the one that got vouched for.</div>
+      <div style={{ width:'100%', maxWidth:300, marginTop:36, display:'flex', flexDirection:'column', gap:12 }}>
+        <Button label="Get started" size="lg" style={{ width:'100%' }} onClick={onStart} />
+        <button onClick={onStart} style={{ background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-sans)', fontSize:14, fontWeight:700, color:'var(--text-muted)' }}>I already have an account</button>
+      </div>
+    </div>
+  );
+}
+
+function NotificationsScreen({ onClose }) {
+  return (
+    <div style={{ position:'absolute', inset:0, background:'var(--background)', display:'flex', flexDirection:'column', zIndex:70 }}>
+      <ScreenHeader title="Notifications" onBack={onClose} />
+      <div style={{ flex:1, overflowY:'auto', fontFamily:'var(--font-sans)' }}>
+        {NOTIFS.map((n) => (
+          <div key={n.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', borderBottom:'1px solid var(--border)', background: n.unread ? 'var(--accent-soft)' : 'transparent' }}>
+            <div style={{ position:'relative', flexShrink:0 }}>
+              <Avatar src={n.avatar} size={44} />
+              <span style={{ position:'absolute', right:-2, bottom:-2, width:20, height:20, borderRadius:10, background:n.tint, border:'2px solid var(--card)', display:'flex', alignItems:'center', justifyContent:'center' }}><ion-icon name={n.icon} style={{ fontSize:11, color:'#fff' }}></ion-icon></span>
+            </div>
+            <div style={{ flex:1, fontSize:14, color:'var(--text)', lineHeight:1.4 }}><b>{n.name}</b> {n.text}</div>
+            <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>{n.time}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PersonRow({ p }) {
+  const [following, setFollowing] = React.useState(!!p.following);
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px' }}>
+      <Avatar src={p.avatar} size={46} />
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:15, fontWeight:700, color:'var(--text)' }}>{p.name}</div>
+        <div style={{ fontSize:13, color:'var(--text-muted)' }}>@{p.handle}</div>
+      </div>
+      <button onClick={() => setFollowing((v) => !v)} style={{ padding:'8px 18px', borderRadius:'var(--radius-pill)', border: following ? '1px solid var(--border)' : 'none', background: following ? 'var(--surface)' : 'var(--accent)', color: following ? 'var(--text-muted)' : 'var(--accent-text)', fontSize:13, fontWeight:800, cursor:'pointer', fontFamily:'var(--font-sans)' }}>{following ? 'Following' : 'Follow'}</button>
+    </div>
+  );
+}
+
+function PeopleScreen({ onClose }) {
+  const [tab, setTab] = React.useState('suggested');
+  const tabs = [['suggested','Suggested'],['followers','Followers'],['following','Following']];
+  return (
+    <div style={{ position:'absolute', inset:0, background:'var(--background)', display:'flex', flexDirection:'column', zIndex:70 }}>
+      <ScreenHeader title="People" onBack={onClose} />
+      <div style={{ display:'flex', borderBottom:'1px solid var(--border)', fontFamily:'var(--font-sans)' }}>
+        {tabs.map(([k,label]) => (
+          <button key={k} onClick={() => setTab(k)} style={{ flex:1, padding:'12px 0', background:'none', border:'none', borderBottom:`2px solid ${tab===k?'var(--accent)':'transparent'}`, marginBottom:-1, cursor:'pointer', fontSize:14, fontWeight:800, color: tab===k?'var(--accent)':'var(--text-muted)' }}>{label}</button>
+        ))}
+      </div>
+      <div style={{ flex:1, overflowY:'auto' }}>
+        {tab === 'suggested' ? (
+          <div style={{ padding:16 }}>
+            <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:14 }}>People with taste like yours</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:12 }}>
+              {PEOPLE.suggested.map((c) => <SuggestedFriendCard key={c.name} contact={c} />)}
+            </div>
+          </div>
+        ) : (
+          PEOPLE[tab].map((p) => <PersonRow key={p.handle} p={p} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Home({ store }) {
+  const [notifsOpen, setNotifsOpen] = React.useState(false);
+  const [peopleOpen, setPeopleOpen] = React.useState(false);
+  const unread = NOTIFS.filter((n) => n.unread).length;
+  return (
+    <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', position:'relative' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 16px 12px', borderBottom:'1px solid var(--border)' }}>
+        <Logo size={22} showMark={false} />
+        <div style={{ display:'flex', gap:18, alignItems:'center' }}>
+          <button onClick={() => setPeopleOpen(true)} style={{ background:'none', border:'none', cursor:'pointer', padding:0, display:'flex' }}><ion-icon name="people-outline" style={{ fontSize:23, color:'var(--text)' }}></ion-icon></button>
+          <button onClick={() => setNotifsOpen(true)} style={{ background:'none', border:'none', cursor:'pointer', padding:0, position:'relative', display:'flex' }}>
+            <ion-icon name="notifications-outline" style={{ fontSize:23, color:'var(--text)' }}></ion-icon>
+            {unread > 0 && <span style={{ position:'absolute', top:-3, right:-3, minWidth:16, height:16, borderRadius:8, background:'var(--order-cta, #D9480F)', color:'#fff', fontSize:9, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 3px', fontFamily:'var(--font-sans)' }}>{unread}</span>}
+          </button>
+        </div>
+      </div>
+      <div style={{ padding:'16px 0 0' }}>
+        <PlateCard order={FEED[0]} onSave={() => store.openSave({ type:'plate', id:FEED[0].dishName, name:FEED[0].dishName })} />
+        <div style={{ marginBottom:16 }}>
+          <SectionHeader title="Suggested for you" subtitle="People with taste like yours" actionLabel="See all" onAction={() => setPeopleOpen(true)} />
+          <div style={{ display:'flex', gap:12, padding:'0 16px', overflowX:'auto' }}>
+            {CONTACTS.map((c) => <SuggestedFriendCard key={c.name} contact={c} />)}
+          </div>
+        </div>
+        <PlateCard order={FEED[1]} onSave={() => store.openSave({ type:'plate', id:FEED[1].dishName, name:FEED[1].dishName })} />
+        <PlateCard order={FEED[2]} onSave={() => store.openSave({ type:'plate', id:FEED[2].dishName, name:FEED[2].dishName })} />
+      </div>
+      {notifsOpen && <NotificationsScreen onClose={() => setNotifsOpen(false)} />}
+      {peopleOpen && <PeopleScreen onClose={() => setPeopleOpen(false)} />}
+    </div>
+  );
+}
+
+function CreateFlow({ onDone }) {
+  const [screen, setScreen] = React.useState('sheet');
+  const [dish, setDish] = React.useState('');
+  const [notes, setNotes] = React.useState('');
+  const [rating, setRating] = React.useState(8);
+
+  if (screen === 'sheet') {
+    return <ActionSheet open onClose={onDone} title="Create" actions={[
+      { label:'Rate a plate', icon:'restaurant', onClick:() => setScreen('plate') },
+      { label:'Post a Plato', icon:'videocam', onClick:() => setScreen('plato') },
+    ]} />;
+  }
+  const isPlato = screen === 'plato';
+  return (
+    <div style={{ position:'absolute', inset:0, background:'var(--background)', display:'flex', flexDirection:'column', zIndex:40 }}>
+      <ScreenHeader title={isPlato ? 'New Plato' : 'New plate'} closeMode onBack={onDone} />
+      <div style={{ flex:1, overflowY:'auto', padding:16 }}>
+        <div style={{ width:'100%', aspectRatio: isPlato ? 0.75 : 1.4, borderRadius:'var(--radius-lg)', background:'var(--surface)', border:'1px solid var(--border)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10, marginBottom:14 }}>
+          <ion-icon name={isPlato ? 'videocam' : 'camera'} style={{ fontSize:32, color:'var(--text-muted)' }}></ion-icon>
+          <span style={{ fontSize:13, color:'var(--text-muted)', fontWeight:600, textAlign:'center', padding:'0 20px' }}>{isPlato ? 'Record or upload a short vertical clip of the plate' : 'Take a photo or pick a sample'}</span>
+        </div>
+        <div style={{ display:'flex', gap:10, marginBottom:20 }}>
+          <Button label={isPlato ? 'Record' : 'Take photo'} variant="primary" icon={isPlato ? 'videocam' : 'camera'} style={{ flex:1 }} />
+          <Button label="Library" variant="secondary" icon={isPlato ? 'film' : 'images'} style={{ flex:1 }} />
+        </div>
+        <TextField label="Restaurant" icon="search" placeholder="Search restaurants near you" />
+        <TextField label="Dish name" value={dish} onChange={setDish} placeholder={isPlato ? 'e.g. Pepperoni Pie' : 'e.g. Truffle Smash Burger'} />
+        <TextField label={isPlato ? 'Caption' : 'Your notes'} multiline value={notes} onChange={setNotes} placeholder={isPlato ? 'What makes this plate worth watching?' : 'What made it great?'} />
+        <div style={{ fontSize:18, fontWeight:700, color:'var(--text)', margin:'8px 0 12px' }}>Your rating</div>
+        <div style={{ padding:16, borderRadius:'var(--radius-lg)', border:'1px solid var(--border)', background:'var(--surface)' }}>
+          <RatingInput value={rating} onChange={setRating} />
+        </div>
+      </div>
+      <div style={{ padding:16, borderTop:'1px solid var(--border)' }}>
+        <Button label={isPlato ? 'Post Plato' : 'Post plate'} size="lg" icon="checkmark" style={{ width:'100%' }} onClick={onDone} />
+      </div>
+    </div>
+  );
+}
+
+function Ranks() {
+  const [cat, setCat] = React.useState('plates');
+  const [scope, setScope] = React.useState('nearby');
+  const rows = RANKS_DATA[cat][scope];
+  const seg = (val, cur, set, label) => (
+    <button onClick={() => set(val)} style={{ flex:1, padding:'9px 0', borderRadius:999, border:'none', cursor:'pointer', fontWeight:800, fontSize:14,
+      background: cur===val ? 'var(--accent)' : 'transparent', color: cur===val ? 'var(--accent-text)' : 'var(--text-muted)' }}>{label}</button>
+  );
+  const chip = (val, label, icon) => (
+    <button onClick={() => setScope(val)} style={{ display:'flex', alignItems:'center', gap:5, padding:'8px 16px', borderRadius:999, cursor:'pointer', fontSize:13, fontWeight:700,
+      border:`1px solid ${scope===val ? 'var(--accent)' : 'var(--border)'}`, background: scope===val ? 'var(--accent)' : 'var(--surface)', color: scope===val ? 'var(--accent-text)' : 'var(--text-muted)' }}>
+      <ion-icon name={icon} style={{ fontSize:14 }}></ion-icon>{label}
+    </button>
+  );
+  return (
+    <div style={{ flex:1, overflowY:'auto', padding:16 }}>
+      <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:24, letterSpacing:-0.5, color:'var(--text)', marginBottom:14 }}>Ranks</div>
+      <div style={{ display:'flex', background:'var(--surface)', borderRadius:999, padding:3, marginBottom:12 }}>
+        {seg('plates', cat, setCat, 'Best Plates')}
+        {seg('restaurants', cat, setCat, 'Best Restaurants')}
+      </div>
+      <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+        {chip('nearby', 'Nearby', 'location')}
+        {chip('global', 'Global', 'earth')}
+      </div>
+      {rows.map((r, i) => <RankRow key={cat+scope+r.title} rank={i+1} image={r.image} title={r.title} subtitle={r.subtitle} score={r.score} rounded={false} />)}
+    </div>
+  );
+}
+
+const USER_REVIEWS = [
+  { image:food(6), title:'Sushi Yasuda', subtitle:'Japanese · East Village', score:9.5, note:'Best omakase in the city — go for the counter seat.' },
+  { image:food(2), title:'Los Tacos No. 1', subtitle:'Mexican · Chelsea', score:9.2, note:'Al pastor is unreal. Cash line moves fast.' },
+  { image:food(1), title:'Tappo', subtitle:'Italian · River North', score:8.7, note:'Solid Margherita, charming room, a touch pricey.' },
+];
+
+function Profile({ appTheme, setAppTheme }) {
+  const [ptab, setPtab] = React.useState('plates');
+  const [showSettings, setShowSettings] = React.useState(false);
+  const tabs = [
+    { key:'plates', icon:'grid-outline' },
+    { key:'platos', icon:'play-circle-outline' },
+    { key:'reviews', icon:'star-outline' },
+  ];
+  return (
+    <div style={{ flex:1, overflowY:'auto', padding:'20px 16px', position:'relative' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+        <Avatar src={avatar(5)} size={72} verified />
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:'var(--font-display)', fontWeight:600, fontSize:20, color:'var(--text)' }}>Olivia Chen</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)' }}>@oliviaeats · Chicago, IL</div>
+        </div>
+        <button onClick={() => setShowSettings(true)} title="Settings" style={{ width:40, height:40, borderRadius:20, border:'1px solid var(--border)', background:'var(--surface)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+          <ion-icon name="settings-outline" style={{ fontSize:20, color:'var(--text)' }}></ion-icon>
+        </button>
+      </div>
+      <div style={{ display:'flex', marginTop:20, padding:'16px 0', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)' }}>
+        <StatPill value={128} label="Plates" />
+        <StatPill value={4300} label="Followers" />
+        <StatPill value={312} label="Following" />
+      </div>
+      <div style={{ marginTop:16, display:'flex', justifyContent:'center' }}><SocialLinks socials={{ instagram:'oliviaeats', tiktok:'oliviaeats' }} /></div>
+
+      <div style={{ display:'flex', marginTop:20, borderBottom:'1px solid var(--border)' }}>
+        {tabs.map((t) => (
+          <button key={t.key} onClick={() => setPtab(t.key)} style={{ flex:1, display:'flex', justifyContent:'center', padding:'12px 0', background:'none', border:'none', borderBottom:`2px solid ${ptab===t.key ? 'var(--accent)' : 'transparent'}`, cursor:'pointer', marginBottom:-1 }}>
+            <ion-icon name={t.icon} style={{ fontSize:24, color: ptab===t.key ? 'var(--accent)' : 'var(--text-muted)' }}></ion-icon>
+          </button>
+        ))}
+      </div>
+
+      {ptab === 'plates' && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:16 }}>
+          {DISCOVER.map((d) => <PlateTile key={d.dishName} order={d} />)}
+        </div>
+      )}
+      {ptab === 'platos' && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:16 }}>
+          {PLATOS.map((v) => <PlatoTile key={v.dishName} video={v} />)}
+        </div>
+      )}
+      {ptab === 'reviews' && (
+        <div style={{ marginTop:16 }}>
+          {USER_REVIEWS.map((r) => (
+            <div key={r.title} style={{ display:'flex', gap:12, padding:12, borderRadius:'var(--radius-lg)', border:'1px solid var(--border)', background:'var(--card)', marginBottom:10 }}>
+              <img src={r.image} style={{ width:56, height:56, borderRadius:'var(--radius-md)', objectFit:'cover', flexShrink:0 }} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <div style={{ flex:1, fontSize:15, fontWeight:700, letterSpacing:-0.2, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.title}</div>
+                  <RatingBadge score={r.score} size="sm" />
+                </div>
+                <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:1 }}>{r.subtitle}</div>
+                <div style={{ fontSize:13, color:'var(--text)', marginTop:6, lineHeight:1.4 }}>{r.note}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {showSettings && <SettingsScreen onClose={() => setShowSettings(false)} appTheme={appTheme} setAppTheme={setAppTheme} />}
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = React.useState('index');
+  const [creating, setCreating] = React.useState(false);
+  const [signedIn, setSignedIn] = React.useState(false);
+  const [appTheme, setAppTheme] = React.useState('saffron');
+  const [saveTarget, setSaveTarget] = React.useState(null);
+  const [collections, setCollections] = React.useState(() => {
+    try { const c = JSON.parse(localStorage.getItem('plated.collections') || 'null'); if (c && Array.isArray(c)) return c; } catch {}
+    return [ { id:'want', name:'Want to try', system:true, items:[] }, { id:'fav', name:'Favorites', system:true, items:[] } ];
+  });
+  const persist = (next) => { setCollections(next); try { localStorage.setItem('plated.collections', JSON.stringify(next)); } catch {} };
+  const savedIds = [...new Set(collections.flatMap((c) => c.items.filter((i) => i.type === 'restaurant').map((i) => i.id)))];
+  const toggleInCollection = (collectionId, item) => persist(collections.map((c) => {
+    if (c.id !== collectionId) return c;
+    const has = c.items.some((i) => i.type === item.type && i.id === item.id);
+    return { ...c, items: has ? c.items.filter((i) => !(i.type === item.type && i.id === item.id)) : [...c.items, item] };
+  }));
+  const createCollection = (name, firstItem) => { const id = 'c' + Date.now(); persist([...collections, { id, name, items: firstItem ? [firstItem] : [] }]); return id; };
+  const store = { collections, savedIds, isSaved:(id) => savedIds.includes(id), toggleInCollection, createCollection, openSave:setSaveTarget };
+  const screens = { index:<Home store={store} />, explore:<Explore store={store} />, leaderboard:<Ranks/>, profile:<Profile appTheme={appTheme} setAppTheme={setAppTheme} store={store} /> };
+  return (
+    <Phone theme={appTheme}>
+      {!signedIn ? (
+        <Onboarding onStart={() => setSignedIn(true)} />
+      ) : (
+        <>
+          <div style={{ flex:1, display:'flex', flexDirection:'column', position:'relative', minHeight:0 }}>
+            {screens[tab]}
+            {creating && <CreateFlow onDone={() => setCreating(false)} />}
+            {saveTarget && <SaveSheet item={saveTarget} collections={collections} onClose={() => setSaveTarget(null)} onToggle={toggleInCollection} onCreate={createCollection} />}
+          </div>
+          <TabBar active={tab} onChange={setTab} onCreate={() => setCreating(true)} createOpen={creating} />
+        </>
+      )}
+    </Phone>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body></html>
