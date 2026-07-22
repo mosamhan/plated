@@ -13,7 +13,7 @@ import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-const TABS = ['Best Restaurants', 'Best Plates', 'Top Creators'];
+const TABS = ['Best Plates', 'Best Restaurants', 'Top Creators'];
 
 export default function Leaderboard() {
   const { colors } = useTheme();
@@ -54,7 +54,7 @@ export default function Leaderboard() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ paddingTop: insets.top + 8 }}>
-        <Text style={[typography.title, { color: colors.text, paddingHorizontal: spacing.lg }]}>Leaderboard</Text>
+        <Text style={[typography.title, { color: colors.text, paddingHorizontal: spacing.lg }]}>Ranks</Text>
         <Text style={[styles.sub, { color: colors.textMuted }]}>{subtitle}</Text>
 
         {/* Location scope — hidden on the (global-by-nature) creators tab */}
