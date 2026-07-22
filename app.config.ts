@@ -21,6 +21,12 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: false,
     bundleIdentifier: 'com.samhan.plated',
+    icon: {
+      // Wordmark tile — Fraunces "Plated" on the amber-gold gradient (light) /
+      // charcoal (dark). iOS 18+ switches automatically with system appearance.
+      light: './assets/images/icon.png',
+      dark: './assets/images/icon-dark.png',
+    },
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
     },

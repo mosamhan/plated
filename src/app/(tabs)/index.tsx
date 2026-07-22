@@ -126,7 +126,7 @@ export default function Home() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {/* Fixed header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
-        <Logo size={22} />
+        <Logo size={22} showMark={false} />
         <View style={styles.headerActions}>
           <Pressable onPress={() => router.push('/search')} hitSlop={8}>
             <Ionicons name="search" size={23} color={colors.text} />

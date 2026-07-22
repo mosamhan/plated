@@ -1,0 +1,8 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Android adaptive monochrome: white "Plated" wordmark, system tints it.
+       Requires Fraunces (600 SemiBold). Source of truth for
+       assets/images/android-icon-monochrome.png. Previously shipped as a
+       fully-opaque blank white square (broken placeholder) — fixed here. -->
+  <text x="512" y="552" text-anchor="middle" font-family="Fraunces, serif" font-weight="600"
+        font-size="148" letter-spacing="-4" fill="#FFFFFF">Plated</text>
+</svg>

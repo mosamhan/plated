@@ -1,0 +1,10 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Plated wordmark — dark (Noir Gold) tile. Requires Fraunces (600 SemiBold).
+    Source of truth for assets/images/icon-dark.png (iOS 18+ dark-appearance
+    app icon variant, wired via app.config.ts ios.icon.dark).
+  -->
+  <rect width="1024" height="1024" fill="#14120F"/>
+  <text x="512" y="552" text-anchor="middle" font-family="Fraunces, serif" font-weight="600"
+        font-size="148" letter-spacing="-4" fill="#D9A441">Plated</text>
+</svg>

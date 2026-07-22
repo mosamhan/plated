@@ -1,4 +1,7 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- No longer the shipped app icon (see wordmark-light.svg / wordmark-dark.svg
+       for that). Kept as the canonical PlatedMark glyph geometry — used by
+       src/components/PlatedMark.tsx, favicon.png, and in-map pin fallbacks. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#F4B12A"/>

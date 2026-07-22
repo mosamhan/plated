@@ -1,0 +1,8 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Android adaptive foreground: cream "Plated" wordmark centered in the
+       safe zone (bg color set by adaptiveIcon.backgroundColor). Requires
+       Fraunces (600 SemiBold). Source of truth for
+       assets/images/android-icon-foreground.png. -->
+  <text x="512" y="552" text-anchor="middle" font-family="Fraunces, serif" font-weight="600"
+        font-size="148" letter-spacing="-4" fill="#F8EFD8">Plated</text>
+</svg>
