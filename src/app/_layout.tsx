@@ -11,6 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider } from '@/store/AuthContext';
+import { CollectionsProvider } from '@/store/CollectionsContext';
 import { DataProvider } from '@/store/DataContext';
 import { LocationProvider } from '@/store/LocationContext';
 import { PlatosProvider } from '@/store/PlatosContext';
@@ -60,7 +61,9 @@ export default function RootLayout() {
             <LocationProvider>
               <DataProvider>
                 <PlatosProvider>
-                  <RootNav />
+                  <CollectionsProvider>
+                    <RootNav />
+                  </CollectionsProvider>
                 </PlatosProvider>
               </DataProvider>
             </LocationProvider>

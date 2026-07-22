@@ -8,9 +8,12 @@ in a local `.env` file. **Never commit `.env`** — it's gitignored.
 1. Go to **https://supabase.com** → sign in (GitHub login works) → **New project**.
 2. Name it `plated`, pick a strong DB password (save it), choose the region closest to you,
    and create. Wait ~2 min for it to provision.
-3. **Run the schema:** left sidebar → **SQL Editor** → **+ New query** → paste the entire contents
-   of [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) → **Run**.
-   You should see "Success. No rows returned."
+3. **Run the schema:** apply every file in [`supabase/migrations/`](supabase/migrations/) in
+   numeric order (`0001_init.sql` → `0002_platos.sql` → … → `0005_collections.sql`). Two ways:
+   - **SQL Editor** (simplest): sidebar → **SQL Editor** → **+ New query** → paste each file's
+     contents in order → **Run** (expect "Success. No rows returned." each time). `0002`+ are
+     idempotent, so re-running a file is safe.
+   - **Supabase CLI** (if you use it): `supabase link` then `supabase db push`.
 4. **Get your keys:** sidebar → **Project Settings** → **API**. Copy:
    - **Project URL** → `EXPO_PUBLIC_SUPABASE_URL`
    - **anon public** key → `EXPO_PUBLIC_SUPABASE_ANON_KEY`
