@@ -25,7 +25,9 @@ import { User } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
 import { useData } from '@/store/DataContext';
+import { useLocation } from '@/store/LocationContext';
 import { usePlatos } from '@/store/PlatosContext';
+import { displayFont } from '@/theme/fonts';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -40,6 +42,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked, restaurantFor } = useData();
+  const { location } = useLocation();
   const { platos } = usePlatos();
   const [tab, setTab] = useState<'plates' | 'reviews' | 'platos'>('plates');
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -68,10 +71,21 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {isCurrent ? (
-        <View style={[styles.topbar, { paddingTop: insets.top + 8 }]}>
-          <Text style={[styles.handleTitle, { color: colors.text }]}>@{user.handle}</Text>
-          <Pressable onPress={() => router.push('/settings')} hitSlop={8}>
-            <Ionicons name="settings-outline" size={23} color={colors.text} />
+        <View style={[styles.selfHeader, { paddingTop: insets.top + 8 }]}>
+          <Avatar uri={user.avatar} size={72} verified={user.verified} ring />
+          <View style={{ flex: 1 }}>
+            <Text style={[typography.heading, { color: colors.text, fontFamily: displayFont }]} numberOfLines={1}>
+              {user.name}
+            </Text>
+            <Text style={[styles.selfMeta, { color: colors.textMuted }]} numberOfLines={1}>
+              @{user.handle} · {location.label}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => router.push('/settings')}
+            hitSlop={8}
+            style={[styles.settingsGear, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+            <Ionicons name="settings-outline" size={20} color={colors.text} />
           </Pressable>
         </View>
       ) : (
@@ -112,18 +126,25 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
         </View>
       ) : (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
-        {/* Identity */}
-        <View style={styles.identity}>
-          <Avatar uri={user.avatar} size={86} verified={user.verified} ring />
-          <Text style={[typography.title, { color: colors.text, marginTop: 12 }]}>{user.name}</Text>
-          <Text style={[styles.handle, { color: colors.textMuted }]}>@{user.handle}</Text>
-          {!!user.bio && (
-            <Text style={[styles.bio, { color: colors.text }]}>{user.bio}</Text>
-          )}
-          <View style={{ marginTop: 12 }}>
-            <SocialLinks socials={user.socials} />
+        {/* Identity — the compact header above already covers avatar/name/handle
+            for the current user; other profiles keep the original centered block. */}
+        {isCurrent ? (
+          !!user.bio && (
+            <Text style={[styles.bio, { color: colors.text, marginTop: 4 }]}>{user.bio}</Text>
+          )
+        ) : (
+          <View style={styles.identity}>
+            <Avatar uri={user.avatar} size={86} verified={user.verified} ring />
+            <Text style={[typography.title, { color: colors.text, marginTop: 12 }]}>{user.name}</Text>
+            <Text style={[styles.handle, { color: colors.textMuted }]}>@{user.handle}</Text>
+            {!!user.bio && (
+              <Text style={[styles.bio, { color: colors.text }]}>{user.bio}</Text>
+            )}
+            <View style={{ marginTop: 12 }}>
+              <SocialLinks socials={user.socials} />
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Stats */}
         <View style={[styles.stats, { borderColor: colors.border }]}>
@@ -135,6 +156,12 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <StatPill value={user.friends} label="Friends" />
         </View>
+
+        {isCurrent && (
+          <View style={{ marginTop: spacing.md, alignItems: 'center' }}>
+            <SocialLinks socials={user.socials} />
+          </View>
+        )}
 
         {/* Actions */}
         <View style={{ paddingHorizontal: PADDING, marginTop: spacing.lg }}>
@@ -154,11 +181,11 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
         {isCurrent && <CompensationCard user={user} onInvite={onInvite} />}
         {!isCurrent && user.compensationEligible && <CreatorPartnerBadge user={user} />}
 
-        {/* Tabs */}
+        {/* Tabs — icon-only (grid / play-circle / star), active = accent + 2px bottom border */}
         <View style={[styles.tabRow, { borderColor: colors.border }]}>
-          <TabButton label="Plates" active={tab === 'plates'} onPress={() => setTab('plates')} />
-          <TabButton label="Reviews" active={tab === 'reviews'} onPress={() => setTab('reviews')} />
-          <TabButton label="Platos" active={tab === 'platos'} onPress={() => setTab('platos')} />
+          <TabButton icon="grid" active={tab === 'plates'} onPress={() => setTab('plates')} />
+          <TabButton icon="play-circle" active={tab === 'platos'} onPress={() => setTab('platos')} />
+          <TabButton icon="star" active={tab === 'reviews'} onPress={() => setTab('reviews')} />
         </View>
 
         {tab === 'plates' && (
@@ -168,6 +195,19 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
             ))}
             {orders.length === 0 && (
               <Text style={[styles.empty, { color: colors.textMuted }]}>No plates yet.</Text>
+            )}
+          </View>
+        )}
+
+        {tab === 'platos' && (
+          <View style={styles.grid}>
+            {userPlatos.map((p) => (
+              <PlatoTile key={p.id} video={p} width={tileWidth} />
+            ))}
+            {userPlatos.length === 0 && (
+              <Text style={[styles.empty, { color: colors.textMuted }]}>
+                {isCurrent ? 'No Platos yet — tap + to post one.' : 'No Platos yet.'}
+              </Text>
             )}
           </View>
         )}
@@ -201,31 +241,38 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
             )}
           </View>
         )}
-
-        {tab === 'platos' && (
-          <View style={styles.grid}>
-            {userPlatos.map((p) => (
-              <PlatoTile key={p.id} video={p} width={tileWidth} />
-            ))}
-            {userPlatos.length === 0 && (
-              <Text style={[styles.empty, { color: colors.textMuted }]}>
-                {isCurrent ? 'No Platos yet — tap + to post one.' : 'No Platos yet.'}
-              </Text>
-            )}
-          </View>
-        )}
       </ScrollView>
       )}
     </View>
   );
 }
 
-function TabButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function TabButton({
+  icon,
+  active,
+  onPress,
+}: {
+  icon: 'grid' | 'play-circle' | 'star';
+  active: boolean;
+  onPress: () => void;
+}) {
   const { colors } = useTheme();
   return (
     <Pressable style={styles.tabBtn} onPress={onPress}>
-      <Text style={[styles.tabLabel, { color: active ? colors.text : colors.textMuted }]}>{label}</Text>
-      <View style={{ height: 2, marginTop: 8, backgroundColor: active ? colors.accent : 'transparent', borderRadius: 2 }} />
+      <Ionicons
+        name={active ? icon : (`${icon}-outline` as keyof typeof Ionicons.glyphMap)}
+        size={24}
+        color={active ? colors.accent : colors.textMuted}
+      />
+      <View
+        style={{
+          height: 2,
+          width: '100%',
+          marginTop: 10,
+          backgroundColor: active ? colors.accent : 'transparent',
+          borderRadius: 2,
+        }}
+      />
     </Pressable>
   );
 }
@@ -299,14 +346,22 @@ function CreatorPartnerBadge({ user }: { user: User }) {
 }
 
 const styles = StyleSheet.create({
-  topbar: {
+  selfHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: spacing.md,
     paddingHorizontal: PADDING,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
-  handleTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+  selfMeta: { fontSize: 13, fontWeight: '600', marginTop: 2 },
+  settingsGear: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   blockedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: 10 },
   blockedTitle: { fontSize: 18, fontWeight: '800' },
   blockedBody: { fontSize: 14, fontWeight: '500', textAlign: 'center', lineHeight: 20 },
@@ -362,8 +417,7 @@ const styles = StyleSheet.create({
     marginHorizontal: PADDING,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  tabBtn: { flex: 1, alignItems: 'center', paddingBottom: 0 },
-  tabLabel: { fontSize: 15, fontWeight: '800', paddingTop: 4 },
+  tabBtn: { flex: 1, alignItems: 'center', paddingTop: 12 },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
