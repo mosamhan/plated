@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExploreMap, deriveCategory, type MapRestaurant, type PinCategory } from '@/components/ExploreMap';
 import { FilterChips } from '@/components/FilterChips';
+import { CategoriesSheet, CollectionsSheet, MapSettingsSheet } from '@/components/MapSheets';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
 import { RestaurantDetailSheet } from '@/components/RestaurantDetailSheet';
@@ -76,7 +77,11 @@ export default function Explore() {
   const [activeTypes, setActiveTypes] = useState<PinCategory[]>(['loved', 'been', 'dining']);
   const [myTableOnly, setMyTableOnly] = useState(false);
   const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null);
-  const mapTheme: 'light' | 'dark' = colors.isDark ? 'dark' : 'light';
+  const [avoidTolls, setAvoidTolls] = useState(false);
+  // Map appearance can be overridden independently of the app theme (design §3).
+  const [mapThemeOverride, setMapThemeOverride] = useState<'light' | 'dark' | null>(null);
+  const [activeSheet, setActiveSheet] = useState<null | 'settings' | 'collections' | 'categories'>(null);
+  const mapTheme: 'light' | 'dark' = mapThemeOverride ?? (colors.isDark ? 'dark' : 'light');
 
   const data = useMemo(() => exploreOrders(filter), [exploreOrders, filter]);
 
@@ -140,11 +145,15 @@ export default function Explore() {
 
         {/* Top row: settings gear · mode toggle · collections bookmark */}
         <View style={[styles.mapTopRow, { top: insets.top + 14 }]}>
-          <Pressable style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Pressable
+            onPress={() => setActiveSheet('settings')}
+            style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="options-outline" size={20} color={colors.text} />
           </Pressable>
           <ModeToggle mode={mode} setMode={setMode} overlay />
-          <Pressable style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Pressable
+            onPress={() => setActiveSheet('collections')}
+            style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="bookmark-outline" size={19} color={colors.text} />
           </Pressable>
         </View>
@@ -158,7 +167,9 @@ export default function Explore() {
               style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Ionicons name="search" size={19} color={colors.text} />
             </Pressable>
-            <Pressable style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable
+              onPress={() => setActiveSheet('categories')}
+              style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Ionicons name="options" size={19} color={colors.text} />
             </Pressable>
             <MapPill label="My Table" icon="bookmark" active={myTableOnly} onPress={() => setMyTableOnly(true)} />
@@ -166,7 +177,32 @@ export default function Explore() {
           </View>
         )}
 
-        <RestaurantDetailSheet restaurantId={selectedRestaurant} onClose={() => setSelectedRestaurant(null)} />
+        <RestaurantDetailSheet
+          restaurantId={selectedRestaurant}
+          onClose={() => setSelectedRestaurant(null)}
+          avoidTolls={avoidTolls}
+        />
+
+        {activeSheet === 'settings' && (
+          <MapSettingsSheet
+            onClose={() => setActiveSheet(null)}
+            mapTheme={mapTheme}
+            setMapTheme={setMapThemeOverride}
+            avoidTolls={avoidTolls}
+            setAvoidTolls={setAvoidTolls}
+            onOpenCollections={() => setActiveSheet('collections')}
+            onOpenCategories={() => setActiveSheet('categories')}
+          />
+        )}
+        {activeSheet === 'collections' && (
+          <CollectionsSheet
+            onClose={() => setActiveSheet(null)}
+            onSelectRestaurant={(id) => setSelectedRestaurant(id)}
+          />
+        )}
+        {activeSheet === 'categories' && (
+          <CategoriesSheet onClose={() => setActiveSheet(null)} activeTypes={activeTypes} setActiveTypes={setActiveTypes} />
+        )}
       </View>
     );
   }
