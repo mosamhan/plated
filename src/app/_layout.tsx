@@ -37,6 +37,7 @@ function RootNav() {
         <Stack.Screen name="create-plato" options={{ presentation: 'modal' }} />
         <Stack.Screen name="edit-profile" options={{ presentation: 'modal' }} />
         <Stack.Screen name="report" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="people" />
       </Stack>
     </>
   );

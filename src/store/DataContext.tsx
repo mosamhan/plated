@@ -60,6 +60,9 @@ interface DataContextValue {
   topRestaurants: () => RestaurantWithRating[];
   topPlates: () => Order[];
   topCreators: () => User[];
+  followingUsers: () => User[];
+  followerUsers: () => User[];
+  suggestedUsers: () => User[];
   exploreOrders: (filter: string) => Order[];
   searchRestaurants: (query: string) => Restaurant[];
 
@@ -116,6 +119,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [reordered, setReordered] = useState<Set<string>>(new Set());
   const [following, setFollowing] = useState<Set<string>>(new Set());
+  const [followers, setFollowers] = useState<Set<string>>(new Set());
   const [blocked, setBlocked] = useState<Set<string>>(new Set());
   const [currentUserId, setCurrentUserId] = useState<string>(CURRENT_USER_ID);
   const [loading, setLoading] = useState<boolean>(live);
@@ -128,6 +132,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setComments(COMMENTS);
     setNotifications(NOTIFICATIONS);
     setFollowing(new Set(['u1', 'u3']));
+    // Mock followers: a couple of users "follow" you so the People tab isn't empty.
+    setFollowers(new Set(['u2', 'u4', 'u5']));
     setCurrentUserId(CURRENT_USER_ID);
     setLoading(false);
   }, []);
@@ -135,7 +141,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Load everything from Supabase ──────────────────────────────────────────
   const loadFromSupabase = useCallback(async (uid: string) => {
     setLoading(true);
-    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, blocksRes, notifsRes] =
+    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes] =
       await Promise.all([
         supabase
           .from('profiles')
@@ -147,6 +153,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         supabase.from('saves').select('order_id').eq('user_id', uid),
         supabase.from('reorders').select('order_id').eq('user_id', uid),
         supabase.from('follows').select('following_id').eq('follower_id', uid),
+        supabase.from('follows').select('follower_id').eq('following_id', uid),
         supabase.from('blocks').select('blocked_id').eq('blocker_id', uid),
         supabase.from('notifications').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
       ]);
@@ -159,6 +166,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setSaved(new Set((savesRes.data ?? []).map((r) => r.order_id)));
     setReordered(new Set((reordersRes.data ?? []).map((r) => r.order_id)));
     setFollowing(new Set((followsRes.data ?? []).map((r) => r.following_id)));
+    setFollowers(new Set((followersRes.data ?? []).map((r) => r.follower_id)));
     setBlocked(new Set((blocksRes.data ?? []).map((r) => r.blocked_id)));
     setNotifications((notifsRes.data ?? []).map(mapNotification));
     setCurrentUserId(uid);
@@ -236,6 +244,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const topCreators = useCallback(
     () => Object.values(profileMap).filter((u) => u.id !== currentUserId && !blocked.has(u.id)).sort((a, b) => b.followers - a.followers),
     [profileMap, currentUserId, blocked],
+  );
+  // People lists for the People tab (resolve id sets → users, drop blocked/self).
+  const followingUsers = useCallback(
+    () => [...following].filter((id) => id !== currentUserId && !blocked.has(id)).map(userFor),
+    [following, currentUserId, blocked, userFor],
+  );
+  const followerUsers = useCallback(
+    () => [...followers].filter((id) => id !== currentUserId && !blocked.has(id)).map(userFor),
+    [followers, currentUserId, blocked, userFor],
+  );
+  // Suggested = top creators you don't already follow.
+  const suggestedUsers = useCallback(
+    () => topCreators().filter((u) => !following.has(u.id)),
+    [topCreators, following],
   );
   const exploreOrders = useCallback(
     (filter: string) => {
@@ -465,6 +487,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       topRestaurants,
       topPlates,
       topCreators,
+      followingUsers,
+      followerUsers,
+      suggestedUsers,
       exploreOrders,
       searchRestaurants,
       isLiked,
@@ -488,7 +513,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateProfile,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, exploreOrders, searchRestaurants, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, updateProfile],
+    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, updateProfile],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { Avatar } from '@/components/Avatar';
+import { FilterChips } from '@/components/FilterChips';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { AppNotification, NotificationKind } from '@/data/types';
 import { useData } from '@/store/DataContext';
@@ -20,6 +21,17 @@ const KIND_ICON: Record<NotificationKind, keyof typeof Ionicons.glyphMap> = {
   milestone: 'trophy',
 };
 
+// Category filters — the user asked to split likes / reorders / follows out.
+const FILTERS = ['All', 'Likes', 'Reorders', 'Follows'] as const;
+type Filter = (typeof FILTERS)[number];
+
+const FILTER_KINDS: Record<Filter, NotificationKind[] | null> = {
+  All: null,
+  Likes: ['like'],
+  Reorders: ['reorder'],
+  Follows: ['follow'],
+};
+
 function timeAgo(iso: string): string {
   const mins = Math.max(1, Math.round((Date.now() - +new Date(iso)) / 60000));
   if (mins < 60) return `${mins}m`;
@@ -32,6 +44,7 @@ export default function Notifications() {
   const { colors } = useTheme();
   const router = useRouter();
   const { notifications, markAllNotificationsRead, userFor } = useData();
+  const [filter, setFilter] = useState<Filter>('All');
 
   // Snapshot what was unread when the screen opened: the badge clears right
   // away, but the row highlights persist while the user scans the list.
@@ -43,6 +56,11 @@ export default function Notifications() {
     markAllNotificationsRead();
   }, [markAllNotificationsRead]);
 
+  const visible = useMemo(() => {
+    const kinds = FILTER_KINDS[filter];
+    return kinds ? notifications.filter((n) => kinds.includes(n.kind)) : notifications;
+  }, [notifications, filter]);
+
   const open = (n: AppNotification) => {
     if (n.orderId) router.push(`/order/${n.orderId}`);
     else if (n.userId) router.push(`/user/${n.userId}`);
@@ -50,9 +68,10 @@ export default function Notifications() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScreenHeader title="Activity" />
+      <ScreenHeader title="Notifications" rightIcon="people-outline" onRight={() => router.push('/people')} />
+      <FilterChips options={[...FILTERS]} value={filter} onChange={(v) => setFilter(v as Filter)} />
       <FlatList
-        data={notifications}
+        data={visible}
         keyExtractor={(n) => n.id}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}
         renderItem={({ item, index }) => {

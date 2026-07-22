@@ -15,6 +15,9 @@ export function FilterChips({ options, value, onChange }: Props) {
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      // A horizontal ScrollView otherwise stretches to fill a flex-column
+      // parent's height; keep it sized to its chips.
+      style={styles.scroll}
       contentContainerStyle={styles.row}>
       {options.map((opt) => {
         const active = opt === value;
@@ -44,7 +47,8 @@ export function FilterChips({ options, value, onChange }: Props) {
 }
 
 const styles = StyleSheet.create({
-  row: { paddingHorizontal: spacing.lg, gap: spacing.sm },
+  scroll: { flexGrow: 0 },
+  row: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: spacing.sm, alignItems: 'center' },
   chip: {
     paddingHorizontal: 16,
     paddingVertical: 9,

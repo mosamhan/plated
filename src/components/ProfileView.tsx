@@ -148,13 +148,13 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           </View>
         )}
 
-        {/* Stats */}
+        {/* Stats — Followers/Following open the People screen on that tab. */}
         <View style={[styles.stats, { borderColor: colors.border }]}>
           <StatPill value={orders.length} label="Plates" />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <StatPill value={user.followers} label="Followers" />
+          <StatPill value={user.followers} label="Followers" onPress={() => router.push('/people?tab=followers')} />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <StatPill value={user.following} label="Following" />
+          <StatPill value={user.following} label="Following" onPress={() => router.push('/people?tab=following')} />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <StatPill value={user.friends} label="Friends" />
         </View>
