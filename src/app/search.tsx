@@ -70,7 +70,7 @@ export default function Search() {
             value={query}
             onChangeText={setQuery}
             returnKeyType="search"
-            placeholder="Search restaurants & dishes"
+            placeholder="Search restaurants, cafés & dishes"
             autoFocus
             style={{ paddingVertical: 8 }}
           />

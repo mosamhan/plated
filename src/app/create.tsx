@@ -272,7 +272,7 @@ export default function CreatePlate() {
                 onChangeText={setQuery}
                 onSubmitEditing={runSearch}
                 returnKeyType="search"
-                placeholder="Search restaurants near you"
+                placeholder="Search restaurants & cafés near you"
                 placeholderTextColor={colors.textMuted}
                 style={[styles.searchInput, { color: colors.text }]}
               />

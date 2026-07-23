@@ -310,7 +310,7 @@ export default function Explore() {
           style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Ionicons name="search" size={18} color={colors.textMuted} />
           <Text style={[styles.searchText, { color: colors.textMuted }]}>
-            Search dishes, restaurants, people
+            Search dishes, drinks, places, people
           </Text>
         </Pressable>
         <FilterChips options={FILTERS} value={filter} onChange={setFilter} />

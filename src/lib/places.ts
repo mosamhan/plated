@@ -15,6 +15,25 @@ const KEY = process.env.EXPO_PUBLIC_FOURSQUARE_KEY;
 const BASE = 'https://places-api.foursquare.com';
 const API_VERSION = '2025-06-17';
 
+/**
+ * The full dining + café/drinks family of Foursquare (legacy-hex) category ids.
+ * Scopes search to food & drink venues — restaurants AND cafés, coffee, tea
+ * rooms, dessert, juice/smoothie, bakeries, bubble tea — so Plated covers
+ * drinks and cafés (like Beli), not just sit-down restaurants. (The bare
+ * "Food" root alone excludes tea rooms/cafés, which hid places like
+ * "Match A | Tea Room".)
+ */
+const DINING_CATEGORY_IDS = [
+  '4d4b7105d754a06374d81259', // Food (root: restaurants)
+  '4bf58dd8d48988d1e0931735', // Coffee Shop
+  '4bf58dd8d48988d16d941735', // Café
+  '4bf58dd8d48988d1dc931735', // Tea Room
+  '4bf58dd8d48988d1d0941735', // Dessert Shop
+  '4bf58dd8d48988d112941735', // Juice Bar
+  '4bf58dd8d48988d16a941735', // Bakery
+  '5e18993feee47d000759b256', // Bubble Tea Shop
+].join(',');
+
 export const isPlacesConfigured = Boolean(KEY);
 
 export interface PlaceResult {
@@ -156,8 +175,8 @@ export async function searchPlaces(
   const params = new URLSearchParams({
     query: query || 'restaurant',
     limit: '20',
-    // bias to food & dining venues
-    fsq_category_ids: '4d4b7105d754a06374d81259',
+    // Scope to restaurants AND cafés/drinks (not just the "Food" root).
+    fsq_category_ids: DINING_CATEGORY_IDS,
   });
   if (opts.ll) {
     params.set('ll', opts.ll);

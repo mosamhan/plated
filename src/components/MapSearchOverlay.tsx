@@ -83,7 +83,7 @@ export function MapSearchOverlay({
             autoFocus
             value={query}
             onChangeText={setQuery}
-            placeholder={`Search restaurants near ${location.label}`}
+            placeholder={`Search restaurants & cafés near ${location.label}`}
             placeholderTextColor={colors.textMuted}
             style={[styles.input, { color: colors.text }]}
             returnKeyType="search"
@@ -111,7 +111,7 @@ export function MapSearchOverlay({
               </Pressable>
             ))}
             {results.length === 0 && !searching && (
-              <Text style={[styles.empty, { color: colors.textMuted }]}>No restaurants found near you.</Text>
+              <Text style={[styles.empty, { color: colors.textMuted }]}>No spots found near you.</Text>
             )}
           </>
         ) : (
@@ -137,7 +137,7 @@ export function MapSearchOverlay({
               </Pressable>
             ))}
             {suggested.length === 0 && (
-              <Text style={[styles.empty, { color: colors.textMuted }]}>Search to find restaurants near you.</Text>
+              <Text style={[styles.empty, { color: colors.textMuted }]}>Search to find restaurants & cafés near you.</Text>
             )}
           </>
         )}
