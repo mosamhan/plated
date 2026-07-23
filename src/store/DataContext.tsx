@@ -73,6 +73,8 @@ interface DataContextValue {
   searchRestaurants: (query: string) => Restaurant[];
   /** Crowd-sourced menu: distinct dish names posted at a restaurant. */
   menuForRestaurant: (restaurantId: string) => string[];
+  /** Aggregated menu: each dish + its community avg rating and post count. */
+  restaurantMenu: (restaurantId: string) => { name: string; rating: number; count: number }[];
 
   // interactions
   isLiked: (orderId: string) => boolean;
@@ -289,20 +291,33 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Crowd-sourced menu — distinct dish names people have posted at a restaurant
   // (across every order's items, plus each order's headline dish). Powers the
   // "items you had" suggestions when posting.
-  const menuForRestaurant = useCallback(
-    (restaurantId: string): string[] => {
-      const seen = new Map<string, string>(); // lowercased → original casing
+  // Aggregate every order's items (or its headline dish for legacy posts) at a
+  // restaurant into a menu: one row per distinct dish with its average rating
+  // and how many times it's been posted. Most-posted first.
+  const restaurantMenu = useCallback(
+    (restaurantId: string) => {
+      const agg = new Map<string, { name: string; sum: number; count: number }>();
       for (const o of orders) {
         if (o.restaurantId !== restaurantId) continue;
-        const names = o.items?.length ? o.items.map((i) => i.name) : [o.dishName];
-        for (const n of names) {
-          const key = n.trim().toLowerCase();
-          if (key && !seen.has(key)) seen.set(key, n.trim());
+        const pairs = o.items?.length ? o.items : [{ name: o.dishName, rating: o.rating }];
+        for (const it of pairs) {
+          const key = it.name.trim().toLowerCase();
+          if (!key) continue;
+          const cur = agg.get(key) ?? { name: it.name.trim(), sum: 0, count: 0 };
+          cur.sum += it.rating;
+          cur.count += 1;
+          agg.set(key, cur);
         }
       }
-      return [...seen.values()];
+      return [...agg.values()]
+        .map((e) => ({ name: e.name, rating: Math.round((e.sum / e.count) * 10) / 10, count: e.count }))
+        .sort((a, b) => b.count - a.count || b.rating - a.rating);
     },
     [orders],
+  );
+  const menuForRestaurant = useCallback(
+    (restaurantId: string): string[] => restaurantMenu(restaurantId).map((m) => m.name),
+    [restaurantMenu],
   );
 
   // ── Interactions (optimistic state update + background Supabase write) ──────
@@ -534,6 +549,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       exploreOrders,
       searchRestaurants,
       menuForRestaurant,
+      restaurantMenu,
       isLiked,
       toggleLike,
       isSaved,
@@ -555,7 +571,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addOrder,
       updateProfile,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, updateProfile],
+    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, updateProfile],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

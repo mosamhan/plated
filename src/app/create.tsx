@@ -17,9 +17,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
 import { RatingInput } from '@/components/RatingInput';
+import { RestaurantMenuSheet, type MenuEntry } from '@/components/RestaurantMenuSheet';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { TextField } from '@/components/TextField';
-import { foodPhoto } from '@/data/images';
 import { showAlert } from '@/lib/dialog';
 import { success } from '@/lib/haptics';
 import { fetchMenuItems, isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
@@ -29,8 +29,6 @@ import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
-
-const SAMPLE_PHOTOS = Array.from({ length: 15 }, (_, i) => foodPhoto(i));
 
 export default function CreatePlate() {
   const { colors } = useTheme();
@@ -43,7 +41,7 @@ export default function CreatePlate() {
     fsqCuisine?: string;
     fsqLocation?: string;
   }>();
-  const { restaurants, restaurantFor, addOrder, menuForRestaurant } = useData();
+  const { restaurants, restaurantFor, addOrder, menuForRestaurant, restaurantMenu } = useData();
   const { userId } = useAuth();
   const { placeQuery } = useLocation();
 
@@ -63,8 +61,11 @@ export default function CreatePlate() {
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
 
-  const [photo, setPhoto] = useState<string>(SAMPLE_PHOTOS[0]);
+  const [photo, setPhoto] = useState<string>('');
   const [description, setDescription] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Manual override of which added item is the post's headline (else auto = best).
+  const [highlightOverride, setHighlightOverride] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -108,8 +109,22 @@ export default function CreatePlate() {
   const selectedLabel = selectedRestaurant?.name ?? place?.name;
   const canPost = (!!restaurantId || !!place) && items.length > 0 && !posting;
 
-  // Headline = highest-rated item (mirrors what the post will show).
-  const headline = items.length ? [...items].sort((a, b) => b.rating - a.rating)[0] : null;
+  // Headline = the user's manual pick if set & still present, else the
+  // highest-rated item (mirrors what the post will show).
+  const headline = items.length
+    ? (highlightOverride && items.find((it) => it.name === highlightOverride)) ||
+      [...items].sort((a, b) => b.rating - a.rating)[0]
+    : null;
+
+  // Menu shown in the "View menu" sheet: crowd-sourced (this restaurant's
+  // aggregated dishes) + any structured API items, deduped.
+  const menuEntries: MenuEntry[] = (() => {
+    const crowd = restaurantId ? restaurantMenu(restaurantId) : [];
+    const seen = new Map<string, MenuEntry>();
+    for (const e of crowd) seen.set(e.name.toLowerCase(), e);
+    for (const n of apiMenu) if (!seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), { name: n, rating: 0, count: 0 });
+    return [...seen.values()];
+  })();
 
   // Menu suggestions: hybrid of the crowd-sourced menu (dishes already posted
   // here) + the paid API menu, deduped, minus what's already on this order,
@@ -135,7 +150,10 @@ export default function CreatePlate() {
     setDraftName('');
     setDraftRating(8);
   };
-  const removeItem = (name: string) => setItems((p) => p.filter((it) => it.name !== name));
+  const removeItem = (name: string) => {
+    setItems((p) => p.filter((it) => it.name !== name));
+    if (highlightOverride === name) setHighlightOverride(null);
+  };
 
   const runSearch = async () => {
     if (!query.trim()) return;
@@ -186,7 +204,14 @@ export default function CreatePlate() {
         keyboardShouldPersistTaps="handled">
         {/* Photo */}
         <View>
-          <Image source={{ uri: photo }} style={[styles.preview, { backgroundColor: colors.surface }]} contentFit="cover" />
+          {photo ? (
+            <Image source={{ uri: photo }} style={[styles.preview, { backgroundColor: colors.surface }]} contentFit="cover" />
+          ) : (
+            <View style={[styles.preview, styles.previewEmpty, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons name="camera-outline" size={30} color={colors.textMuted} />
+              <Text style={[styles.previewHint, { color: colors.textMuted }]}>Add a photo of your plate</Text>
+            </View>
+          )}
           {uploading && (
             <View style={[styles.uploadOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
               <ActivityIndicator color="#fff" />
@@ -204,40 +229,40 @@ export default function CreatePlate() {
             <Text style={[styles.photoBtnText, { color: colors.text }]}>Library</Text>
           </Pressable>
         </View>
-        <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Or pick a sample</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
-          {SAMPLE_PHOTOS.map((p) => (
-            <Pressable key={p} onPress={() => setPhoto(p)}>
-              <Image
-                source={{ uri: p }}
-                style={[styles.thumb, { borderColor: p === photo ? colors.accent : colors.border, borderWidth: p === photo ? 3 : 1 }]}
-                contentFit="cover"
-              />
-            </Pressable>
-          ))}
-        </ScrollView>
 
         {/* Restaurant */}
         <Text style={[styles.fieldLabel, { color: colors.textMuted, marginTop: spacing.xl }]}>Restaurant</Text>
 
         {selectedLabel ? (
-          <View style={[styles.selectedCard, { backgroundColor: colors.accentSoft }]}>
-            <Ionicons name="location" size={18} color={colors.accent} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.selName, { color: colors.text }]} numberOfLines={1}>{selectedLabel}</Text>
-              {(selectedRestaurant?.cuisine || place?.cuisine) && (
-                <Text style={[styles.selMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                  {selectedRestaurant?.cuisine ?? place?.cuisine}
-                  {place?.location ? ` · ${place.location}` : ''}
-                </Text>
+          <>
+            <View style={[styles.selectedCard, { backgroundColor: colors.accentSoft }]}>
+              <Ionicons name="location" size={18} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.selName, { color: colors.text }]} numberOfLines={1}>{selectedLabel}</Text>
+                {(selectedRestaurant?.cuisine || place?.cuisine) && (
+                  <Text style={[styles.selMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                    {selectedRestaurant?.cuisine ?? place?.cuisine}
+                    {place?.location ? ` · ${place.location}` : ''}
+                  </Text>
+                )}
+              </View>
+              {!params.restaurantId && !params.fsqId && (
+                <Pressable onPress={clearSelection} hitSlop={8}>
+                  <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 13 }}>Change</Text>
+                </Pressable>
               )}
             </View>
-            {!params.restaurantId && !params.fsqId && (
-              <Pressable onPress={clearSelection} hitSlop={8}>
-                <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 13 }}>Change</Text>
-              </Pressable>
-            )}
-          </View>
+            {/* View the restaurant's menu and add + rate items from it. */}
+            <Pressable
+              onPress={() => setMenuOpen(true)}
+              style={[styles.menuBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons name="restaurant-outline" size={17} color={colors.accent} />
+              <Text style={[styles.menuBtnText, { color: colors.text }]}>
+                View menu{menuEntries.length ? ` · ${menuEntries.length}` : ''}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </Pressable>
+          </>
         ) : isPlacesConfigured ? (
           <View>
             <View style={[styles.searchRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -294,26 +319,36 @@ export default function CreatePlate() {
           What did you have?
         </Text>
         <Text style={[styles.subhint, { color: colors.textMuted }]}>
-          Rate each dish. Your post highlights the highest-rated one — the rest give the
-          restaurant’s other dishes their own ratings.
+          Rate each dish. Your post highlights the highest-rated one by default — tap another
+          dish to highlight it instead. The rest give the restaurant’s dishes their own ratings.
         </Text>
 
-        {/* Added items */}
+        {/* Added items — tap a row to make it the highlighted dish. */}
         {items.map((it) => {
           const isBest = headline?.name === it.name;
           return (
-            <View key={it.name} style={[styles.itemRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Pressable
+              key={it.name}
+              onPress={() => setHighlightOverride(it.name)}
+              style={[
+                styles.itemRow,
+                { backgroundColor: colors.surface, borderColor: isBest ? colors.accent : colors.border, borderWidth: isBest ? 1.5 : StyleSheet.hairlineWidth },
+              ]}>
               <View style={[styles.itemScore, { backgroundColor: colors.accent }]}>
                 <Text style={[styles.itemScoreText, { color: colors.accentText }]}>{it.rating.toFixed(1)}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.itemName, { color: colors.text }]} numberOfLines={1}>{it.name}</Text>
-                {isBest && <Text style={[styles.bestTag, { color: colors.accent }]}>★ Highlighted dish</Text>}
+                {isBest ? (
+                  <Text style={[styles.bestTag, { color: colors.accent }]}>★ Highlighted dish</Text>
+                ) : (
+                  <Text style={[styles.tapTag, { color: colors.textMuted }]}>Tap to highlight</Text>
+                )}
               </View>
               <Pressable onPress={() => removeItem(it.name)} hitSlop={8}>
                 <Ionicons name="close-circle" size={22} color={colors.textMuted} />
               </Pressable>
-            </View>
+            </Pressable>
           );
         })}
 
@@ -375,12 +410,24 @@ export default function CreatePlate() {
           loading={posting}
         />
       </View>
+
+      {/* Restaurant menu — add & rate dishes straight from the menu. */}
+      <RestaurantMenuSheet
+        visible={menuOpen}
+        restaurantName={selectedLabel ?? 'Restaurant'}
+        menu={menuEntries}
+        addedNames={items.map((it) => it.name)}
+        onAdd={(name, r) => addItem(name, r)}
+        onClose={() => setMenuOpen(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   preview: { width: '100%', aspectRatio: 1.4, borderRadius: radius.lg, marginBottom: spacing.md },
+  previewEmpty: { alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: StyleSheet.hairlineWidth, borderStyle: 'dashed' },
+  previewHint: { fontSize: 13, fontWeight: '600' },
   uploadOverlay: {
     position: 'absolute',
     top: 0,
@@ -405,7 +452,17 @@ const styles = StyleSheet.create({
   },
   photoBtnText: { fontSize: 14, fontWeight: '800' },
   fieldLabel: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
-  thumb: { width: 64, height: 64, borderRadius: radius.md },
+  menuBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  menuBtnText: { flex: 1, fontSize: 14, fontWeight: '800' },
   selectedCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -459,6 +516,7 @@ const styles = StyleSheet.create({
   itemScoreText: { fontSize: 15, fontWeight: '900' },
   itemName: { fontSize: 15, fontWeight: '700' },
   bestTag: { fontSize: 12, fontWeight: '800', marginTop: 2 },
+  tapTag: { fontSize: 12, fontWeight: '500', marginTop: 2 },
   suggestWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   suggestChip: {
     flexDirection: 'row',

@@ -38,7 +38,6 @@ export function MapSettingsSheet({
   setAvoidTolls,
   myTableOnly,
   setMyTableOnly,
-  onSearch,
   onOpenCollections,
   onOpenCategories,
 }: {
@@ -49,7 +48,6 @@ export function MapSettingsSheet({
   setAvoidTolls: (v: boolean) => void;
   myTableOnly: boolean;
   setMyTableOnly: (v: boolean) => void;
-  onSearch: () => void;
   onOpenCollections: () => void;
   onOpenCategories: () => void;
 }) {
@@ -101,10 +99,6 @@ export function MapSettingsSheet({
       </View>
 
       <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>FIND</Text>
-      {linkRow('search', 'Search places', null, () => {
-        onClose();
-        onSearch();
-      })}
       {linkRow('pricetags-outline', 'Categories', null, () => {
         onClose();
         onOpenCategories();

@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } fr
 
 import { FloatingAddButton } from '@/components/FloatingAddButton';
 import { PlateTile } from '@/components/PlateTile';
+import { RatingBadge } from '@/components/RatingBadge';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { openDirections, openReservation } from '@/lib/external';
 import { useData } from '@/store/DataContext';
@@ -20,10 +21,11 @@ export default function RestaurantDetail() {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
-  const { restaurantWithRating, ordersByRestaurant } = useData();
+  const { restaurantWithRating, ordersByRestaurant, restaurantMenu } = useData();
 
   const restaurant = restaurantWithRating(id);
   const orders = ordersByRestaurant(id);
+  const menu = restaurantMenu(id);
 
   if (!restaurant) {
     return (
@@ -103,6 +105,28 @@ export default function RestaurantDetail() {
               <Text style={{ color: colors.textMuted }}>Be the first to rate a plate here.</Text>
             )}
           </View>
+
+          {/* Menu — every dish rated here + its community score. */}
+          {menu.length > 0 && (
+            <>
+              <Text style={[typography.heading, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+                Menu
+              </Text>
+              <View>
+                {menu.map((m) => (
+                  <View key={m.name} style={[styles.menuRow, { borderBottomColor: colors.border }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.menuName, { color: colors.text }]} numberOfLines={1}>{m.name}</Text>
+                      <Text style={[styles.menuMeta, { color: colors.textMuted }]}>
+                        {m.count} {m.count === 1 ? 'rating' : 'ratings'}
+                      </Text>
+                    </View>
+                    <RatingBadge score={m.rating} size="sm" />
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -144,4 +168,13 @@ const styles = StyleSheet.create({
   },
   actionText: { fontSize: 14, fontWeight: '800' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  menuName: { fontSize: 15, fontWeight: '700' },
+  menuMeta: { fontSize: 12, fontWeight: '500', marginTop: 1 },
 });

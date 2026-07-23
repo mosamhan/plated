@@ -188,15 +188,12 @@ export default function Explore() {
           routeColor={colors.accent}
         />
 
-        {/* Top row: a single controls menu (left) + the mode toggle. Everything
-            that used to be in the bottom bar now lives in the menu — press or
-            hold the menu button to open it. My-Table/Platers is shown as a small
-            state badge on the button so the active filter stays visible. */}
+        {/* Top row: controls menu (left, single tap) · mode toggle · search bar
+            (right). The menu holds filters/appearance/collections; its badge
+            shows the active My-Table/Platers filter. */}
         <View style={[styles.mapTopRow, { top: insets.top + 14 }]}>
           <Pressable
             onPress={() => setActiveSheet('settings')}
-            onLongPress={() => setActiveSheet('settings')}
-            delayLongPress={200}
             style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="menu" size={22} color={colors.text} />
             <View style={[styles.menuBadge, { backgroundColor: colors.accent, borderColor: colors.card }]}>
@@ -204,7 +201,12 @@ export default function Explore() {
             </View>
           </Pressable>
           <ModeToggle mode={mode} setMode={setMode} overlay />
-          <View style={styles.mapCircleGhost} />
+          <Pressable
+            onPress={() => router.push('/search')}
+            style={[styles.mapSearch, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="search" size={16} color={colors.textMuted} />
+            <Text style={[styles.mapSearchText, { color: colors.textMuted }]}>Search</Text>
+          </Pressable>
         </View>
 
         {/* In-app route banner — distance + ETA, with clear + hand-off options.
@@ -260,7 +262,6 @@ export default function Explore() {
             setAvoidTolls={setAvoidTolls}
             myTableOnly={myTableOnly}
             setMyTableOnly={setMyTableOnly}
-            onSearch={() => router.push('/search')}
             onOpenCollections={() => setActiveSheet('collections')}
             onOpenCategories={() => setActiveSheet('categories')}
           />
@@ -377,8 +378,21 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
   },
-  // Invisible spacer opposite the menu button so the toggle stays centered.
-  mapCircleGhost: { width: 44, height: 44 },
+  mapSearch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 44,
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  mapSearchText: { fontSize: 14, fontWeight: '700' },
   menuBadge: {
     position: 'absolute',
     right: -1,

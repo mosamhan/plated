@@ -34,12 +34,13 @@ export function RestaurantDetailSheet({
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { restaurantWithRating, ordersByRestaurant, userFor } = useData();
+  const { restaurantWithRating, ordersByRestaurant, userFor, restaurantMenu } = useData();
   const { isSaved, openSaveSheet } = useCollections();
 
   const visible = restaurantId != null;
   const restaurant = restaurantId ? restaurantWithRating(restaurantId) : undefined;
   const orders = restaurantId ? ordersByRestaurant(restaurantId) : [];
+  const menu = restaurantId ? restaurantMenu(restaurantId) : [];
 
   // Top raters — the distinct authors who rated a plate here, best score first.
   const raters = restaurantId
@@ -154,6 +155,26 @@ export function RestaurantDetailSheet({
                 )}
               </View>
 
+              {/* Menu — every dish rated here, with its community score. */}
+              {menu.length > 0 && (
+                <>
+                  <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>MENU</Text>
+                  <View style={{ gap: 0 }}>
+                    {menu.map((m) => (
+                      <View key={m.name} style={[styles.menuRow, { borderBottomColor: colors.border }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.plateName, { color: colors.text }]} numberOfLines={1}>{m.name}</Text>
+                          <Text style={[styles.menuMeta, { color: colors.textMuted }]}>
+                            {m.count} {m.count === 1 ? 'rating' : 'ratings'}
+                          </Text>
+                        </View>
+                        <RatingBadge score={m.rating} size="sm" />
+                      </View>
+                    ))}
+                  </View>
+                </>
+              )}
+
               {/* Top raters */}
               {raters.length > 0 && (
                 <>
@@ -236,5 +257,7 @@ const styles = StyleSheet.create({
   },
   plateThumb: { width: 48, height: 48, borderRadius: 10 },
   plateName: { flex: 1, fontSize: 14, fontWeight: '700' },
+  menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth },
+  menuMeta: { fontSize: 12, fontWeight: '500', marginTop: 1 },
   raterName: { fontSize: 12, fontWeight: '700' },
 });
