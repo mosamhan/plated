@@ -87,7 +87,7 @@ export default function RestaurantDetail() {
               <Text style={[styles.actionText, { color: colors.text }]}>Directions</Text>
             </Pressable>
             <Pressable
-              onPress={() => openReservation('opentable', restaurant)}
+              onPress={() => openReservation('search', restaurant)}
               style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Ionicons name="calendar" size={16} color={colors.accent} />
               <Text style={[styles.actionText, { color: colors.text }]}>Reserve</Text>

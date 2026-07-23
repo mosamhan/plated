@@ -13,6 +13,7 @@ import { formatCount } from '@/components/StatPill';
 import { PlatoVideo } from '@/data/platos';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { buildPlatoShareMessage } from '@/lib/invite';
+import { useCollections } from '@/store/CollectionsContext';
 import { usePlatos } from '@/store/PlatosContext';
 import { displayFont } from '@/theme/fonts';
 import { spacing } from '@/theme/palettes';
@@ -29,6 +30,7 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const { isLiked, toggleLike } = usePlatos();
+  const { openSaveSheet, isSaved } = useCollections();
   const player = useVideoPlayer(video.videoUrl, (p) => {
     p.loop = true;
     p.muted = false;
@@ -37,6 +39,7 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
   const liked = isLiked(video.id);
+  const platoSaved = isSaved({ type: 'plato', id: video.id });
 
   // Only the active (visible) reel plays.
   useEffect(() => {
@@ -106,6 +109,15 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
           tapLight();
           setCommentsOpen(true);
         })}
+        {railBtn(
+          platoSaved ? 'bookmark' : 'bookmark-outline',
+          'Save',
+          () => {
+            openSaveSheet({ type: 'plato', id: video.id });
+            tapLight();
+          },
+          platoSaved ? colors.accent : '#fff',
+        )}
         {railBtn('bag-handle', 'Order', () => {
           tapMedium();
           setSheet(true);

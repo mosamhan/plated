@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExploreMap, deriveCategory, type MapRestaurant, type PinCategory } from '@/components/ExploreMap';
 import { FilterChips } from '@/components/FilterChips';
+import { MapSearchOverlay } from '@/components/MapSearchOverlay';
 import { CategoriesSheet, CollectionsSheet, MapSettingsSheet } from '@/components/MapSheets';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
@@ -90,6 +91,7 @@ export default function Explore() {
   const [activeSheet, setActiveSheet] = useState<null | 'settings' | 'collections' | 'categories'>(null);
   const [route, setRoute] = useState<(RouteResult & { restaurantId: string }) | null>(null);
   const [routing, setRouting] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const mapTheme: 'light' | 'dark' = mapThemeOverride ?? (colors.isDark ? 'dark' : 'light');
 
   // Draw a driving route from the user to a restaurant, inside the app: fetch
@@ -202,7 +204,7 @@ export default function Explore() {
           </Pressable>
           <ModeToggle mode={mode} setMode={setMode} overlay />
           <Pressable
-            onPress={() => router.push('/search')}
+            onPress={() => setSearchOpen(true)}
             style={[styles.mapSearch, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Ionicons name="search" size={16} color={colors.textMuted} />
             <Text style={[styles.mapSearchText, { color: colors.textMuted }]}>Search</Text>
@@ -274,6 +276,15 @@ export default function Explore() {
         )}
         {activeSheet === 'categories' && (
           <CategoriesSheet onClose={() => setActiveSheet(null)} activeTypes={activeTypes} setActiveTypes={setActiveTypes} />
+        )}
+
+        {/* Full-screen search overlay (in-tree, not a Modal) — picking a result
+            opens the detail sheet, same as tapping a pin. */}
+        {searchOpen && (
+          <MapSearchOverlay
+            onClose={() => setSearchOpen(false)}
+            onSelectRestaurant={(id) => setSelectedRestaurant(id)}
+          />
         )}
       </View>
     );

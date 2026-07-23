@@ -56,6 +56,22 @@ export function RestaurantDetailSheet({
     setTimeout(() => router.push(path as never), 180);
   };
 
+  // Save opens the collection picker, which is itself a Modal. iOS can't
+  // present two Modals at once, so dismiss this sheet first, then open it.
+  const onSavePress = () => {
+    if (!restaurantId) return;
+    const id = restaurantId;
+    onClose();
+    setTimeout(() => openSaveSheet({ type: 'restaurant', id }), 320);
+  };
+
+  // Reserve/directions open a browser or maps view presented over this Modal;
+  // dismiss the sheet first, then fire, so the presentation doesn't conflict.
+  const afterClose = (fn: () => void) => {
+    onClose();
+    setTimeout(fn, 320);
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       {/* Transparent backdrop — the map shows through, tap to dismiss. */}
@@ -112,13 +128,13 @@ export function RestaurantDetailSheet({
                   <Text style={[styles.actionText, { color: colors.text }]}>Directions</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => openReservation('opentable', restaurant)}
+                  onPress={() => afterClose(() => openReservation('search', restaurant))}
                   style={[styles.actionBtn, { backgroundColor: colors.accent, borderColor: colors.accent }]}>
                   <Ionicons name="calendar" size={16} color={colors.accentText} />
                   <Text style={[styles.actionText, { color: colors.accentText }]}>Reserve</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => openSaveSheet({ type: 'restaurant', id: restaurant.id })}
+                  onPress={onSavePress}
                   style={[
                     styles.saveBtn,
                     { backgroundColor: saved ? colors.accentSoft : colors.surface, borderColor: saved ? colors.accent : colors.border },

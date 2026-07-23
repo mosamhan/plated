@@ -104,6 +104,8 @@ interface DataContextValue {
 
   // mutations
   addOrder: (input: NewOrderInput) => Promise<Order | null>;
+  /** Upsert a searched Foursquare place → its restaurant id (for the detail sheet). */
+  ensureRestaurant: (place: PlaceResult) => Promise<string | undefined>;
   updateProfile: (patch: Partial<User>) => void;
 }
 
@@ -429,6 +431,48 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
   const blockedUsers = useCallback(() => [...blocked].map((id) => userFor(id)), [blocked, userFor]);
 
+  // Ensure a Foursquare place exists in our restaurants table, returning its
+  // uuid. Used when a user opens a searched place from the map (so it has a
+  // real id to save / attach a detail sheet to). Deduped by fsq_id.
+  const ensureRestaurant = useCallback(
+    async (place: PlaceResult): Promise<string | undefined> => {
+      // Already known this session?
+      const known = Object.values(restaurantMap).find((r) => r.name === place.name && r.location === place.location);
+      if (known) return known.id;
+
+      if (!live || !userId) {
+        const id = `fsq-${place.fsqId || makeOrderId()}`;
+        setRestaurantMap((m) => ({
+          ...m,
+          [id]: {
+            id,
+            name: place.name,
+            image: '',
+            cuisine: place.cuisine,
+            location: place.location,
+            distance: '',
+            lat: place.lat,
+            lng: place.lng,
+            priceLevel: (place.priceLevel as Restaurant['priceLevel']) ?? '$$',
+          },
+        }));
+        return id;
+      }
+
+      const existing = await supabase.from('restaurants').select('id').eq('fsq_id', place.fsqId).maybeSingle();
+      if (existing.data?.id) return existing.data.id;
+      const ins = await supabase
+        .from('restaurants')
+        .insert({ fsq_id: place.fsqId, name: place.name, cuisine: place.cuisine, location: place.location, lat: place.lat, lng: place.lng, price_level: place.priceLevel })
+        .select('id')
+        .single();
+      if (!ins.data) return undefined;
+      setRestaurantMap((m) => ({ ...m, [ins.data.id]: mapRestaurant({ ...ins.data, name: place.name, cuisine: place.cuisine, location: place.location, lat: place.lat, lng: place.lng, price_level: place.priceLevel }) }));
+      return ins.data.id;
+    },
+    [live, userId, restaurantMap],
+  );
+
   // ── Create a plate ──────────────────────────────────────────────────────────
   const addOrder = useCallback(
     async (input: NewOrderInput): Promise<Order | null> => {
@@ -569,9 +613,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       unblockUser,
       blockedUsers,
       addOrder,
+      ensureRestaurant,
       updateProfile,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, updateProfile],
+    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, ensureRestaurant, updateProfile],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
