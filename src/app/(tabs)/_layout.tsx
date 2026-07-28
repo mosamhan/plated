@@ -94,7 +94,7 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
         title="Create"
         actions={[
           {
-            label: 'Rate a plate',
+            label: 'Rate a spot',
             icon: 'restaurant',
             onPress: () => router.push('/create'),
           },

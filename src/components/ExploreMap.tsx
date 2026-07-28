@@ -7,10 +7,15 @@ import type { LatLng } from '@/lib/directions';
 import { mapStyleDark, mapStyleLight } from '@/lib/mapStyles';
 import { RestaurantWithRating } from '@/store/DataContext';
 
-/** Per-place relationship, driving the pin's color + glyph (design §1). */
-export type PinCategory = 'loved' | 'been' | 'dining';
+/**
+ * Pin category — drives the pin's color + glyph. 'cafe' is a venue type
+ * (coffee/tea/dessert spots), the rest are the user's relationship to a
+ * restaurant (design §1). A place is exactly one category.
+ */
+export type PinCategory = 'cafe' | 'loved' | 'been' | 'dining';
 
 export const PIN_META: Record<PinCategory, { color: string; icon: keyof typeof Ionicons.glyphMap; label: string }> = {
+  cafe: { color: '#8B5E34', icon: 'cafe', label: 'Cafés & drinks' },
   loved: { color: '#E4483B', icon: 'heart', label: 'Loved' },
   been: { color: '#2E9E63', icon: 'checkmark', label: 'Been there' },
   dining: { color: '#251B10', icon: 'restaurant', label: 'Fine dining' },
@@ -90,8 +95,13 @@ function Pin({ category, score, saved }: { category: PinCategory; score: number;
   );
 }
 
-/** Derive a restaurant's map category from the user's relationship with it. */
-export function deriveCategory(opts: { saved: boolean; rated: boolean; priceLevel?: string }): PinCategory {
+/**
+ * A place's map category. Cafés/drinks spots get their own category so they're
+ * distinguishable on the map; restaurants fall back to the user's relationship
+ * (saved → loved, rated → been, else dining).
+ */
+export function deriveCategory(opts: { saved: boolean; rated: boolean; isCafe?: boolean }): PinCategory {
+  if (opts.isCafe) return 'cafe';
   if (opts.saved) return 'loved';
   if (opts.rated) return 'been';
   return 'dining';

@@ -7,12 +7,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FilterChips } from '@/components/FilterChips';
 import { RankRow } from '@/components/RankRow';
 import { distanceKm, NEAR_RADIUS_KM } from '@/lib/geo';
+import { isCafe } from '@/lib/venue';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-const TABS = ['Best Plates', 'Best Restaurants'];
+const TABS = ['Best Plates', 'Best Restaurants', 'Best Cafés'];
 
 export default function Leaderboard() {
   const { colors } = useTheme();
@@ -34,10 +35,13 @@ export default function Leaderboard() {
     return distanceKm(origin, { lat: r.lat, lng: r.lng }) <= NEAR_RADIUS_KM;
   };
 
-  const restaurants = useMemo(
+  // Best Restaurants / Best Cafés split the venue list by type.
+  const venues = useMemo(
     () => topRestaurants().filter((r) => withinRange(r)),
     [topRestaurants, near, origin?.lat, origin?.lng], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const restaurants = useMemo(() => venues.filter((r) => !isCafe(r.cuisine)), [venues]);
+  const cafes = useMemo(() => venues.filter((r) => isCafe(r.cuisine)), [venues]);
   const plates = useMemo(
     () => topPlates().filter((o) => withinRange(restaurantFor(o.restaurantId))),
     [topPlates, restaurantFor, near, origin?.lat, origin?.lng], // eslint-disable-line react-hooks/exhaustive-deps
@@ -75,13 +79,30 @@ export default function Leaderboard() {
                 rank={i + 1}
                 image={r.image}
                 title={r.name}
-                subtitle={`${r.cuisine} · ${r.orderCount} plates rated`}
+                subtitle={`${r.cuisine} · ${r.orderCount} ${r.orderCount === 1 ? 'item' : 'items'} rated`}
                 score={r.platedRating}
                 onPress={() => router.push(`/restaurant/${r.id}`)}
               />
             ))
           ) : (
             <Empty text={`No ranked restaurants in ${location.label} yet.`} />
+          ))}
+
+        {tab === 'Best Cafés' &&
+          (cafes.length ? (
+            cafes.map((r, i) => (
+              <RankRow
+                key={r.id}
+                rank={i + 1}
+                image={r.image}
+                title={r.name}
+                subtitle={`${r.cuisine} · ${r.orderCount} ${r.orderCount === 1 ? 'item' : 'items'} rated`}
+                score={r.platedRating}
+                onPress={() => router.push(`/restaurant/${r.id}`)}
+              />
+            ))
+          ) : (
+            <Empty text={`No ranked cafés in ${location.label} yet.`} />
           ))}
 
         {tab === 'Best Plates' &&

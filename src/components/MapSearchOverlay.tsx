@@ -117,7 +117,7 @@ export function MapSearchOverlay({
         ) : (
           <>
             <Text style={[styles.section, { color: colors.text, fontFamily: displayFont }]}>Suggested for you</Text>
-            <Text style={[styles.sectionSub, { color: colors.textMuted }]}>Highly-rated for their plates near {location.label}</Text>
+            <Text style={[styles.sectionSub, { color: colors.textMuted }]}>Highly-rated for their dishes & drinks near {location.label}</Text>
             {suggested.map((r) => (
               <Pressable
                 key={r.id}
@@ -130,7 +130,7 @@ export function MapSearchOverlay({
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>{r.name}</Text>
                   <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>
-                    {r.cuisine} · {r.orderCount} {r.orderCount === 1 ? 'plate' : 'plates'} rated
+                    {r.cuisine} · {r.orderCount} {r.orderCount === 1 ? 'item' : 'items'} rated
                   </Text>
                 </View>
                 {r.platedRating > 0 && <RatingBadge score={r.platedRating} size="sm" />}

@@ -21,6 +21,7 @@ import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
 import { RestaurantDetailSheet } from '@/components/RestaurantDetailSheet';
 import { fetchRoute, type RouteResult } from '@/lib/directions';
+import { isCafe } from '@/lib/venue';
 import { openMap } from '@/lib/external';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
@@ -82,7 +83,7 @@ export default function Explore() {
 
   // Map state (design §1 + §"State").
   const [mapQuery, setMapQuery] = useState('');
-  const [activeTypes, setActiveTypes] = useState<PinCategory[]>(['loved', 'been', 'dining']);
+  const [activeTypes, setActiveTypes] = useState<PinCategory[]>(['cafe', 'loved', 'been', 'dining']);
   const [myTableOnly, setMyTableOnly] = useState(false);
   const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null);
   const [avoidTolls, setAvoidTolls] = useState(false);
@@ -141,7 +142,7 @@ export default function Explore() {
           lat: r.lat as number,
           lng: r.lng as number,
           saved,
-          category: deriveCategory({ saved, rated, priceLevel: r.priceLevel }),
+          category: deriveCategory({ saved, rated, isCafe: isCafe(r.cuisine) }),
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps

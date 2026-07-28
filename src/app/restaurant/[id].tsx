@@ -72,8 +72,8 @@ export default function RestaurantDetail() {
             <View style={{ flex: 1 }}>
               <Text style={[styles.ratingTitle, { color: colors.text }]}>Plated&apos;s Rating</Text>
               <Text style={[styles.ratingSub, { color: colors.textMuted }]}>
-                Average of {restaurant.orderCount} community-rated plates — not a vibe score, a plate
-                score.
+                Average of {restaurant.orderCount} community ratings — not a vibe score, a real score
+                earned item by item.
               </Text>
             </View>
           </View>
