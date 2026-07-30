@@ -149,6 +149,17 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
           ),
         );
 
+      // A revert with no explanation reads as the app eating the tap — the item
+      // just isn't there next time you open the list. Always say something.
+      const fail = (what: 'save' | 'unsave', error: unknown) => {
+        if (__DEV__) console.warn(`[Plated] ${what} failed`, error);
+        revert();
+        showAlert(
+          what === 'save' ? 'Could not save' : 'Could not remove',
+          `We couldn’t update “${col.name}” — please try again.`,
+        );
+      };
+
       if (has) {
         supabase
           .from('collection_items')
@@ -157,20 +168,14 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
           .eq('item_type', item.type)
           .eq('item_id', item.id)
           .then(({ error }) => {
-            if (error) {
-              if (__DEV__) console.warn('[Plated] unsave failed', error);
-              revert();
-            }
+            if (error) fail('unsave', error);
           });
       } else {
         supabase
           .from('collection_items')
           .insert({ collection_id: collectionId, item_type: item.type, item_id: item.id })
           .then(({ error }) => {
-            if (error) {
-              if (__DEV__) console.warn('[Plated] save failed', error);
-              revert();
-            }
+            if (error) fail('save', error);
           });
       }
     },
