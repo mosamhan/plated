@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -17,17 +18,17 @@ import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatoTile } from '@/components/PlatoTile';
-import { RatingBadge } from '@/components/RatingBadge';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { SocialLinks } from '@/components/SocialLinks';
 import { formatCount, StatPill } from '@/components/StatPill';
 import { User } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
-import { useCollections } from '@/store/CollectionsContext';
+import { Collection, useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { usePlatos } from '@/store/PlatosContext';
+import { useCollectionContents } from '@/store/useCollectionContents';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -42,11 +43,11 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked, restaurantFor } = useData();
+  const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked } = useData();
   const { location } = useLocation();
   const { platos } = usePlatos();
-  const { openSaveSheet, isSaved: isSavedInCollections } = useCollections();
-  const [tab, setTab] = useState<'plates' | 'reviews' | 'platos'>('plates');
+  const { collections, openSaveSheet, isSaved: isSavedInCollections } = useCollections();
+  const [tab, setTab] = useState<'plates' | 'platos' | 'collections'>('plates');
   const [actionsOpen, setActionsOpen] = useState(false);
 
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
@@ -183,11 +184,19 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
         {isCurrent && <CompensationCard user={user} onInvite={onInvite} />}
         {!isCurrent && user.compensationEligible && <CreatorPartnerBadge user={user} />}
 
-        {/* Tabs — icon-only (grid / play-circle / star), active = accent + 2px bottom border */}
+        {/* Tabs — icon-only (grid / play-circle / bookmark), active = accent + 2px
+            bottom border. Collections are private to the signed-in user, so other
+            profiles only get the two public grids. */}
         <View style={[styles.tabRow, { borderColor: colors.border }]}>
           <TabButton icon="grid" active={tab === 'plates'} onPress={() => setTab('plates')} />
           <TabButton icon="play-circle" active={tab === 'platos'} onPress={() => setTab('platos')} />
-          <TabButton icon="star" active={tab === 'reviews'} onPress={() => setTab('reviews')} />
+          {isCurrent && (
+            <TabButton
+              icon="bookmark"
+              active={tab === 'collections'}
+              onPress={() => setTab('collections')}
+            />
+          )}
         </View>
 
         {tab === 'plates' && (
@@ -220,32 +229,15 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           </View>
         )}
 
-        {tab === 'reviews' && (
+        {tab === 'collections' && isCurrent && (
           <View style={{ paddingHorizontal: PADDING, gap: 10, paddingTop: spacing.lg }}>
-            {orders.map((o) => {
-              const r = restaurantFor(o.restaurantId);
-              return (
-                <Pressable
-                  key={o.id}
-                  onPress={() => router.push(`/order/${o.id}`)}
-                  style={[styles.reviewRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <RatingBadge score={o.rating} size="md" />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.reviewDish, { color: colors.text }]} numberOfLines={1}>
-                      {o.dishName}
-                    </Text>
-                    <Text style={[styles.reviewMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                      {r?.name}
-                    </Text>
-                    <Text style={[styles.reviewCaption, { color: colors.textMuted }]} numberOfLines={2}>
-                      {o.description}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-            {orders.length === 0 && (
-              <Text style={[styles.empty, { color: colors.textMuted }]}>No reviews yet.</Text>
+            {collections.map((c) => (
+              <CollectionRow key={c.id} collection={c} />
+            ))}
+            {collections.length === 0 && (
+              <Text style={[styles.empty, { color: colors.textMuted }]}>
+                No collections yet — save a plate to start one.
+              </Text>
             )}
           </View>
         )}
@@ -255,12 +247,72 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   );
 }
 
+/**
+ * One saved list on the Collections tab — name, what's inside, and up to three
+ * cover thumbnails. Taps into the collection screen.
+ */
+function CollectionRow({ collection }: { collection: Collection }) {
+  const { colors } = useTheme();
+  const router = useRouter();
+  const { plates, platos, restaurants, total, covers } = useCollectionContents(collection);
+
+  const parts = [
+    plates.length && `${plates.length} ${plates.length === 1 ? 'plate' : 'plates'}`,
+    platos.length && `${platos.length} ${platos.length === 1 ? 'Plato' : 'Platos'}`,
+    restaurants.length &&
+      `${restaurants.length} ${restaurants.length === 1 ? 'place' : 'places'}`,
+  ].filter(Boolean) as string[];
+
+  const icon =
+    collection.name === 'Favorites' ? 'heart' : collection.name === 'Want to try' ? 'bookmark' : 'albums';
+
+  return (
+    <Pressable
+      onPress={() => router.push(`/collection/${collection.id}`)}
+      style={({ pressed }) => [
+        styles.collectionRow,
+        { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.9 : 1 },
+      ]}>
+      {total > 0 ? (
+        <View style={styles.covers}>
+          {covers.slice(0, 3).map((uri, i) => (
+            <Image
+              key={`${uri}-${i}`}
+              source={{ uri }}
+              style={[
+                styles.cover,
+                { backgroundColor: colors.surface, borderColor: colors.card },
+                i > 0 && { marginLeft: -20 },
+              ]}
+              contentFit="cover"
+              transition={150}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={[styles.collectionIcon, { backgroundColor: colors.accentSoft }]}>
+          <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={colors.accent} />
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.collectionName, { color: colors.text }]} numberOfLines={1}>
+          {collection.name}
+        </Text>
+        <Text style={[styles.collectionMeta, { color: colors.textMuted }]} numberOfLines={1}>
+          {parts.length ? parts.join(' · ') : 'Empty'}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
 function TabButton({
   icon,
   active,
   onPress,
 }: {
-  icon: 'grid' | 'play-circle' | 'star';
+  icon: 'grid' | 'play-circle' | 'bookmark';
   active: boolean;
   onPress: () => void;
 }) {
@@ -434,14 +486,23 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
   },
   empty: { fontSize: 14, fontWeight: '500', textAlign: 'center', width: '100%', marginTop: 30 },
-  reviewRow: {
+  collectionRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
-    padding: 12,
+    padding: 10,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  reviewDish: { fontSize: 15, fontWeight: '800' },
-  reviewMeta: { fontSize: 13, fontWeight: '600', marginTop: 1 },
-  reviewCaption: { fontSize: 13, fontWeight: '500', marginTop: 4, lineHeight: 18 },
+  collectionIcon: { width: 54, height: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  // Overlapping thumbnails — each one tucks behind the one before it.
+  covers: { flexDirection: 'row', height: 54, alignItems: 'center' },
+  cover: {
+    width: 38,
+    height: 46,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+  },
+  collectionName: { fontSize: 15, fontWeight: '800' },
+  collectionMeta: { fontSize: 13, fontWeight: '600', marginTop: 2 },
 });
