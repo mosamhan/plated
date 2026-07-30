@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, ViewStyle } from 'react
 import { useTheme } from '@/theme/ThemeContext';
 import { radius } from '@/theme/palettes';
 
-type Variant = 'primary' | 'secondary' | 'ghost';
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 interface Props {
   label: string;
@@ -30,9 +30,19 @@ export function Button({
   const { colors } = useTheme();
 
   const bg =
-    variant === 'primary' ? colors.accent : variant === 'secondary' ? colors.surface : 'transparent';
+    variant === 'primary'
+      ? colors.accent
+      : variant === 'danger'
+        ? colors.ratingLow
+        : variant === 'secondary'
+          ? colors.surface
+          : 'transparent';
   const fg =
-    variant === 'primary' ? colors.accentText : variant === 'ghost' ? colors.accent : colors.text;
+    variant === 'primary' || variant === 'danger'
+      ? colors.accentText
+      : variant === 'ghost'
+        ? colors.accent
+        : colors.text;
   const border = variant === 'secondary' ? colors.border : 'transparent';
 
   return (

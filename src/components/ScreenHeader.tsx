@@ -11,11 +11,13 @@ interface Props {
   title?: string;
   transparent?: boolean;
   rightIcon?: keyof typeof Ionicons.glyphMap;
+  /** Text action instead of an icon — for verbs an icon can't carry ("Manage"). */
+  rightLabel?: string;
   onRight?: () => void;
   closeMode?: boolean;
 }
 
-export function ScreenHeader({ title, transparent, rightIcon, onRight, closeMode }: Props) {
+export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRight, closeMode }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -48,7 +50,13 @@ export function ScreenHeader({ title, transparent, rightIcon, onRight, closeMode
       ) : (
         <View style={{ flex: 1 }} />
       )}
-      {rightIcon ? (
+      {rightLabel ? (
+        <Pressable onPress={onRight} hitSlop={10} style={styles.labelBtn}>
+          <Text style={[styles.labelText, { color: transparent ? '#fff' : colors.accent }]}>
+            {rightLabel}
+          </Text>
+        </Pressable>
+      ) : rightIcon ? (
         <Pressable onPress={onRight} hitSlop={10} style={styles.iconBtn}>
           <Ionicons name={rightIcon} size={22} color={transparent ? '#fff' : colors.text} />
         </Pressable>
@@ -74,5 +82,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  labelBtn: { height: 38, minWidth: 38, paddingHorizontal: 6, justifyContent: 'center', alignItems: 'flex-end' },
+  labelText: { fontSize: 15, fontWeight: '800' },
   title: { flex: 1, textAlign: 'center', fontSize: 18, letterSpacing: -0.3 },
 });

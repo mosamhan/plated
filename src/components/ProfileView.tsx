@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionSheet } from '@/components/ActionSheet';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
+import { NameInputModal } from '@/components/NameInputModal';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatoTile } from '@/components/PlatoTile';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -29,6 +30,7 @@ import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { usePlatos } from '@/store/PlatosContext';
 import { useCollectionContents } from '@/store/useCollectionContents';
+import { usePublicCollections } from '@/store/usePublicCollections';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -46,9 +48,15 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked } = useData();
   const { location } = useLocation();
   const { platos } = usePlatos();
-  const { collections, openSaveSheet, isSaved: isSavedInCollections } = useCollections();
+  const { collections, createCollection, openSaveSheet, isSaved: isSavedInCollections } = useCollections();
   const [tab, setTab] = useState<'plates' | 'platos' | 'collections'>('plates');
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+
+  // Your own lists live in context (and stay in sync with saves); someone
+  // else's have to be fetched, and RLS returns only the ones they've shared.
+  const { collections: publicCollections, loading: publicLoading } = usePublicCollections(user.id);
+  const shownCollections = isCurrent ? collections : publicCollections;
 
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
   const orders = ordersByUser(user.id);
@@ -98,6 +106,15 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           onRight={() => setActionsOpen(true)}
         />
       )}
+
+      <NameInputModal
+        visible={createOpen}
+        title="New collection"
+        placeholder="e.g. Best tacos in Chicago"
+        submitLabel="Create"
+        onSubmit={(name) => createCollection(name)}
+        onClose={() => setCreateOpen(false)}
+      />
 
       {/* Apple 1.2: report & block must be reachable from every profile */}
       <ActionSheet
@@ -185,18 +202,16 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
         {!isCurrent && user.compensationEligible && <CreatorPartnerBadge user={user} />}
 
         {/* Tabs — icon-only (grid / play-circle / bookmark), active = accent + 2px
-            bottom border. Collections are private to the signed-in user, so other
-            profiles only get the two public grids. */}
+            bottom border. On another profile the Collections tab shows only the
+            lists they've made public. */}
         <View style={[styles.tabRow, { borderColor: colors.border }]}>
           <TabButton icon="grid" active={tab === 'plates'} onPress={() => setTab('plates')} />
           <TabButton icon="play-circle" active={tab === 'platos'} onPress={() => setTab('platos')} />
-          {isCurrent && (
-            <TabButton
-              icon="bookmark"
-              active={tab === 'collections'}
-              onPress={() => setTab('collections')}
-            />
-          )}
+          <TabButton
+            icon="bookmark"
+            active={tab === 'collections'}
+            onPress={() => setTab('collections')}
+          />
         </View>
 
         {tab === 'plates' && (
@@ -229,15 +244,26 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           </View>
         )}
 
-        {tab === 'collections' && isCurrent && (
+        {tab === 'collections' && (
           <View style={{ paddingHorizontal: PADDING, gap: 10, paddingTop: spacing.lg }}>
-            {collections.map((c) => (
-              <CollectionRow key={c.id} collection={c} />
+            {shownCollections.map((c) => (
+              <CollectionRow key={c.id} collection={c} showPrivacy={isCurrent} />
             ))}
-            {collections.length === 0 && (
+            {shownCollections.length === 0 && !publicLoading && (
               <Text style={[styles.empty, { color: colors.textMuted }]}>
-                No collections yet — save a plate to start one.
+                {isCurrent
+                  ? 'No collections yet — make one below, or save a plate to start.'
+                  : `@${user.handle} hasn’t shared any collections.`}
               </Text>
+            )}
+            {isCurrent && (
+              <Button
+                label="New collection"
+                variant="secondary"
+                icon="add"
+                style={{ marginTop: 4 }}
+                onPress={() => setCreateOpen(true)}
+              />
             )}
           </View>
         )}
@@ -251,7 +277,14 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
  * One saved list on the Collections tab — name, what's inside, and up to three
  * cover thumbnails. Taps into the collection screen.
  */
-function CollectionRow({ collection }: { collection: Collection }) {
+function CollectionRow({
+  collection,
+  showPrivacy,
+}: {
+  collection: Collection;
+  /** Only meaningful on your own profile — everything on someone else's is public. */
+  showPrivacy?: boolean;
+}) {
   const { colors } = useTheme();
   const router = useRouter();
   const { plates, platos, restaurants, total, covers } = useCollectionContents(collection);
@@ -295,9 +328,18 @@ function CollectionRow({ collection }: { collection: Collection }) {
         </View>
       )}
       <View style={{ flex: 1 }}>
-        <Text style={[styles.collectionName, { color: colors.text }]} numberOfLines={1}>
-          {collection.name}
-        </Text>
+        <View style={styles.collectionNameRow}>
+          <Text style={[styles.collectionName, { color: colors.text }]} numberOfLines={1}>
+            {collection.name}
+          </Text>
+          {/* Which lists are visible to other people is worth seeing at a glance. */}
+          {showPrivacy && !collection.isPrivate && (
+            <View style={[styles.sharedPill, { backgroundColor: colors.accentSoft }]}>
+              <Ionicons name="globe-outline" size={11} color={colors.accent} />
+              <Text style={[styles.sharedPillText, { color: colors.accent }]}>Shared</Text>
+            </View>
+          )}
+        </View>
         <Text style={[styles.collectionMeta, { color: colors.textMuted }]} numberOfLines={1}>
           {parts.length ? parts.join(' · ') : 'Empty'}
         </Text>
@@ -503,6 +545,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 2,
   },
-  collectionName: { fontSize: 15, fontWeight: '800' },
+  collectionNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  collectionName: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
+  sharedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+  },
+  sharedPillText: { fontSize: 10, fontWeight: '800' },
   collectionMeta: { fontSize: 13, fontWeight: '600', marginTop: 2 },
 });

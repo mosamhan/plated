@@ -23,6 +23,8 @@ export interface SavedItem {
 export interface Collection {
   id: string;
   name: string;
+  /** Private lists are yours alone; public ones show on your profile to anyone. */
+  isPrivate: boolean;
   items: SavedItem[];
 }
 
@@ -40,6 +42,8 @@ interface CollectionsContextValue {
   /** Rename / delete a list. */
   renameCollection: (collectionId: string, name: string) => void;
   deleteCollection: (collectionId: string) => void;
+  /** Share a list on your profile, or pull it back to private. */
+  setCollectionPrivacy: (collectionId: string, isPrivate: boolean) => void;
 
   // App-wide Save-to picker. Any component calls openSaveSheet(item); a single
   // <SaveToSheet> mounted at the provider root renders for whatever's targeted.
@@ -55,7 +59,7 @@ const CollectionsContext = createContext<CollectionsContextValue | undefined>(un
 const STARTER_NAMES = ['Want to try', 'Favorites'] as const;
 
 function seedDemoCollections(): Collection[] {
-  return STARTER_NAMES.map((name, i) => ({ id: `demo-c${i}`, name, items: [] }));
+  return STARTER_NAMES.map((name, i) => ({ id: `demo-c${i}`, name, isPrivate: true, items: [] }));
 }
 
 const sameItem = (a: SavedItem, b: SavedItem) => a.type === b.type && a.id === b.id;
@@ -69,11 +73,15 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
   const [saveTarget, setSaveTarget] = useState<SavedItem | null>(null);
 
   // ── Load from Supabase (collections + their items in two reads) ─────────────
-  const loadFromSupabase = useCallback(async () => {
+  const loadFromSupabase = useCallback(async (uid: string) => {
     setLoading(true);
     const { data: cols, error } = await supabase
       .from('collections')
-      .select('id, name, created_at, collection_items(item_type, item_id)')
+      .select('id, name, is_private, created_at, collection_items(item_type, item_id)')
+      // Scoped to the owner on purpose: since 0008 the select policy also
+      // exposes other people's public lists, so an unfiltered read would mix
+      // strangers' collections into your own Save-to picker.
+      .eq('user_id', uid)
       .order('created_at', { ascending: true });
     if (error || !cols) {
       if (__DEV__) console.warn('[Plated] collections load failed', error);
@@ -86,6 +94,7 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
       cols.map((c: any) => ({
         id: c.id,
         name: c.name,
+        isPrivate: c.is_private ?? true,
         items: (c.collection_items ?? []).map((it: any) => ({
           type: it.item_type as SavedItemType,
           id: it.item_id,
@@ -101,7 +110,7 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
       setLoading(false);
       return;
     }
-    if (userId) loadFromSupabase().catch(() => setLoading(false));
+    if (userId) loadFromSupabase(userId).catch(() => setLoading(false));
     else {
       // Signed out under a live config — nothing to show yet.
       setCollections([]);
@@ -189,7 +198,10 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
 
       if (!live || !userId) {
         const id = `demo-c${Date.now()}`;
-        setCollections((prev) => [...prev, { id, name: trimmed, items: firstItem ? [firstItem] : [] }]);
+        setCollections((prev) => [
+          ...prev,
+          { id, name: trimmed, isPrivate: true, items: firstItem ? [firstItem] : [] },
+        ]);
         return id;
       }
 
@@ -204,7 +216,8 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
         return null;
       }
       const id = data.id as string;
-      setCollections((prev) => [...prev, { id, name: trimmed, items: [] }]);
+      // New lists are private until the owner shares them (0008 default).
+      setCollections((prev) => [...prev, { id, name: trimmed, isPrivate: true, items: [] }]);
       if (firstItem) toggleInCollection(id, firstItem);
       return id;
     },
@@ -252,6 +265,34 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
     [collections, live, userId],
   );
 
+  const setCollectionPrivacy = useCallback(
+    (collectionId: string, isPrivate: boolean) => {
+      const apply = (value: boolean) =>
+        setCollections((prev) =>
+          prev.map((c) => (c.id === collectionId ? { ...c, isPrivate: value } : c)),
+        );
+      apply(isPrivate);
+      if (!live || !userId) return;
+      supabase
+        .from('collections')
+        .update({ is_private: isPrivate })
+        .eq('id', collectionId)
+        .then(({ error }) => {
+          if (error) {
+            if (__DEV__) console.warn('[Plated] privacy change failed', error);
+            apply(!isPrivate);
+            // Getting this wrong the quiet way means a list the user believes is
+            // private stays visible to everyone — always say it didn't take.
+            showAlert(
+              'Could not change visibility',
+              'The list is unchanged — please try again.',
+            );
+          }
+        });
+    },
+    [live, userId],
+  );
+
   const openSaveSheet = useCallback((item: SavedItem) => setSaveTarget(item), []);
   const closeSaveSheet = useCallback(() => setSaveTarget(null), []);
 
@@ -265,11 +306,12 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
       createCollection,
       renameCollection,
       deleteCollection,
+      setCollectionPrivacy,
       saveTarget,
       openSaveSheet,
       closeSaveSheet,
     }),
-    [collections, loading, collectionsWith, isSaved, toggleInCollection, createCollection, renameCollection, deleteCollection, saveTarget, openSaveSheet, closeSaveSheet],
+    [collections, loading, collectionsWith, isSaved, toggleInCollection, createCollection, renameCollection, deleteCollection, setCollectionPrivacy, saveTarget, openSaveSheet, closeSaveSheet],
   );
 
   return (
