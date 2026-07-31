@@ -14,9 +14,13 @@ import { useTheme } from '@/theme/ThemeContext';
 interface Props {
   order: Order;
   width?: number;
+  /** Overrides opening the post — Explore uses it to drive the map instead. */
+  onPress?: () => void;
+  /** Draws the tile as the one currently pinned on the map. */
+  selected?: boolean;
 }
 
-export function PlateTile({ order, width }: Props) {
+export function PlateTile({ order, width, onPress, selected }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const { userFor, restaurantFor } = useData();
@@ -25,8 +29,12 @@ export function PlateTile({ order, width }: Props) {
 
   return (
     <AnimatedPressable
-      onPress={() => router.push(`/order/${order.id}`)}
-      style={[styles.tile, { backgroundColor: colors.card, borderColor: colors.border, width }]}>
+      onPress={onPress ?? (() => router.push(`/order/${order.id}`))}
+      style={[
+        styles.tile,
+        { backgroundColor: colors.card, borderColor: colors.border, width },
+        selected && { borderColor: colors.accent, borderWidth: 1.5 },
+      ]}>
       <View>
         <Image
           source={{ uri: order.photo }}
