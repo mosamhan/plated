@@ -1,6 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
@@ -337,9 +348,14 @@ export function useCollections(): CollectionsContextValue {
 function SaveToSheet() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { collections, saveTarget, closeSaveSheet, toggleInCollection, createCollection } = useCollections();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
+
+  // Cap the list so a long collection list scrolls instead of pushing the
+  // sheet — and the Done button — past the bottom of the screen.
+  const listMaxHeight = Math.round(windowHeight * 0.4);
 
   const visible = saveTarget != null;
   const target = saveTarget;
@@ -360,65 +376,76 @@ function SaveToSheet() {
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-      <Pressable style={saveStyles.backdrop} onPress={close}>
-        <Pressable
-          style={[saveStyles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 20 }]}
-          onPress={(e) => e.stopPropagation()}>
-          <View style={[saveStyles.grabber, { backgroundColor: colors.border }]} />
-          <Text style={[saveStyles.title, { color: colors.text, fontFamily: displayFont }]}>Save to…</Text>
+      {/* The sheet is bottom-anchored and the create field autofocuses, so
+          without this the keyboard covers the very row you're typing into. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable style={saveStyles.backdrop} onPress={close}>
+          <Pressable
+            style={[saveStyles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 20 }]}
+            onPress={(e) => e.stopPropagation()}>
+            <View style={[saveStyles.grabber, { backgroundColor: colors.border }]} />
+            <Text style={[saveStyles.title, { color: colors.text, fontFamily: displayFont }]}>Save to…</Text>
 
-          {collections.map((c) => {
-            const on = target ? c.items.some((i) => i.type === target.type && i.id === target.id) : false;
-            const icon = c.name === 'Favorites' ? 'heart' : c.name === 'Want to try' ? 'bookmark' : 'albums';
-            return (
-              <Pressable
-                key={c.id}
-                onPress={() => {
-                  if (target) toggleInCollection(c.id, target);
-                  tapLight();
-                }}
-                style={[saveStyles.row, { borderBottomColor: colors.border }]}>
-                <View style={[saveStyles.rowIcon, { backgroundColor: colors.accentSoft }]}>
-                  <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={18} color={colors.accent} />
-                </View>
-                <Text style={[saveStyles.rowLabel, { color: colors.text }]} numberOfLines={1}>
-                  {c.name}
-                </Text>
-                <Ionicons
-                  name={on ? 'checkbox' : 'square-outline'}
-                  size={22}
-                  color={on ? colors.accent : colors.textMuted}
+            <ScrollView
+              style={{ maxHeight: listMaxHeight }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
+              {collections.map((c) => {
+                const on = target ? c.items.some((i) => i.type === target.type && i.id === target.id) : false;
+                const icon = c.name === 'Favorites' ? 'heart' : c.name === 'Want to try' ? 'bookmark' : 'albums';
+                return (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => {
+                      if (target) toggleInCollection(c.id, target);
+                      tapLight();
+                    }}
+                    style={[saveStyles.row, { borderBottomColor: colors.border }]}>
+                    <View style={[saveStyles.rowIcon, { backgroundColor: colors.accentSoft }]}>
+                      <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={18} color={colors.accent} />
+                    </View>
+                    <Text style={[saveStyles.rowLabel, { color: colors.text }]} numberOfLines={1}>
+                      {c.name}
+                    </Text>
+                    <Ionicons
+                      name={on ? 'checkbox' : 'square-outline'}
+                      size={22}
+                      color={on ? colors.accent : colors.textMuted}
+                    />
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            {creating ? (
+              <View style={saveStyles.createRow}>
+                <TextInput
+                  autoFocus
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="New collection name"
+                  placeholderTextColor={colors.textMuted}
+                  onSubmitEditing={onAdd}
+                  returnKeyType="done"
+                  style={[saveStyles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
                 />
+                <Button label="Add" onPress={onAdd} disabled={!name.trim()} style={saveStyles.addBtn} />
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => setCreating(true)}
+                style={[saveStyles.newBtn, { borderColor: colors.border }]}>
+                <Ionicons name="add" size={18} color={colors.accent} />
+                <Text style={[saveStyles.newBtnText, { color: colors.accent }]}>New collection</Text>
               </Pressable>
-            );
-          })}
+            )}
 
-          {creating ? (
-            <View style={saveStyles.createRow}>
-              <TextInput
-                autoFocus
-                value={name}
-                onChangeText={setName}
-                placeholder="New collection name"
-                placeholderTextColor={colors.textMuted}
-                onSubmitEditing={onAdd}
-                returnKeyType="done"
-                style={[saveStyles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-              />
-              <Button label="Add" onPress={onAdd} />
-            </View>
-          ) : (
-            <Pressable
-              onPress={() => setCreating(true)}
-              style={[saveStyles.newBtn, { borderColor: colors.border }]}>
-              <Ionicons name="add" size={18} color={colors.accent} />
-              <Text style={[saveStyles.newBtnText, { color: colors.accent }]}>New collection</Text>
-            </Pressable>
-          )}
-
-          <Button label="Done" size="lg" style={{ marginTop: 16 }} onPress={close} />
+            <Button label="Done" size="lg" style={{ marginTop: 16 }} onPress={close} />
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -443,6 +470,8 @@ const saveStyles = StyleSheet.create({
   rowIcon: { width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   rowLabel: { flex: 1, fontSize: 15, fontWeight: '700' },
   createRow: { flexDirection: 'row', gap: 8, marginTop: 14, alignItems: 'center' },
+  // Match the input's height so the two sit level in the row.
+  addBtn: { height: 44 },
   input: {
     flex: 1,
     height: 44,

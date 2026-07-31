@@ -80,6 +80,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.lg,
+    // Invisible on a full-width button, but keeps the label off the pill edges
+    // when the button is auto-sized inside a row (e.g. the Save-to create row).
+    paddingHorizontal: 20,
   },
   label: { fontWeight: '700', letterSpacing: -0.2 },
 });
