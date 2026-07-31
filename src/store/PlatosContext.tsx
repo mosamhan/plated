@@ -59,7 +59,7 @@ function groupComments(list: PlatoComment[]): Record<string, PlatoComment[]> {
 
 const PLATO_SELECT =
   // `*` already brings view_count along (0009); likes/comments stay aggregates.
-  '*, creator:profiles!plato_videos_user_id_fkey(name,handle,avatar_url,verified,compensation_eligible), likes:plato_likes(count), comments:plato_comments(count)';
+  '*, creator:profiles!plato_videos_user_id_fkey(name,handle,avatar_url,verified,compensation_eligible), likes:plato_likes(count), comments:plato_comments(count), collaborators:post_collaborators(user_id, status)';
 
 export function PlatosProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();

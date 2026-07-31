@@ -20,6 +20,7 @@ import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { formatCount } from '@/components/StatPill';
+import { collabLabel } from '@/lib/collabs';
 import { foodPlaceholder } from '@/data/images';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
@@ -71,6 +72,7 @@ export default function OrderDetail() {
   }
 
   const user = userFor(order.userId);
+  const collabs = collabLabel(order.collaborators, (id) => userFor(id).handle);
   const restaurant = restaurantFor(order.restaurantId);
   const liked = isLiked(order.id);
   const saved = isSaved(order.id);
@@ -123,6 +125,11 @@ export default function OrderDetail() {
                   {restaurant?.name} · {restaurant?.location}
                 </Text>
               </Pressable>
+              {collabs && (
+                <Text style={[styles.collab, { color: colors.textMuted }]} numberOfLines={1}>
+                  <Ionicons name="people" size={13} color={colors.textMuted} /> with {collabs}
+                </Text>
+              )}
               {(order.reorders ?? 0) > 0 && (
                 <View style={styles.reorderRow}>
                   <Ionicons name="repeat" size={14} color={colors.success} />
@@ -324,6 +331,7 @@ const styles = StyleSheet.create({
   dishTitle: { fontSize: 26, lineHeight: 31, letterSpacing: -0.4 },
   restaurant: { fontSize: 14, fontWeight: '700', marginTop: 4 },
   reorderRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 },
+  collab: { fontSize: 13, fontWeight: '600', marginTop: 6 },
   reorderText: { fontSize: 13, fontWeight: '700' },
   creatorRow: {
     flexDirection: 'row',

@@ -1,7 +1,7 @@
 /** Maps Supabase rows (snake_case) to the app's domain types (camelCase). */
 import { avatar, foodPhoto, restaurantPhoto } from '@/data/images';
 import { PlatoComment, PlatoVideo } from '@/data/platos';
-import { AppNotification, Comment, Order, Restaurant, User } from '@/data/types';
+import { AppNotification, Collaborator, Comment, Order, Restaurant, User } from '@/data/types';
 
 function countOf(embedded: unknown): number {
   // Supabase returns embedded counts as [{ count: n }]
@@ -48,6 +48,12 @@ export function mapRestaurant(row: any): Restaurant {
   };
 }
 
+/** Rows from the `collaborators:post_collaborators(...)` join on either post type. */
+export function mapCollaborators(rows: any): Collaborator[] | undefined {
+  if (!Array.isArray(rows) || rows.length === 0) return undefined;
+  return rows.map((r: any) => ({ userId: r.user_id, status: r.status }));
+}
+
 export function mapOrder(row: any): Order {
   return {
     id: row.id,
@@ -67,6 +73,7 @@ export function mapOrder(row: any): Order {
           .map((it: any) => ({ name: it.name, rating: Number(it.rating) }))
           .sort((a: any, b: any) => b.rating - a.rating)
       : undefined,
+    collaborators: mapCollaborators(row.collaborators),
   };
 }
 
@@ -100,6 +107,7 @@ export function mapPlato(row: any): PlatoVideo {
     likes: countOf(row.likes),
     comments: countOf(row.comments),
     views: row.view_count ?? 0,
+    collaborators: mapCollaborators(row.collaborators),
   };
 }
 

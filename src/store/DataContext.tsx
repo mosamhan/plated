@@ -159,7 +159,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           .from('profiles')
           .select('*, followers:follows!follows_following_id_fkey(count), following:follows!follows_follower_id_fkey(count)'),
         supabase.from('restaurants').select('*'),
-        supabase.from('orders').select('*, likes(count), comments(count), reorders(count), order_items(name, rating, position)').order('created_at', { ascending: false }),
+        supabase.from('orders').select('*, likes(count), comments(count), reorders(count), order_items(name, rating, position), collaborators:post_collaborators(user_id, status)').order('created_at', { ascending: false }),
         supabase.from('comments').select('*').order('created_at', { ascending: true }),
         supabase.from('likes').select('order_id').eq('user_id', uid),
         supabase.from('saves').select('order_id').eq('user_id', uid),

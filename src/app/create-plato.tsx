@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
+import { CollaboratorPicker } from '@/components/CollaboratorPicker';
 import { RatingInput } from '@/components/RatingInput';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { TextField } from '@/components/TextField';
@@ -27,6 +28,7 @@ import { pickVideo, uploadVideo } from '@/lib/upload';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
+import { useCollabs } from '@/store/CollabsContext';
 import { usePlatos } from '@/store/PlatosContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -37,6 +39,8 @@ export default function CreatePlato() {
   const insets = useSafeAreaInsets();
   const { restaurants, restaurantFor } = useData();
   const { addPlato } = usePlatos();
+  const { invite } = useCollabs();
+  const [collaborators, setCollaborators] = useState<string[]>([]);
   const { userId } = useAuth();
   const { placeQuery } = useLocation();
 
@@ -104,6 +108,11 @@ export default function CreatePlato() {
       rating,
       caption: caption.trim(),
     });
+    // Invites need the post's id, so they go out once it exists. A failure here
+    // isn't worth blocking the post — the Plato is already up.
+    if (plato && collaborators.length) {
+      await invite({ type: 'plato', id: plato.id }, collaborators);
+    }
     setPosting(false);
     if (plato) {
       success();
@@ -235,6 +244,12 @@ export default function CreatePlato() {
         <View style={[styles.ratingBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <RatingInput value={rating} onChange={setRating} />
         </View>
+
+        {/* Collaborators */}
+        <Text style={[typography.heading, { color: colors.text, marginTop: spacing.lg, marginBottom: spacing.md }]}>
+          Collaborating with
+        </Text>
+        <CollaboratorPicker value={collaborators} onChange={setCollaborators} />
       </ScrollView>
 
       {/* Post CTA */}

@@ -11,9 +11,11 @@ import { PlatoCommentsSheet } from '@/components/PlatoCommentsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { formatCount } from '@/components/StatPill';
 import { PlatoVideo } from '@/data/platos';
+import { collabLabel } from '@/lib/collabs';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { buildPlatoShareMessage } from '@/lib/invite';
 import { useCollections } from '@/store/CollectionsContext';
+import { useData } from '@/store/DataContext';
 import { usePlatos } from '@/store/PlatosContext';
 import { displayFont } from '@/theme/fonts';
 import { spacing } from '@/theme/palettes';
@@ -30,6 +32,8 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const { isLiked, toggleLike, recordView } = usePlatos();
+  const { userFor } = useData();
+  const collabs = collabLabel(video.collaborators, (id) => userFor(id).handle);
   const { openSaveSheet, isSaved } = useCollections();
   const player = useVideoPlayer(video.videoUrl, (p) => {
     p.loop = true;
@@ -150,6 +154,7 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
         </View>
         <Text style={styles.restaurant} numberOfLines={1}>
           <Ionicons name="location" size={12} color="#FFD98A" /> {video.restaurantName}
+          {collabs ? ` · with ${collabs}` : ''}
         </Text>
         <Text style={styles.caption} numberOfLines={2}>{video.caption}</Text>
       </View>

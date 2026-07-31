@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
+import { CollaboratorPicker } from '@/components/CollaboratorPicker';
 import { RatingInput } from '@/components/RatingInput';
 import { RestaurantMenuSheet, type MenuEntry } from '@/components/RestaurantMenuSheet';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -25,6 +26,7 @@ import { success } from '@/lib/haptics';
 import { fetchMenuItems, isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
 import { pickImage, uploadAsset } from '@/lib/upload';
 import { useAuth } from '@/store/AuthContext';
+import { useCollabs } from '@/store/CollabsContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
@@ -42,6 +44,8 @@ export default function CreatePlate() {
     fsqLocation?: string;
   }>();
   const { restaurants, restaurantFor, addOrder, menuForRestaurant, restaurantMenu } = useData();
+  const { invite } = useCollabs();
+  const [collaborators, setCollaborators] = useState<string[]>([]);
   const { userId } = useAuth();
   const { placeQuery } = useLocation();
 
@@ -183,6 +187,11 @@ export default function CreatePlate() {
       description: description.trim() || 'No notes yet.',
       tags: ['Nearby'],
     });
+    // Invites need the post's id, so they go out once it exists. A failure here
+    // isn't worth blocking the post — the plate is already up.
+    if (order && collaborators.length) {
+      await invite({ type: 'plate', id: order.id }, collaborators);
+    }
     setPosting(false);
     if (order) {
       success();
@@ -397,6 +406,12 @@ export default function CreatePlate() {
             style={{ minHeight: 80, textAlignVertical: 'top' }}
           />
         </View>
+
+        {/* Collaborators */}
+        <Text style={[typography.heading, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+          Collaborating with
+        </Text>
+        <CollaboratorPicker value={collaborators} onChange={setCollaborators} />
       </ScrollView>
 
       {/* Post CTA */}

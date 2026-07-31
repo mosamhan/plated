@@ -35,6 +35,15 @@ export interface Restaurant {
   priceLevel: '$' | '$$' | '$$$';
 }
 
+/**
+ * A co-creator named on a post. Credit only — creator earnings stay with the
+ * original poster, and any split between creators is arranged between them.
+ */
+export interface Collaborator {
+  userId: string;
+  status: 'pending' | 'accepted' | 'declined';
+}
+
 /** An "order" / "plate" — a single dish someone rated. The core unit of Plated. */
 /** One menu item on a post, with its own rating. */
 export interface OrderItem {
@@ -68,6 +77,8 @@ export interface Order {
    * highest-praise signal Plated tracks (Beli has no equivalent).
    */
   reorders?: number;
+  /** Co-creators. Only `accepted` entries are visible to anyone but the two parties. */
+  collaborators?: Collaborator[];
 }
 
 export interface Comment {
@@ -84,7 +95,9 @@ export type NotificationKind =
   | 'follow'
   | 'reorder'
   | 'earnings'
-  | 'milestone';
+  | 'milestone'
+  /** Invited onto someone's post as a co-creator, or an invite of yours accepted. */
+  | 'collab';
 
 export interface AppNotification {
   id: string;

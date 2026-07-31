@@ -12,6 +12,7 @@ import { RatingBadge } from '@/components/RatingBadge';
 import { formatCount } from '@/components/StatPill';
 import { foodPlaceholder } from '@/data/images';
 import { Order } from '@/data/types';
+import { collabEarningsNote, collabLabel } from '@/lib/collabs';
 import { showAlert } from '@/lib/dialog';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
@@ -51,6 +52,7 @@ export function PlateCard({
   );
 
   const user = userFor(order.userId);
+  const collabs = collabLabel(order.collaborators, (id) => userFor(id).handle);
   const restaurant = restaurantFor(order.restaurantId);
   const liked = isLiked(order.id);
   const saved = savedOverride ?? isSaved(order.id);
@@ -78,9 +80,10 @@ export function PlateCard({
   };
 
   const explainCommission = () => {
+    const base = `@${user.handle} earns when orders are placed through their plates — regardless of the rating they give. Ratings are always the creator's own opinion, and prices are the same for you.`;
     showAlert(
       'This creator earns commission',
-      `@${user.handle} earns when orders are placed through their plates — regardless of the rating they give. Ratings are always the creator's own opinion, and prices are the same for you.`,
+      collabs ? `${base}\n\n${collabEarningsNote(user.handle)}` : base,
     );
   };
 
@@ -112,6 +115,7 @@ export function PlateCard({
             <Pressable onPress={() => restaurant && router.push(`/restaurant/${restaurant.id}`)}>
               <Text style={[styles.sub, { color: colors.textMuted }]} numberOfLines={1}>
                 at {restaurant?.name ?? 'a restaurant'}
+                {collabs ? ` · with ${collabs}` : ''}
               </Text>
             </Pressable>
           </View>

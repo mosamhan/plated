@@ -11,6 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider } from '@/store/AuthContext';
+import { CollabsProvider } from '@/store/CollabsContext';
 import { CollectionsProvider } from '@/store/CollectionsContext';
 import { CreatorCardProvider } from '@/store/CreatorCardContext';
 import { DataProvider } from '@/store/DataContext';
@@ -42,6 +43,7 @@ function RootNav() {
         <Stack.Screen name="people" />
         <Stack.Screen name="discover-people" />
         <Stack.Screen name="streak" />
+        <Stack.Screen name="collabs" />
       </Stack>
     </>
   );
@@ -69,7 +71,9 @@ export default function RootLayout() {
                   <CollectionsProvider>
                     <CreatorCardProvider>
                       <StreakProvider>
-                        <RootNav />
+                        <CollabsProvider>
+                          <RootNav />
+                        </CollabsProvider>
                       </StreakProvider>
                     </CreatorCardProvider>
                   </CollectionsProvider>

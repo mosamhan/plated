@@ -1,4 +1,5 @@
 import { avatar, foodPhoto } from '@/data/images';
+import { Collaborator } from '@/data/types';
 
 /**
  * A "Plato" — a short vertical video a creator makes about a plate/restaurant.
@@ -25,6 +26,8 @@ export interface PlatoVideo {
   comments: number;
   /** Distinct viewers (see plato_views in 0009) — not counting rewatches. */
   views: number;
+  /** Co-creators. Only `accepted` entries are visible to anyone but the two parties. */
+  collaborators?: Collaborator[];
 }
 
 export interface PlatoComment {

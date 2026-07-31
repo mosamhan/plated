@@ -7,8 +7,9 @@ import { Avatar } from '@/components/Avatar';
 import { rowDivider, SectionTable } from '@/components/SectionTable';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { AppNotification, NotificationKind } from '@/data/types';
+import { useCollabs } from '@/store/CollabsContext';
 import { useData } from '@/store/DataContext';
-import { spacing } from '@/theme/palettes';
+import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 const KIND_ICON: Record<NotificationKind, keyof typeof Ionicons.glyphMap> = {
@@ -18,6 +19,7 @@ const KIND_ICON: Record<NotificationKind, keyof typeof Ionicons.glyphMap> = {
   reorder: 'repeat',
   earnings: 'cash',
   milestone: 'trophy',
+  collab: 'people-circle',
 };
 
 /**
@@ -30,6 +32,7 @@ const SECTIONS: { title: string; kinds: NotificationKind[] }[] = [
   { title: 'Comments', kinds: ['comment'] },
   { title: 'Follows', kinds: ['follow'] },
   { title: 'Reorders', kinds: ['reorder'] },
+  { title: 'Collabs', kinds: ['collab'] },
   { title: 'Earnings & milestones', kinds: ['earnings', 'milestone'] },
 ];
 
@@ -46,7 +49,9 @@ function timeAgo(iso: string): string {
 
 export default function Notifications() {
   const { colors } = useTheme();
+  const router = useRouter();
   const { notifications, markAllNotificationsRead } = useData();
+  const { pending } = useCollabs();
 
   // Marked read on the way *out*, not on arrival. Clearing on arrival meant
   // reading `read` was useless here, and snapshotting instead couldn't work
@@ -74,6 +79,25 @@ export default function Notifications() {
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}>
+        {/* An invite needs an answer, so it gets its own way in rather than
+            sitting in the list hoping to be tapped. */}
+        {pending.length > 0 && (
+          <Pressable
+            onPress={() => router.push('/collabs')}
+            style={({ pressed }) => [
+              styles.collabBanner,
+              { backgroundColor: colors.accentSoft, borderColor: colors.accent, opacity: pressed ? 0.8 : 1 },
+            ]}>
+            <Ionicons name="people-circle" size={22} color={colors.accent} />
+            <Text style={[styles.collabText, { color: colors.text }]}>
+              {pending.length === 1
+                ? '1 collab invite waiting on you'
+                : `${pending.length} collab invites waiting on you`}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+          </Pressable>
+        )}
+
         <SectionTable
           title="New"
           count={fresh.length}
@@ -116,10 +140,18 @@ function NotificationRow({
   const { colors } = useTheme();
   const router = useRouter();
   const { userFor } = useData();
+  const { pending } = useCollabs();
   const actor = n.userId ? userFor(n.userId) : undefined;
+  // Only unanswered invites go to the invite screen; an accepted one is history.
+  const pendingCollab = pending.some(
+    (c) => c.target.id === (n.platoId ?? n.orderId),
+  );
 
   const open = () => {
-    if (n.platoId) router.push(`/plato/${n.platoId}`);
+    // A collab notification is a question, not a link — route to where it can
+    // be answered rather than to the post itself.
+    if (n.kind === 'collab' && pendingCollab) router.push('/collabs');
+    else if (n.platoId) router.push(`/plato/${n.platoId}`);
     else if (n.orderId) router.push(`/order/${n.orderId}`);
     else if (n.userId) router.push(`/user/${n.userId}`);
   };
@@ -157,4 +189,14 @@ const styles = StyleSheet.create({
   text: { fontSize: 14, fontWeight: '600', lineHeight: 19 },
   time: { fontSize: 12, fontWeight: '500', marginTop: 2 },
   blank: { textAlign: 'center', marginTop: 40, fontSize: 14, fontWeight: '500' },
+  collabBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    marginBottom: spacing.xl,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  collabText: { flex: 1, fontSize: 14, fontWeight: '800' },
 });
