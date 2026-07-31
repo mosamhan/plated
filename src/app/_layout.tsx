@@ -16,6 +16,7 @@ import { CreatorCardProvider } from '@/store/CreatorCardContext';
 import { DataProvider } from '@/store/DataContext';
 import { LocationProvider } from '@/store/LocationContext';
 import { PlatosProvider } from '@/store/PlatosContext';
+import { StreakProvider } from '@/store/StreakContext';
 import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -40,6 +41,7 @@ function RootNav() {
         <Stack.Screen name="report" options={{ presentation: 'modal' }} />
         <Stack.Screen name="people" />
         <Stack.Screen name="discover-people" />
+        <Stack.Screen name="streak" />
       </Stack>
     </>
   );
@@ -66,7 +68,9 @@ export default function RootLayout() {
                 <PlatosProvider>
                   <CollectionsProvider>
                     <CreatorCardProvider>
-                      <RootNav />
+                      <StreakProvider>
+                        <RootNav />
+                      </StreakProvider>
                     </CreatorCardProvider>
                   </CollectionsProvider>
                 </PlatosProvider>

@@ -49,6 +49,9 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    // Local check-in reminders only — no push credentials involved, so there's
+    // nothing to configure beyond registering the module.
+    ['expo-notifications', {}],
     [
       'expo-splash-screen',
       {

@@ -20,6 +20,7 @@ import { SuggestedFriendCard } from '@/components/SuggestedFriends';
 import { Contact, Order } from '@/data/types';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
+import { useStreak } from '@/store/StreakContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -77,6 +78,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const { feedOrders, contacts, unreadCount } = useData();
   const { openSaveSheet, isSaved: isSavedInCollections } = useCollections();
+  const { current: streak } = useStreak();
   const [booting, setBooting] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -130,6 +132,16 @@ export default function Home() {
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
         <Logo size={22} showMark={false} />
         <View style={styles.headerActions}>
+          {/* The streak only earns header space once there's one to protect. */}
+          {streak > 0 && (
+            <Pressable
+              onPress={() => router.push('/streak')}
+              hitSlop={8}
+              style={[styles.streak, { backgroundColor: colors.accentSoft }]}>
+              <Text style={styles.streakFlame}>🔥</Text>
+              <Text style={[styles.streakText, { color: colors.accent }]}>{streak}</Text>
+            </Pressable>
+          )}
           {/* Discovery, not search — Explore already owns search, and finding
               people is the thing Home had no route to. */}
           <Pressable onPress={() => router.push('/discover-people')} hitSlop={8}>
@@ -192,6 +204,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  streak: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  streakFlame: { fontSize: 12 },
+  streakText: { fontSize: 13, fontWeight: '800' },
   badge: {
     position: 'absolute',
     top: -6,
