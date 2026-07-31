@@ -108,9 +108,8 @@ export const THEMES: Record<ThemeName, ThemeMeta> = {
   },
 };
 
-export const THEME_ORDER: ThemeName[] = ['saffron', 'noir'];
-
-export const DEFAULT_THEME: ThemeName = 'saffron';
+// Which palette is in play is decided by ThemeContext's light/dark/auto mode,
+// so there's no standalone theme order or default to keep in sync here.
 
 /** Shared design tokens that do not change between palettes. */
 export const spacing = {

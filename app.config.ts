@@ -17,7 +17,10 @@ const config: ExpoConfig = {
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   scheme: 'plated',
-  userInterfaceStyle: 'light',
+  // 'automatic' is required for the Appearance → Automatic option: with a fixed
+  // style, iOS reports that style to useColorScheme() and auto can never resolve
+  // to dark. The in-app palette is still chosen by ThemeContext, not by iOS.
+  userInterfaceStyle: 'automatic',
   ios: {
     supportsTablet: false,
     bundleIdentifier: 'com.samhan.plated',
