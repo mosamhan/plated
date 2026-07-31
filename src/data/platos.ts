@@ -23,6 +23,8 @@ export interface PlatoVideo {
   caption: string;
   likes: number;
   comments: number;
+  /** Distinct viewers (see plato_views in 0009) — not counting rewatches. */
+  views: number;
 }
 
 export interface PlatoComment {
@@ -61,6 +63,7 @@ export const PLATOS: PlatoVideo[] = [
     caption: 'Blistered, leopard-spotted crust and cups of crispy pepperoni. Get it whole. 🍕',
     likes: 4210,
     comments: 128,
+    views: 86400,
   },
   {
     id: 'p2',
@@ -78,6 +81,7 @@ export const PLATOS: PlatoVideo[] = [
     caption: 'Shatteringly crisp, juicy inside, pickles for the tang. Fries are non-negotiable. 🍔',
     likes: 3180,
     comments: 96,
+    views: 71250,
   },
   {
     id: 'p3',
@@ -95,6 +99,7 @@ export const PLATOS: PlatoVideo[] = [
     caption: 'Slow-simmered ragù, a snowfall of Parmigiano tableside. Order the extra bread. 🍝',
     likes: 2640,
     comments: 71,
+    views: 54900,
   },
   {
     id: 'p4',
@@ -112,6 +117,7 @@ export const PLATOS: PlatoVideo[] = [
     caption: 'That dense, tangy New York slice with fresh raspberry. Split it — or don’t. 🍰',
     likes: 5120,
     comments: 143,
+    views: 104300,
   },
 ];
 

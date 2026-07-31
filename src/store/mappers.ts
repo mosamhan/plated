@@ -99,6 +99,7 @@ export function mapPlato(row: any): PlatoVideo {
     caption: row.caption ?? '',
     likes: countOf(row.likes),
     comments: countOf(row.comments),
+    views: row.view_count ?? 0,
   };
 }
 

@@ -29,7 +29,7 @@ interface Props {
 export function PlatoReel({ video, active, height, bottomInset }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
-  const { isLiked, toggleLike } = usePlatos();
+  const { isLiked, toggleLike, recordView } = usePlatos();
   const { openSaveSheet, isSaved } = useCollections();
   const player = useVideoPlayer(video.videoUrl, (p) => {
     p.loop = true;
@@ -46,6 +46,12 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
     if (active && !paused) player.play();
     else player.pause();
   }, [active, paused, player]);
+
+  // A view is "this reel became the visible one" — recordView dedupes, so
+  // swiping back and forth doesn't keep counting.
+  useEffect(() => {
+    if (active) recordView(video.id);
+  }, [active, video.id, recordView]);
 
   const onShare = () => {
     tapLight();

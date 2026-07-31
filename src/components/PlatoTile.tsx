@@ -55,9 +55,11 @@ export function PlatoTile({ video, width, onSave, savedOverride }: Props) {
             />
           </Pressable>
         )}
-        <View style={styles.likes}>
-          <Ionicons name="heart" size={11} color="#fff" />
-          <Text style={styles.likesText}>{formatCount(video.likes)}</Text>
+        {/* Views rather than likes: on a creator's grid, reach is the number that
+            says how a Plato did — and the reel already shows likes on its rail. */}
+        <View style={styles.views}>
+          <Ionicons name="eye" size={11} color="#fff" />
+          <Text style={styles.viewsText}>{formatCount(video.views)}</Text>
         </View>
         <View style={styles.badge}>
           <RatingBadge score={video.rating} size="sm" />
@@ -100,7 +102,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  likes: {
+  views: {
     position: 'absolute',
     left: 8,
     bottom: 8,
@@ -112,7 +114,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: radius.pill,
   },
-  likesText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  viewsText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   badge: { position: 'absolute', right: 8, bottom: 8 },
   body: { padding: 10 },
   dish: { fontSize: 14, fontWeight: '800', letterSpacing: -0.2 },

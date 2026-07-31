@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { PLATO_COMMENTS, PLATOS, PlatoComment, PlatoVideo } from '@/data/platos';
 import { showAlert } from '@/lib/dialog';
@@ -26,6 +26,8 @@ interface PlatosContextValue {
   refreshTick: number;
   isLiked: (id: string) => boolean;
   toggleLike: (id: string) => void;
+  /** Records that the signed-in user watched this Plato. Safe to call repeatedly. */
+  recordView: (id: string) => void;
   commentsFor: (id: string) => PlatoComment[];
   /** Live mode fetches a Plato's comments on demand (no-op in demo). */
   loadComments: (id: string) => void;
@@ -56,6 +58,7 @@ function groupComments(list: PlatoComment[]): Record<string, PlatoComment[]> {
 }
 
 const PLATO_SELECT =
+  // `*` already brings view_count along (0009); likes/comments stay aggregates.
   '*, creator:profiles!plato_videos_user_id_fkey(name,handle,avatar_url,verified,compensation_eligible), likes:plato_likes(count), comments:plato_comments(count)';
 
 export function PlatosProvider({ children }: { children: React.ReactNode }) {
@@ -117,7 +120,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     setRefreshTick((t) => t + 1);
   }, []);
 
-  const adjustCount = (id: string, field: 'likes' | 'comments', delta: number) =>
+  const adjustCount = (id: string, field: 'likes' | 'comments' | 'views', delta: number) =>
     setPlatos((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: Math.max(0, p[field] + delta) } : p)));
 
   const isLiked = useCallback((id: string) => liked.has(id), [liked]);
@@ -141,6 +144,44 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [liked, live, userId],
+  );
+
+  // Platos this session has already counted. The table's composite PK makes a
+  // repeat insert a no-op anyway; this just avoids the round-trip on every
+  // swipe back to a reel.
+  const viewed = useRef<Set<string>>(new Set());
+
+  // The number only moves once the row is really there. Bumping first and
+  // undoing on failure looks quicker but strands a phantom view whenever the
+  // undo never runs — demo mode, a session that hasn't restored yet, or a
+  // request that never came back.
+  const recordView = useCallback(
+    (id: string) => {
+      if (!live || !userId || viewed.current.has(id)) return;
+      viewed.current.add(id);
+      supabase
+        .from('plato_views')
+        .insert({ plato_id: id, user_id: userId })
+        .then(
+          ({ error }) => {
+            if (!error) {
+              adjustCount(id, 'views', 1);
+              return;
+            }
+            // 23505 = this viewer is already counted from another session or
+            // device, so the server total is right as it stands.
+            if (error.code === '23505') return;
+            console.warn('[platos] view insert failed:', error.message);
+            viewed.current.delete(id);
+          },
+          (err) => {
+            // Offline or dropped mid-flight — let a later swipe try again.
+            console.warn('[platos] view insert failed:', err?.message ?? err);
+            viewed.current.delete(id);
+          },
+        );
+    },
+    [live, userId],
   );
 
   const commentsFor = useCallback((id: string) => commentsByPlato[id] ?? [], [commentsByPlato]);
@@ -265,6 +306,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         caption: input.caption,
         likes: 0,
         comments: 0,
+        views: 0,
       };
       setPlatos((p) => [local, ...p]);
       setLoadedComments((p) => new Set(p).add(local.id));
@@ -314,8 +356,8 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato }),
-    [platos, loading, refresh, refreshTick, isLiked, toggleLike, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato],
+    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato }),
+    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;
