@@ -1,20 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Share, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { confirmAction } from '@/lib/dialog';
 import { warn } from '@/lib/haptics';
 import { buildInviteMessage } from '@/lib/invite';
 import { useAuth } from '@/store/AuthContext';
+import { useCreatorCard } from '@/store/CreatorCardContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
-import { radius, spacing, THEMES } from '@/theme/palettes';
+import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
+const MODE_LABELS = { light: 'Light', dark: 'Dark', auto: 'Automatic' } as const;
+
 export default function Settings() {
-  const { colors, themeName } = useTheme();
+  const { colors, mode } = useTheme();
+  const { visible: creatorCardVisible, setVisible: setCreatorCardVisible } = useCreatorCard();
   const { signOut } = useAuth();
   const { blockedUsers, currentUser } = useData();
   const { location } = useLocation();
@@ -58,7 +62,7 @@ export default function Settings() {
           <Row
             icon="color-palette-outline"
             label="Appearance"
-            value={THEMES[themeName].label}
+            value={MODE_LABELS[mode]}
             onPress={() => router.push('/settings/theme')}
           />
           <Row icon="notifications-outline" label="Notifications" value="On" />
@@ -74,6 +78,12 @@ export default function Settings() {
         <Section title="Account">
           <Row icon="person-outline" label="Edit profile" onPress={() => router.push('/edit-profile')} />
           <Row icon="cash-outline" label="Creator dashboard" onPress={() => router.push('/creator')} />
+          <ToggleRow
+            icon="eye-outline"
+            label="Show creator card"
+            value={creatorCardVisible === true}
+            onValueChange={setCreatorCardVisible}
+          />
           <Row
             icon="hand-left-outline"
             label="Blocked users"
@@ -122,6 +132,39 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
         {children}
       </View>
+    </View>
+  );
+}
+
+/** A settings row whose control is a switch rather than a chevron. */
+function ToggleRow({
+  icon,
+  label,
+  value,
+  onValueChange,
+  last,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  last?: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[
+        styles.row,
+        !last && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
+      ]}>
+      <Ionicons name={icon} size={20} color={colors.text} />
+      <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ true: colors.accent, false: colors.border }}
+        thumbColor="#FFFFFF"
+      />
     </View>
   );
 }

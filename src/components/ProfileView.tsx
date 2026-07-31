@@ -1,8 +1,7 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -28,6 +27,7 @@ import { confirmAction } from '@/lib/dialog';
 import { tapLight } from '@/lib/haptics';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
 import { Collection, useCollections } from '@/store/CollectionsContext';
+import { useCreatorCard } from '@/store/CreatorCardContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { usePlatos } from '@/store/PlatosContext';
@@ -41,10 +41,6 @@ const PADDING = spacing.lg;
 const GAP = spacing.md;
 
 const COMP_THRESHOLD = 10000;
-
-// Per-account so signing in as someone else doesn't inherit the dismissal.
-// The dashboard stays reachable from Settings → Creator dashboard.
-const DISMISS_KEY_PREFIX = 'plated.hideCreatorCard.';
 
 export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolean }) {
   const { colors } = useTheme();
@@ -179,8 +175,6 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           <StatPill value={user.followers} label="Followers" onPress={() => router.push('/people?tab=followers')} />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <StatPill value={user.following} label="Following" onPress={() => router.push('/people?tab=following')} />
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <StatPill value={user.friends} label="Friends" />
         </View>
 
         {isCurrent && (
@@ -391,32 +385,16 @@ function CompensationCard({ user, onInvite }: { user: User; onInvite: () => void
   const progress = Math.min(user.followers / COMP_THRESHOLD, 1);
   const eligible = user.compensationEligible;
 
-  // null = haven't read the stored preference yet. Rendering nothing until it's
-  // known avoids showing the card for a frame and then yanking it away.
-  const [dismissed, setDismissed] = useState<boolean | null>(null);
-  const storageKey = `${DISMISS_KEY_PREFIX}${user.id}`;
-
-  useEffect(() => {
-    let cancelled = false;
-    AsyncStorage.getItem(storageKey)
-      .then((v) => {
-        if (!cancelled) setDismissed(v === '1');
-      })
-      .catch(() => {
-        if (!cancelled) setDismissed(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [storageKey]);
+  // visible is null until the stored preference has been read; rendering
+  // nothing until then avoids showing the card for a frame and yanking it away.
+  const { visible, setVisible } = useCreatorCard();
 
   const dismiss = () => {
     tapLight();
-    setDismissed(true);
-    AsyncStorage.setItem(storageKey, '1').catch(() => {});
+    setVisible(false);
   };
 
-  if (dismissed !== false) return null;
+  if (visible !== true) return null;
 
   return (
     <Pressable

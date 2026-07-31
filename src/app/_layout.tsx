@@ -12,6 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider } from '@/store/AuthContext';
 import { CollectionsProvider } from '@/store/CollectionsContext';
+import { CreatorCardProvider } from '@/store/CreatorCardContext';
 import { DataProvider } from '@/store/DataContext';
 import { LocationProvider } from '@/store/LocationContext';
 import { PlatosProvider } from '@/store/PlatosContext';
@@ -63,7 +64,9 @@ export default function RootLayout() {
               <DataProvider>
                 <PlatosProvider>
                   <CollectionsProvider>
-                    <RootNav />
+                    <CreatorCardProvider>
+                      <RootNav />
+                    </CreatorCardProvider>
                   </CollectionsProvider>
                 </PlatosProvider>
               </DataProvider>
