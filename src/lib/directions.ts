@@ -15,7 +15,7 @@ export interface LatLng {
 }
 
 export interface RouteResult {
-  /** Decoded overview polyline — the line to draw on the map. */
+  /** The line to draw, from the user's own position to the destination. */
   coordinates: LatLng[];
   /** Human-readable total distance, e.g. "3.2 mi". */
   distanceText: string;
@@ -60,6 +60,23 @@ export function decodePolyline(encoded: string): LatLng[] {
   return points;
 }
 
+/** Metres between two points (equirectangular approximation — fine at city scale). */
+function metresBetween(a: LatLng, b: LatLng): number {
+  const latRad = ((a.latitude + b.latitude) / 2) * (Math.PI / 180);
+  const dx = (b.longitude - a.longitude) * 111320 * Math.cos(latRad);
+  const dy = (b.latitude - a.latitude) * 110540;
+  return Math.hypot(dx, dy);
+}
+
+/**
+ * Drop a leading point that's effectively the anchor we're about to prepend, so
+ * the line doesn't double back on itself over a few metres.
+ */
+function dropIfSame(path: LatLng[], anchor: LatLng, end: 'head'): LatLng[] {
+  if (end === 'head' && path.length && metresBetween(path[0], anchor) < 15) return path.slice(1);
+  return path;
+}
+
 /**
  * Fetch a driving route between two points. Returns null on any failure so the
  * caller can fall back gracefully (e.g. offer "open in Maps" instead).
@@ -87,8 +104,20 @@ export async function fetchRoute(
     }
     const route = json.routes[0];
     const leg = route.legs?.[0];
+
+    // Per-step geometry, not route.overview_polyline: the overview is a
+    // *simplified* line, so at street zoom it visibly cuts corners and its first
+    // point can sit a block off. Steps carry the real shape.
+    const stepCoords: LatLng[] = (leg?.steps ?? []).flatMap((step: { polyline?: { points?: string } }) =>
+      step.polyline?.points ? decodePolyline(step.polyline.points) : [],
+    );
+    const path = stepCoords.length > 1 ? stepCoords : decodePolyline(route.overview_polyline.points);
+
+    // Google starts and ends the route at the nearest drivable road, which is
+    // why the line appeared to begin somewhere other than the user. Anchoring it
+    // to the true endpoints makes it run from the location dot to the pin.
     return {
-      coordinates: decodePolyline(route.overview_polyline.points),
+      coordinates: [origin, ...dropIfSame(path, origin, 'head'), destination],
       distanceText: leg?.distance?.text ?? '',
       durationText: leg?.duration?.text ?? '',
     };
