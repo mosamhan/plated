@@ -130,8 +130,10 @@ export default function Home() {
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
         <Logo size={22} showMark={false} />
         <View style={styles.headerActions}>
-          <Pressable onPress={() => router.push('/search')} hitSlop={8}>
-            <Ionicons name="search" size={23} color={colors.text} />
+          {/* Discovery, not search — Explore already owns search, and finding
+              people is the thing Home had no route to. */}
+          <Pressable onPress={() => router.push('/discover-people')} hitSlop={8}>
+            <Ionicons name="people-outline" size={23} color={colors.text} />
           </Pressable>
           <Pressable onPress={() => router.push('/notifications')} hitSlop={8}>
             <Ionicons name="notifications-outline" size={23} color={colors.text} />
