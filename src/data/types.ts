@@ -78,7 +78,13 @@ export interface Comment {
   createdAt: string;
 }
 
-export type NotificationKind = 'like' | 'comment' | 'follow' | 'reorder' | 'earnings' | 'milestone';
+export type NotificationKind =
+  | 'like'
+  | 'comment'
+  | 'follow'
+  | 'reorder'
+  | 'earnings'
+  | 'milestone';
 
 export interface AppNotification {
   id: string;
@@ -87,6 +93,8 @@ export interface AppNotification {
   userId?: string;
   /** Related plate, when applicable. */
   orderId?: string;
+  /** Related Plato, when the notification is about a reel rather than a plate. */
+  platoId?: string;
   text: string;
   createdAt: string;
   read: boolean;

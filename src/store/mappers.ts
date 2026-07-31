@@ -125,6 +125,7 @@ export function mapNotification(row: any): AppNotification {
     kind: row.kind,
     userId: row.actor_id ?? undefined,
     orderId: row.order_id ?? undefined,
+    platoId: row.plato_id ?? undefined,
     text: row.text,
     createdAt: row.created_at,
     read: !!row.read,
