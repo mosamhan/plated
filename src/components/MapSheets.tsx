@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PIN_META, type PinCategory } from '@/components/ExploreMap';
 import { useCollections } from '@/store/CollectionsContext';
+import { useLocation } from '@/store/LocationContext';
 import { useData } from '@/store/DataContext';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing } from '@/theme/palettes';
@@ -40,6 +41,7 @@ export function MapSettingsSheet({
   setMyTableOnly,
   onOpenCollections,
   onOpenCategories,
+  onOpenLocation,
 }: {
   onClose: () => void;
   mapTheme: 'light' | 'dark';
@@ -50,9 +52,13 @@ export function MapSettingsSheet({
   setMyTableOnly: (v: boolean) => void;
   onOpenCollections: () => void;
   onOpenCategories: () => void;
+  /** Change the active city/GPS location — the map is now the only place that
+   *  setting is reachable from, since Explore's header lost its chip. */
+  onOpenLocation: () => void;
 }) {
   const { colors } = useTheme();
   const { collections } = useCollections();
+  const { location } = useLocation();
   const savedCount = collections.reduce((n, c) => n + c.items.filter((i) => i.type === 'restaurant').length, 0);
 
   const seg = (val: 'light' | 'dark', label: string, icon: keyof typeof Ionicons.glyphMap) => {
@@ -98,7 +104,13 @@ export function MapSettingsSheet({
         {showSeg(false, 'Platers', 'earth')}
       </View>
 
-      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>FIND</Text>
+      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>LOCATION</Text>
+      {linkRow('location-outline', 'Where you\u2019re looking', location.label, () => {
+        onClose();
+        onOpenLocation();
+      })}
+
+      <Text style={[styles.sectionLabel, { color: colors.textMuted, marginTop: 20 }]}>FIND</Text>
       {linkRow('pricetags-outline', 'Categories', null, () => {
         onClose();
         onOpenCategories();

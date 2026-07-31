@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { forwardRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { forwardRef, useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 
 import type { LatLng } from '@/lib/directions';
@@ -33,7 +34,19 @@ interface Props {
   region: Region;
   mapTheme: 'light' | 'dark';
   onSelect: (r: MapRestaurant) => void;
+  /** Pin to emphasise — the restaurant behind the plate you just tapped. */
+  highlightedId?: string | null;
   onRegionChange?: (r: Region) => void;
+  /**
+   * Where the user is. Rendered as Plated's own dot rather than the system blue
+   * one — it's the anchor of a drawn route, so it should read as ours.
+   */
+  userLocation?: LatLng | null;
+  /**
+   * A place that isn't on Plated yet, being looked at from search. Drawn as an
+   * outlined pin so it reads as "not one of ours — not rated yet".
+   */
+  previewPlace?: { latitude: number; longitude: number; name: string } | null;
   /** When set, a route line is drawn on top of the pins (in-app routing). */
   routeCoords?: LatLng[];
   routeColor?: string;
@@ -47,34 +60,142 @@ interface Props {
  * Forwards a ref to the underlying MapView so the screen can animate to a pin
  * or fit the camera to a drawn route (fitToCoordinates).
  */
+/**
+ * Expo Go can't apply the react-native-maps config plugin, so the Google
+ * provider has no API key there and renders a blank grey rectangle. Falling
+ * back to the platform default (Apple Maps on iOS) keeps the map usable while
+ * developing in Expo Go; dev and store builds still get Google + Plated's
+ * custom style.
+ */
+const inExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+/**
+ * How much a pin says, by zoom. Zoomed out, a city's worth of pins only needs to
+ * show *where* things are — scores and names at that density are unreadable
+ * overlapping noise. Zooming in is the request for detail, so the pin earns its
+ * score, then its name.
+ */
+type PinDetail = 'far' | 'mid' | 'near';
+
+const detailFor = (latitudeDelta: number): PinDetail => {
+  // Tuned against the default city view (delta ~0.09): at that zoom five pins
+  // already overlap, so it has to be the dot tier, not the score tier.
+  if (latitudeDelta > 0.055) return 'far';
+  if (latitudeDelta > 0.018) return 'mid';
+  return 'near';
+};
+
 export const ExploreMap = forwardRef<MapView, Props>(function ExploreMap(
-  { restaurants, region, mapTheme, onSelect, onRegionChange, routeCoords, routeColor = '#B07207' },
+  {
+    restaurants,
+    region,
+    mapTheme,
+    onSelect,
+    onRegionChange,
+    highlightedId,
+    userLocation,
+    previewPlace,
+    routeCoords,
+    routeColor = '#B07207',
+  },
   ref,
 ) {
   const style = mapTheme === 'dark' ? mapStyleDark : mapStyleLight;
 
+  // The screen also wants this instance (to fit a route, to focus a pin), so
+  // both refs are attached to the same node.
+  // Tracked here rather than lifted: only the pins care about zoom, and pushing
+  // it to the screen would re-render the whole list on every pan.
+  const [detail, setDetail] = useState<PinDetail>(detailFor(region.latitudeDelta));
+
+  const inner = useRef<MapView | null>(null);
+  const attach = (node: MapView | null) => {
+    inner.current = node;
+    if (typeof ref === 'function') ref(node);
+    else if (ref) (ref as React.MutableRefObject<MapView | null>).current = node;
+  };
+
+  // initialRegion only applies on mount, and this map now stays mounted for the
+  // life of the Explore tab. Without this, changing your location updated every
+  // label on screen while the map kept showing the old city.
+  useEffect(() => {
+    inner.current?.animateToRegion(region, 450);
+    // Primitives, not the object: the region is rebuilt on unrelated renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [region.latitude, region.longitude]);
+
   return (
     <MapView
-      ref={ref}
-      provider={PROVIDER_GOOGLE}
+      ref={attach}
+      // Apple Maps ignores customMapStyle, so the Plated styling only applies
+      // where the Google provider is actually available.
+      provider={inExpoGo ? undefined : PROVIDER_GOOGLE}
       style={StyleSheet.absoluteFill}
       initialRegion={region}
-      customMapStyle={style}
-      showsUserLocation
+      customMapStyle={inExpoGo ? undefined : style}
+      // Ours replaces the system dot; showing both would put two markers on the
+      // same coordinate.
+      showsUserLocation={!userLocation}
       showsMyLocationButton={false}
       showsCompass={false}
       toolbarEnabled={false}
-      onRegionChangeComplete={onRegionChange}>
-      {restaurants.map((r) => (
+      onRegionChangeComplete={(r) => {
+        setDetail(detailFor(r.latitudeDelta));
+        onRegionChange?.(r);
+      }}>
+      {restaurants.map((r) => {
+        const highlighted = r.id === highlightedId;
+        return (
+          <Marker
+            // The key carries the highlight so the marker view is rebuilt when
+            // it changes: tracksViewChanges is off for scroll performance, which
+            // would otherwise freeze the pin at its first appearance.
+            key={`${r.id}:${highlighted ? 'on' : 'off'}:${detail}`}
+            coordinate={{ latitude: r.lat, longitude: r.lng }}
+            anchor={{ x: 0.5, y: 1 }}
+            zIndex={highlighted ? 10 : 1}
+            tracksViewChanges={false}
+            onPress={() => onSelect(r)}>
+            <Pin
+              category={r.category}
+              score={r.platedRating}
+              saved={r.saved}
+              highlighted={highlighted}
+              detail={detail}
+              name={r.name}
+            />
+          </Marker>
+        );
+      })}
+      {previewPlace && (
         <Marker
-          key={r.id}
-          coordinate={{ latitude: r.lat, longitude: r.lng }}
+          coordinate={{ latitude: previewPlace.latitude, longitude: previewPlace.longitude }}
           anchor={{ x: 0.5, y: 1 }}
-          tracksViewChanges={false}
-          onPress={() => onSelect(r)}>
-          <Pin category={r.category} score={r.platedRating} saved={r.saved} />
+          zIndex={15}
+          tracksViewChanges={false}>
+          <View style={{ alignItems: 'center' }}>
+            <View style={styles.previewPin}>
+              <Ionicons name="add" size={14} color="#251B10" />
+            </View>
+            <View style={styles.pinLabel}>
+              <Text style={styles.pinLabelText} numberOfLines={1}>
+                {previewPlace.name}
+              </Text>
+            </View>
+          </View>
         </Marker>
-      ))}
+      )}
+      {userLocation && (
+        <Marker
+          coordinate={userLocation}
+          anchor={{ x: 0.5, y: 0.5 }}
+          // The pulse is an animation, so this marker has to keep redrawing —
+          // unlike the pins, which are static and opt out for performance.
+          tracksViewChanges
+          zIndex={20}>
+          <UserDot />
+        </Marker>
+      )}
       {routeCoords && routeCoords.length > 1 && (
         <Polyline coordinates={routeCoords} strokeColor={routeColor} strokeWidth={5} lineCap="round" lineJoin="round" />
       )}
@@ -82,15 +203,91 @@ export const ExploreMap = forwardRef<MapView, Props>(function ExploreMap(
   );
 });
 
-function Pin({ category, score, saved }: { category: PinCategory; score: number; saved: boolean }) {
+function Pin({
+  category,
+  score,
+  saved,
+  highlighted,
+  detail = 'mid',
+  name,
+}: {
+  category: PinCategory;
+  score: number;
+  saved: boolean;
+  highlighted?: boolean;
+  detail?: PinDetail;
+  name?: string;
+}) {
   const meta = PIN_META[category];
+
+  // Zoomed out (and not the selected pin): a bare dot. Enough to read the shape
+  // of the city without a hundred labels fighting each other.
+  if (detail === 'far' && !highlighted) {
+    return (
+      <View style={[styles.pinFar, { backgroundColor: meta.color, borderColor: saved ? '#B07207' : '#fff' }]}>
+        <Ionicons name={meta.icon} size={9} color="#fff" />
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.pin, { borderColor: saved ? '#B07207' : '#fff' }]}>
+    <View style={{ alignItems: 'center' }}>
+    <View
+      style={[
+        styles.pin,
+        { borderColor: saved ? '#B07207' : '#fff' },
+        // Grown and gold-ringed rather than recolored: the category colour is
+        // information, so it has to survive being selected.
+        highlighted && styles.pinHighlighted,
+      ]}>
       <View style={[styles.dot, { backgroundColor: meta.color }]}>
         <Ionicons name={meta.icon} size={12} color="#fff" />
       </View>
       <Text style={styles.score}>{score > 0 ? score.toFixed(1) : '—'}</Text>
       {saved && <Ionicons name="star" size={11} color="#B07207" style={{ marginLeft: -1 }} />}
+    </View>
+      {/* Close in, the score alone stops being the useful bit — you want to know
+          which place it is. */}
+      {(detail === 'near' || highlighted) && name && (
+        <View style={styles.pinLabel}>
+          <Text style={styles.pinLabelText} numberOfLines={1}>
+            {name}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Plated's "you are here": a solid orange dot in a white ring, with a slow
+ * outward pulse so it stays findable against a busy map without being loud.
+ */
+function UserDot() {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(pulse, {
+        toValue: 1,
+        duration: 2000,
+        easing: Easing.out(Easing.quad),
+        // JS-driven on purpose: the marker snapshots this view to draw it, and a
+        // native-driven transform isn't reflected in that snapshot.
+        useNativeDriver: false,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 2.6] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
+
+  return (
+    <View style={styles.userWrap}>
+      <Animated.View style={[styles.userPulse, { opacity, transform: [{ scale }] }]} />
+      <View style={styles.userDot} />
     </View>
   );
 }
@@ -110,6 +307,63 @@ export function deriveCategory(opts: { saved: boolean; rated: boolean; isCafe?: 
 // Marker views are white-on-tinted-land, so hardcode the light chrome (they sit
 // on the map, not the app surface) — only the score text tracks nothing here.
 const styles = StyleSheet.create({
+  userWrap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  userPulse: {
+    position: 'absolute',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F07A16',
+  },
+  userDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F07A16',
+    borderWidth: 3,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  previewPin: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#251B10',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinFar: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinLabel: {
+    marginTop: 3,
+    maxWidth: 130,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+  },
+  pinLabelText: { fontSize: 10, fontWeight: '800', color: '#251B10' },
+  pinHighlighted: {
+    borderColor: '#B07207',
+    borderWidth: 3,
+    transform: [{ scale: 1.18 }],
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
   pin: {
     flexDirection: 'row',
     alignItems: 'center',
