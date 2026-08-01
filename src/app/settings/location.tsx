@@ -1,17 +1,34 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { showAlert } from '@/lib/dialog';
 import { tick } from '@/lib/haptics';
 import { autocompleteLocations, searchPlaces, type PlaceSuggestion } from '@/lib/places';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-// A few quick test cities so you can preview other markets.
-const PRESETS = ['New York, NY', 'Los Angeles, CA', 'Chicago, IL', 'Austin, TX', 'Boston, MA', 'Miami, FL'];
+/**
+ * Quick test markets, carrying their own coordinates.
+ *
+ * They used to be labels only, geocoded on tap by searching for *a restaurant*
+ * near the name — so a preset could set a label with no coordinates at all,
+ * which silently broke the location dot and made Directions refuse with
+ * "Location needed". A known city's centre is static data; it shouldn't need a
+ * network round-trip that can land on some arbitrary venue or nothing.
+ */
+const PRESETS: { label: string; lat: number; lng: number }[] = [
+  { label: 'New York, NY', lat: 40.7128, lng: -74.006 },
+  { label: 'Los Angeles, CA', lat: 34.0522, lng: -118.2437 },
+  { label: 'Chicago, IL', lat: 41.8781, lng: -87.6298 },
+  { label: 'Austin, TX', lat: 30.2672, lng: -97.7431 },
+  { label: 'Boston, MA', lat: 42.3601, lng: -71.0589 },
+  { label: 'Miami, FL', lat: 25.7617, lng: -80.1918 },
+];
 
 export default function LocationSettings() {
   const { colors } = useTheme();
@@ -61,14 +78,39 @@ export default function LocationSettings() {
     router.back();
   };
 
-  // Fallback for a free-typed city with no suggestion tapped: geocode it.
+  /** A preset already knows where it is — no lookup, no failure mode. */
+  const onPickPreset = (preset: (typeof PRESETS)[number]) => {
+    tick();
+    setManualLocation(preset.label, { lat: preset.lat, lng: preset.lng });
+    router.back();
+  };
+
+  // Free-typed city with no suggestion tapped. Uses the OS geocoder, which is
+  // what actually turns an address into a point; the place search is only a
+  // fallback, since it answers a different question ("restaurants near here").
   const onSetCity = async (label: string) => {
     tick();
     setGeocoding(true);
-    const results = await searchPlaces('restaurant', { near: label });
+    let coords: { lat: number; lng: number } | undefined;
+    try {
+      const [hit] = await Location.geocodeAsync(label);
+      if (hit) coords = { lat: hit.latitude, lng: hit.longitude };
+    } catch {
+      // Geocoder unavailable — fall through to the place search.
+    }
+    if (!coords) {
+      const results = await searchPlaces('restaurant', { near: label });
+      if (results[0]?.lat != null) coords = { lat: results[0].lat!, lng: results[0].lng! };
+    }
     setGeocoding(false);
-    const coords = results[0]?.lat != null ? { lat: results[0].lat!, lng: results[0].lng! } : undefined;
     setManualLocation(label, coords);
+    // Say so rather than leaving a location that quietly can't do directions.
+    if (!coords) {
+      showAlert(
+        'Set, but not pinned',
+        `We couldn't find coordinates for "${label}", so distances and directions won't work until you pick a suggestion or use your current location.`,
+      );
+    }
     router.back();
   };
 
@@ -143,16 +185,16 @@ export default function LocationSettings() {
         <Text style={[styles.presetLabel, { color: colors.textMuted }]}>Or try a market</Text>
         <View style={styles.presets}>
           {PRESETS.map((p) => {
-            const active = p === location.label;
+            const active = p.label === location.label;
             return (
               <Pressable
-                key={p}
-                onPress={() => onSetCity(p)}
+                key={p.label}
+                onPress={() => onPickPreset(p)}
                 style={[
                   styles.preset,
                   { backgroundColor: active ? colors.accent : colors.surface, borderColor: active ? colors.accent : colors.border },
                 ]}>
-                <Text style={{ color: active ? colors.accentText : colors.text, fontWeight: '700', fontSize: 13 }}>{p}</Text>
+                <Text style={{ color: active ? colors.accentText : colors.text, fontWeight: '700', fontSize: 13 }}>{p.label}</Text>
               </Pressable>
             );
           })}
