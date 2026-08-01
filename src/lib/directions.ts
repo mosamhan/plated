@@ -14,6 +14,15 @@ export interface LatLng {
   longitude: number;
 }
 
+export interface RouteStep {
+  /** Plain-text instruction, e.g. "Head south on 8th Ave". */
+  instruction: string;
+  distanceText: string;
+  durationText: string;
+  /** Google's maneuver token ("turn-left", "merge", …) when it supplies one. */
+  maneuver?: string;
+}
+
 export interface RouteResult {
   /** The line to draw, from the user's own position to the destination. */
   coordinates: LatLng[];
@@ -21,6 +30,13 @@ export interface RouteResult {
   distanceText: string;
   /** Human-readable ETA, e.g. "14 min". */
   durationText: string;
+  /**
+   * Turn-by-turn instructions for reading *before* you drive. Deliberately a
+   * list, not live guidance: the Directions API's terms don't permit turn-by-turn
+   * navigation, which needs Google's separate Navigation SDK, so actual driving
+   * still hands off to a maps app.
+   */
+  steps: RouteStep[];
 }
 
 const KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? '';
@@ -58,6 +74,27 @@ export function decodePolyline(encoded: string): LatLng[] {
     points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
   }
   return points;
+}
+
+/**
+ * Google returns instructions as HTML ("Head <b>south</b> on <b>8th Ave</b>"),
+ * sometimes with a trailing <div> aside like "Destination will be on the left".
+ * Flatten it to one readable sentence.
+ */
+function stripHtml(html: string): string {
+  return html
+    // The aside is a separate sentence, not a run-on.
+    .replace(/<div[^>]*>/gi, '. ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+\./g, '.')
+    .trim();
 }
 
 /** Metres between two points (equirectangular approximation — fine at city scale). */
@@ -116,10 +153,25 @@ export async function fetchRoute(
     // Google starts and ends the route at the nearest drivable road, which is
     // why the line appeared to begin somewhere other than the user. Anchoring it
     // to the true endpoints makes it run from the location dot to the pin.
+    const steps: RouteStep[] = (leg?.steps ?? []).map(
+      (step: {
+        html_instructions?: string;
+        distance?: { text?: string };
+        duration?: { text?: string };
+        maneuver?: string;
+      }) => ({
+        instruction: stripHtml(step.html_instructions ?? ''),
+        distanceText: step.distance?.text ?? '',
+        durationText: step.duration?.text ?? '',
+        maneuver: step.maneuver,
+      }),
+    );
+
     return {
       coordinates: [origin, ...dropIfSame(path, origin, 'head'), destination],
       distanceText: leg?.distance?.text ?? '',
       durationText: leg?.duration?.text ?? '',
+      steps,
     };
   } catch (e) {
     if (__DEV__) console.warn('[Plated] directions threw', e);
