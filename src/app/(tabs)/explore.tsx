@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  LayoutAnimation,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -21,6 +22,7 @@ import { CategoriesSheet, CollectionsSheet, MapSettingsSheet } from '@/component
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
 import { RestaurantDetailSheet } from '@/components/RestaurantDetailSheet';
+import { RouteStepsSheet } from '@/components/RouteStepsSheet';
 import { fetchRoute, type RouteResult } from '@/lib/directions';
 import type { PlaceResult } from '@/lib/places';
 import { isCafe } from '@/lib/venue';
@@ -108,6 +110,21 @@ export default function Explore() {
   const [cameraRegion, setCameraRegion] = useState<Region | null>(null);
   const [areaRegion, setAreaRegion] = useState<Region | null>(null);
   const [routing, setRouting] = useState(false);
+  const [stepsOpen, setStepsOpen] = useState(false);
+  /** Fullscreen search: collapsed to a circle until asked for. */
+  const [fullSearchOpen, setFullSearchOpen] = useState(false);
+  /** Something has been typed, so hovering away shouldn't take it back. */
+  const [fullSearchDirty, setFullSearchDirty] = useState(false);
+
+  // Slides the field open and slides "Show plates" over beside the menu, rather
+  // than either popping between layouts.
+  const toggleFullSearch = (open: boolean) => {
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(220, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity),
+    );
+    setFullSearchOpen(open);
+    if (!open) setFullSearchDirty(false);
+  };
   /** A Foursquare place being looked at that Plated has no row for yet. */
   const [preview, setPreview] = useState<PlaceResult | null>(null);
   const mapTheme: 'light' | 'dark' = mapThemeOverride ?? (colors.isDark ? 'dark' : 'light');
@@ -322,6 +339,22 @@ export default function Explore() {
         onAdopt={adoptPreview}
       />
 
+      {route && (
+        <RouteStepsSheet
+          visible={stepsOpen}
+          onClose={() => setStepsOpen(false)}
+          destination={restaurantFor(route.restaurantId)?.name ?? 'Route'}
+          distanceText={route.distanceText}
+          durationText={route.durationText}
+          steps={route.steps}
+          onNavigate={() => {
+            const r = restaurantFor(route.restaurantId);
+            setStepsOpen(false);
+            if (r) openMap(r);
+          }}
+        />
+      )}
+
       {activeSheet === 'settings' && (
         <MapSettingsSheet
           onClose={() => setActiveSheet(null)}
@@ -395,22 +428,61 @@ export default function Explore() {
               <Ionicons name={myTableOnly ? 'bookmark' : 'earth'} size={9} color={colors.accentText} />
             </View>
           </Pressable>
-          <Pressable
-            onPress={() => setMapExpanded(false)}
-            style={[styles.collapseBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="contract" size={15} color={colors.text} />
-            <Text style={[styles.collapseText, { color: colors.text }]}>Show plates</Text>
-          </Pressable>
-          {/* Search lives with the plate list, so this collapses back to it
-              rather than stacking a second search surface on the map. */}
-          <Pressable
-            onPress={() => setMapExpanded(false)}
-            style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="search" size={20} color={colors.textMuted} />
-          </Pressable>
+          {fullSearchOpen ? (
+            <View
+              // Pointer events on the container, so moving the cursor off the
+              // *search* is what puts an untouched field away — leaving
+              // mid-typed text alone.
+              onPointerLeave={() => {
+                if (!fullSearchDirty) toggleFullSearch(false);
+              }}
+              style={{ flex: 1, marginLeft: 10 }}>
+              <InlineSearch
+                autoFocus
+                onDismiss={() => toggleFullSearch(false)}
+                onQueryChange={(q) => setFullSearchDirty(q.length > 0)}
+                onSelectRated={(id) => {
+                  toggleFullSearch(false);
+                  openPin(id);
+                }}
+                onSelectExternal={(place) => {
+                  toggleFullSearch(false);
+                  openPreview(place);
+                }}
+              />
+            </View>
+          ) : (
+            <Pressable
+              // Hover is the ask; a pointer only exists on iPad/Mac/web, so tap
+              // stays as the equivalent gesture on a phone.
+              onHoverIn={() => toggleFullSearch(true)}
+              onPress={() => toggleFullSearch(true)}
+              style={[styles.mapCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="search" size={20} color={colors.textMuted} />
+            </Pressable>
+          )}
         </View>
 
-        {!route && <View style={[styles.areaWrap, { top: insets.top + 70 }]}>{searchThisArea}</View>}
+        {/* Under the menu rather than in the top row: the row is the search's to
+            take, and stacking these two keeps the map controls in one corner. */}
+        <Pressable
+          onPress={() => setMapExpanded(false)}
+          style={[
+            styles.underMenu,
+            { top: insets.top + 14 + 44 + 10, backgroundColor: colors.card, borderColor: colors.border },
+            // While the search is open it drops its label and matches the menu
+            // circle above it. That keeps it entirely left of the results list,
+            // which starts just right of the menu — so the two never overlap
+            // rather than one being drawn over the other.
+            fullSearchOpen && styles.underMenuTight,
+          ]}>
+          <Ionicons name="contract" size={15} color={colors.text} />
+          {!fullSearchOpen && (
+            <Text style={[styles.collapseText, { color: colors.text }]}>Show plates</Text>
+          )}
+        </Pressable>
+
+        {!route && <View style={[styles.areaWrap, { top: insets.top + 128 }]}>{searchThisArea}</View>}
 
         {/* In-app route banner — distance + ETA, with clear + hand-off options. */}
         {route && (
@@ -426,14 +498,13 @@ export default function Explore() {
                 {route.distanceText} · {route.durationText} drive
               </Text>
             </View>
+            {/* Steps first, Navigate inside them: reading the route is the part
+                that belongs in Plated, driving it belongs to a maps app. */}
             <Pressable
-              onPress={() => {
-                const r = restaurantFor(route.restaurantId);
-                if (r) openMap(r);
-              }}
+              onPress={() => setStepsOpen(true)}
               style={[styles.routeGo, { backgroundColor: colors.accent }]}>
-              <Ionicons name="navigate" size={14} color={colors.accentText} />
-              <Text style={[styles.routeGoText, { color: colors.accentText }]}>Navigate</Text>
+              <Ionicons name="list" size={14} color={colors.accentText} />
+              <Text style={[styles.routeGoText, { color: colors.accentText }]}>Steps</Text>
             </Pressable>
             <Pressable onPress={() => setRoute(null)} hitSlop={8} style={styles.routeClose}>
               <Ionicons name="close" size={20} color={colors.textMuted} />
@@ -533,7 +604,14 @@ export default function Explore() {
               </View>
               {/* An icon rather than "tap for the full map" — the hint didn't fit
                   the width and truncated to nonsense. */}
-              <Ionicons name="expand" size={16} color={colors.textMuted} />
+              <Pressable
+                onPress={() => setStepsOpen(true)}
+                hitSlop={10}
+                style={[styles.miniSteps, { backgroundColor: colors.accentSoft }]}>
+                <Ionicons name="list" size={13} color={colors.accent} />
+                <Text style={[styles.miniStepsText, { color: colors.accent }]}>Steps</Text>
+              </Pressable>
+              <Ionicons name="expand" size={15} color={colors.textMuted} />
               <Pressable
                 onPress={() => setRoute(null)}
                 hitSlop={10}
@@ -638,6 +716,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  miniSteps: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+  },
+  miniStepsText: { fontSize: 12, fontWeight: '800' },
   grip: { alignItems: 'center', justifyContent: 'center', height: 22 },
   gripBar: { width: 44, height: 4, borderRadius: 2 },
   areaWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
@@ -651,15 +738,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   areaBtnText: { fontSize: 13, fontWeight: '800' },
-  collapseBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    height: 44,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
   collapseText: { fontSize: 13, fontWeight: '800' },
   countRow: {
     flexDirection: 'row',
@@ -684,7 +762,22 @@ const styles = StyleSheet.create({
   overlayToggle: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   count: { fontSize: 13, fontWeight: '600' },
   empty: { textAlign: 'center', marginTop: 40, fontSize: 14, fontWeight: '500' },
+  underMenu: {
+    position: 'absolute',
+    left: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    height: 40,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  underMenuTight: { width: 44, height: 44, paddingHorizontal: 0, justifyContent: 'center' },
   mapTopRow: {
+    // Above the stacked controls below it: the search dropdown belongs to this
+    // row, and the later-painted "Show plates" was covering the first result.
+    zIndex: 40,
     position: 'absolute',
     left: PADDING,
     right: PADDING,

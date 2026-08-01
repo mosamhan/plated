@@ -13,6 +13,13 @@ const MAX_PLATED = 4;
 const MAX_NEARBY = 6;
 
 interface Props {
+  /** Focus the field on mount — the fullscreen map opens it deliberately. */
+  autoFocus?: boolean;
+  /** Called when the field is cleared/dismissed, so a host can collapse it. */
+  onDismiss?: () => void;
+  /** Lets a host know whether anything has been typed (hover-out shouldn't
+   *  collapse a search someone is part-way through). */
+  onQueryChange?: (query: string) => void;
   /** A place already on Plated — it has an id, a rating and pins. */
   onSelectRated: (restaurantId: string) => void;
   /**
@@ -30,7 +37,13 @@ interface Props {
  * puts it on the map — the difference is only whether we already have a rating
  * to show.
  */
-export function InlineSearch({ onSelectRated, onSelectExternal }: Props) {
+export function InlineSearch({
+  onSelectRated,
+  onSelectExternal,
+  autoFocus,
+  onDismiss,
+  onQueryChange,
+}: Props) {
   const { colors } = useTheme();
   const { topRestaurants } = useData();
   const { placeQuery } = useLocation();
@@ -99,6 +112,8 @@ export function InlineSearch({ onSelectRated, onSelectExternal }: Props) {
   const dismiss = () => {
     setFocused(false);
     setQuery('');
+    onQueryChange?.('');
+    onDismiss?.();
   };
 
   return (
@@ -107,7 +122,10 @@ export function InlineSearch({ onSelectRated, onSelectExternal }: Props) {
         <Ionicons name="search" size={18} color={colors.textMuted} />
         <TextInput
           value={query}
-          onChangeText={setQuery}
+          onChangeText={(t) => {
+            setQuery(t);
+            onQueryChange?.(t);
+          }}
           onFocus={() => setFocused(true)}
           placeholder="Search dishes, drinks, places, people"
           placeholderTextColor={colors.textMuted}
@@ -115,8 +133,9 @@ export function InlineSearch({ onSelectRated, onSelectExternal }: Props) {
           autoCapitalize="words"
           autoCorrect={false}
           returnKeyType="search"
+          autoFocus={autoFocus}
         />
-        {q.length > 0 && (
+        {(q.length > 0 || onDismiss) && (
           <Pressable onPress={dismiss} hitSlop={8}>
             <Ionicons name="close-circle" size={17} color={colors.textMuted} />
           </Pressable>

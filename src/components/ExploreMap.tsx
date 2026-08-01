@@ -77,6 +77,9 @@ const inExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreCl
  */
 type PinDetail = 'far' | 'mid' | 'near';
 
+/** The user marker's fixed frame — see the note on `userWrap`. */
+const PULSE_SIZE = 88;
+
 const detailFor = (latitudeDelta: number): PinDetail => {
   // Tuned against the default city view (delta ~0.09): at that zoom five pins
   // already overlap, so it has to be the dot tier, not the score tier.
@@ -281,7 +284,11 @@ function UserDot() {
     return () => loop.stop();
   }, [pulse]);
 
-  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 2.6] });
+  // Scales *down* from the container's full size rather than growing past it.
+  // Overflowing the frame made the marker's snapshot change size as the pulse
+  // ran, and since the anchor is a fraction of that image, the dot drifted by a
+  // fixed number of pixels — invisible zoomed in, miles off zoomed out.
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 1] });
   const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
 
   return (
@@ -307,12 +314,14 @@ export function deriveCategory(opts: { saved: boolean; rated: boolean; isCafe?: 
 // Marker views are white-on-tinted-land, so hardcode the light chrome (they sit
 // on the map, not the app surface) — only the score text tracks nothing here.
 const styles = StyleSheet.create({
-  userWrap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  // Fixed size, big enough for the pulse at full scale, so the rendered frame
+  // never changes and anchor {0.5, 0.5} keeps meaning "the dot's centre".
+  userWrap: { width: PULSE_SIZE, height: PULSE_SIZE, alignItems: 'center', justifyContent: 'center' },
   userPulse: {
     position: 'absolute',
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: PULSE_SIZE,
+    height: PULSE_SIZE,
+    borderRadius: PULSE_SIZE / 2,
     backgroundColor: '#F07A16',
   },
   userDot: {
