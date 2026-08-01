@@ -43,6 +43,13 @@ export const SLOTS: ReminderSlot[] = [
   },
 ];
 
+/** "9:30am" — one formatter, so nothing can advertise a time that isn't the slot. */
+export const slotLabel = (slot: { hour: number; minute: number }) => {
+  const suffix = slot.hour < 12 ? 'am' : 'pm';
+  const h = slot.hour % 12 === 0 ? 12 : slot.hour % 12;
+  return `${h}:${String(slot.minute).padStart(2, '0')}${suffix}`;
+};
+
 /** How far ahead to schedule. Rebuilt every app open, so two days is plenty. */
 const DAYS_AHEAD = 2;
 
@@ -80,11 +87,6 @@ export async function cancelReminders(): Promise<void> {
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
-/**
- * When the next queued reminder will actually fire, straight from the OS queue
- * rather than recomputed from SLOTS — so the UI can't claim a reminder that
- * isn't really scheduled.
- */
 /**
  * How many reminders the OS is actually holding.
  *

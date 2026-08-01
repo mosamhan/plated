@@ -11,6 +11,7 @@ import { useAuth } from '@/store/AuthContext';
 import { useCreatorCard } from '@/store/CreatorCardContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
+import { useStreak } from '@/store/StreakContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -19,6 +20,7 @@ const MODE_LABELS = { light: 'Light', dark: 'Dark', auto: 'Automatic' } as const
 export default function Settings() {
   const { colors, mode } = useTheme();
   const { visible: creatorCardVisible, setVisible: setCreatorCardVisible } = useCreatorCard();
+  const { remindersOn } = useStreak();
   const { signOut } = useAuth();
   const { blockedUsers, currentUser } = useData();
   const { location } = useLocation();
@@ -65,7 +67,12 @@ export default function Settings() {
             value={MODE_LABELS[mode]}
             onPress={() => router.push('/settings/theme')}
           />
-          <Row icon="notifications-outline" label="Notifications" value="On" />
+          <Row
+            icon="notifications-outline"
+            label="Notifications"
+            value={remindersOn ? 'Reminders on' : 'Off'}
+            onPress={() => router.push('/settings/reminders')}
+          />
           <Row
             icon="location-outline"
             label="Location"

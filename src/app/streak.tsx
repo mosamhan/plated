@@ -1,11 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { useRouter } from 'expo-router';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
-import { showAlert } from '@/lib/dialog';
-import { tick } from '@/lib/haptics';
-import { nextReminderAt, queuedReminderCount, SLOTS } from '@/lib/reminders';
 import { useStreak } from '@/store/StreakContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -25,23 +23,6 @@ function lastDays(count: number): { day: string; label: string }[] {
   return out;
 }
 
-/** "today at 6:30pm" / "tomorrow at 9:30am" / "Sat at 9:30am". */
-function describeWhen(when: Date): string {
-  const time = timeLabel(when.getHours(), when.getMinutes());
-  const midnight = new Date();
-  midnight.setHours(0, 0, 0, 0);
-  const dayDelta = Math.round((+new Date(when).setHours(0, 0, 0, 0) - +midnight) / 86400000);
-  if (dayDelta <= 0) return `today at ${time}`;
-  if (dayDelta === 1) return `tomorrow at ${time}`;
-  return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][when.getDay()]} at ${time}`;
-}
-
-const timeLabel = (hour: number, minute: number) => {
-  const suffix = hour < 12 ? 'am' : 'pm';
-  const h = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h}:${String(minute).padStart(2, '0')}${suffix}`;
-};
-
 /**
  * Streak — what the daily check-in has added up to, plus the reminders that keep
  * it going. Both live on one screen because they're the same loop: the reminder
@@ -49,35 +30,8 @@ const timeLabel = (hour: number, minute: number) => {
  */
 export default function Streak() {
   const { colors } = useTheme();
-  const { current, longest, days, checkedInToday, remindersOn, setRemindersOn } = useStreak();
-
-  // The time comes from the schedule definition; the OS is asked only whether
-  // anything is really queued, so this can't promise a reminder that isn't.
-  const [queued, setQueued] = useState(0);
-  const refreshQueued = useCallback(() => {
-    queuedReminderCount()
-      .then(setQueued)
-      .catch(() => setQueued(0));
-  }, []);
-
-  useEffect(refreshQueued, [refreshQueued, remindersOn]);
-
-  const next = nextReminderAt(checkedInToday);
-
-  const onToggle = async (nextOn: boolean) => {
-    tick();
-    const result = await setRemindersOn(nextOn);
-    refreshQueued();
-    if (result.ok) return;
-    if (result.reason === 'denied') {
-      showAlert(
-        'Notifications are off',
-        'Plated can’t send reminders until notifications are enabled for it in iOS Settings.',
-      );
-    } else {
-      showAlert('Couldn’t schedule reminders', result.message);
-    }
-  };
+  const router = useRouter();
+  const { current, longest, days, checkedInToday, remindersOn } = useStreak();
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -123,42 +77,21 @@ export default function Streak() {
           </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Reminders</Text>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: colors.text }]}>Daily check-in reminders</Text>
-              <Text style={[styles.rowHint, { color: colors.textMuted }]}>
-                Three nudges a day — skipped entirely on days you’ve already been in.
-              </Text>
-            </View>
-            <Switch
-              value={remindersOn}
-              onValueChange={onToggle}
-              trackColor={{ true: colors.accent, false: colors.border }}
-              thumbColor="#FFFFFF"
-            />
+        <Pressable
+          onPress={() => router.push('/settings/reminders')}
+          style={({ pressed }) => [
+            styles.remindersLink,
+            { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
+          ]}>
+          <Ionicons name="notifications-outline" size={20} color={colors.accent} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Check-in reminders</Text>
+            <Text style={[styles.rowHint, { color: colors.textMuted }]}>
+              {remindersOn ? 'On — three nudges a day' : 'Off'} · in Settings
+            </Text>
           </View>
-
-          {SLOTS.map((slot) => (
-            <View
-              key={`${slot.hour}:${slot.minute}`}
-              style={[styles.slotRow, { borderTopColor: colors.border }]}>
-              <Text style={[styles.slotTime, { color: remindersOn ? colors.accent : colors.textMuted }]}>
-                {timeLabel(slot.hour, slot.minute)}
-              </Text>
-              <Text style={[styles.slotTitle, { color: colors.text }]} numberOfLines={1}>
-                {slot.title}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        <Text style={[styles.footnote, { color: colors.textMuted }]}>
-          {remindersOn && queued > 0 && next
-            ? `Next reminder ${describeWhen(next)}. Scheduled on your phone, so it arrives whether or not you have signal.`
-            : 'These are scheduled on your phone, so they arrive whether or not you have signal.'}
-        </Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -192,20 +125,15 @@ const styles = StyleSheet.create({
   },
   bestLabel: { fontSize: 14, fontWeight: '600' },
   bestValue: { fontSize: 14, fontWeight: '800' },
-  sectionTitle: { fontSize: 17, fontWeight: '800', marginTop: spacing.xl, marginBottom: 8 },
-  card: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  rowLabel: { fontSize: 15, fontWeight: '800' },
-  rowHint: { fontSize: 13, fontWeight: '500', marginTop: 3, lineHeight: 17 },
-  slotRow: {
+  remindersLink: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: spacing.xl,
+    padding: 14,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  slotTime: { fontSize: 13, fontWeight: '800', width: 66 },
-  slotTitle: { fontSize: 14, fontWeight: '600', flex: 1 },
-  footnote: { fontSize: 12, fontWeight: '500', marginTop: 12, lineHeight: 17 },
+  rowLabel: { fontSize: 15, fontWeight: '800' },
+  rowHint: { fontSize: 13, fontWeight: '500', marginTop: 3, lineHeight: 17 },
 });

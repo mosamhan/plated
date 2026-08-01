@@ -10,6 +10,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { NotificationPrimer } from '@/components/NotificationPrimer';
 import { AuthProvider } from '@/store/AuthContext';
 import { CollabsProvider } from '@/store/CollabsContext';
 import { CollectionsProvider } from '@/store/CollectionsContext';
@@ -73,6 +74,9 @@ export default function RootLayout() {
                       <StreakProvider>
                         <CollabsProvider>
                           <RootNav />
+                          {/* Asks once, on first run, instead of leaving the
+                              only path to notifications inside a streak screen. */}
+                          <NotificationPrimer />
                         </CollabsProvider>
                       </StreakProvider>
                     </CreatorCardProvider>
