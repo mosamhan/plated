@@ -6,35 +6,39 @@
  * persisting a place once a user references it, so we save it to our DB on the
  * first plate added there.
  *
- * NOTE: the key is read from EXPO_PUBLIC_FOURSQUARE_KEY (bundled in the client).
- * Before public launch, move this call behind a Supabase Edge Function so the
- * key stays server-side — see SUPABASE_SETUP.md.
+ * The Foursquare key is NOT in this bundle. Every call goes through the
+ * `places` Edge Function (supabase/functions/places/index.ts), which holds the
+ * key and decides what upstream request to make — `EXPO_PUBLIC_` vars are
+ * inlined into the shipped JS, so a billable key can't live out here.
+ *
+ * Failure behaviour is unchanged: everything degrades to an empty result rather
+ * than throwing, so callers fall back to seeded data exactly as before.
  */
 
-const KEY = process.env.EXPO_PUBLIC_FOURSQUARE_KEY;
-const BASE = 'https://places-api.foursquare.com';
-const API_VERSION = '2025-06-17';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+
+/** Places now ride on Supabase, so that's the only thing left to be configured. */
+export const isPlacesConfigured = isSupabaseConfigured;
 
 /**
- * The full dining + café/drinks family of Foursquare (legacy-hex) category ids.
- * Scopes search to food & drink venues — restaurants AND cafés, coffee, tea
- * rooms, dessert, juice/smoothie, bakeries, bubble tea — so Plated covers
- * drinks and cafés (like Beli), not just sit-down restaurants. (The bare
- * "Food" root alone excludes tea rooms/cafés, which hid places like
- * "Match A | Tea Room".)
+ * One hop to the proxy. Returns null on any failure — a missing session, a
+ * non-2xx from the function, an exhausted-credits 402 upstream — because every
+ * caller here treats "no data" and "request failed" the same way.
  */
-const DINING_CATEGORY_IDS = [
-  '4d4b7105d754a06374d81259', // Food (root: restaurants)
-  '4bf58dd8d48988d1e0931735', // Coffee Shop
-  '4bf58dd8d48988d16d941735', // Café
-  '4bf58dd8d48988d1dc931735', // Tea Room
-  '4bf58dd8d48988d1d0941735', // Dessert Shop
-  '4bf58dd8d48988d112941735', // Juice Bar
-  '4bf58dd8d48988d16a941735', // Bakery
-  '5e18993feee47d000759b256', // Bubble Tea Shop
-].join(',');
-
-export const isPlacesConfigured = Boolean(KEY);
+async function callPlaces<T>(body: Record<string, unknown>): Promise<T | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase.functions.invoke<T>('places', { body });
+    if (error) {
+      if (__DEV__) console.warn('[Plated] places function failed', body.op, error.message);
+      return null;
+    }
+    return data ?? null;
+  } catch (e) {
+    if (__DEV__) console.warn('[Plated] places request error', e);
+    return null;
+  }
+}
 
 export interface PlaceResult {
   fsqId: string;
@@ -87,24 +91,16 @@ function normalize(p: FsqPlace): PlaceResult {
  * alone. Requires an fsqId (only available for Foursquare-backed restaurants).
  */
 export async function fetchMenuItems(fsqId: string): Promise<string[]> {
-  if (!KEY || !fsqId) return [];
-  try {
-    const res = await fetch(`${BASE}/places/${fsqId}?fields=menu`, {
-      headers: {
-        Authorization: `Bearer ${KEY}`,
-        'X-Places-Api-Version': API_VERSION,
-        Accept: 'application/json',
-      },
-    });
-    if (!res.ok) return []; // 402 (no credits) / 404 / tier without menu → degrade
-    const json = (await res.json()) as { menu?: { items?: { name?: string }[]; sections?: { items?: { name?: string }[] }[] } };
-    const flat: string[] = [];
-    for (const it of json.menu?.items ?? []) if (it.name) flat.push(it.name);
-    for (const sec of json.menu?.sections ?? []) for (const it of sec.items ?? []) if (it.name) flat.push(it.name);
-    return Array.from(new Set(flat));
-  } catch {
-    return [];
-  }
+  if (!fsqId) return [];
+  // 402 (no credits) / 404 / a tier without the menu field all arrive as null.
+  const json = await callPlaces<{
+    menu?: { items?: { name?: string }[]; sections?: { items?: { name?: string }[] }[] };
+  }>({ op: 'menu', fsqId });
+  if (!json) return [];
+  const flat: string[] = [];
+  for (const it of json.menu?.items ?? []) if (it.name) flat.push(it.name);
+  for (const sec of json.menu?.sections ?? []) for (const it of sec.items ?? []) if (it.name) flat.push(it.name);
+  return Array.from(new Set(flat));
 }
 
 export interface PlaceSuggestion {
@@ -125,41 +121,25 @@ export interface PlaceSuggestion {
  */
 export async function autocompleteLocations(query: string): Promise<PlaceSuggestion[]> {
   const q = query.trim();
-  if (!KEY || q.length < 2) return [];
-  const params = new URLSearchParams({ query: q, types: 'geo', limit: '8' });
-  try {
-    const res = await fetch(`${BASE}/autocomplete?${params.toString()}`, {
-      headers: {
-        Authorization: `Bearer ${KEY}`,
-        'X-Places-Api-Version': API_VERSION,
-        Accept: 'application/json',
-      },
-    });
-    if (!res.ok) {
-      if (__DEV__) console.warn('[Plated] autocomplete failed', res.status);
-      return [];
-    }
-    const json = (await res.json()) as { results?: any[] };
-    return (json.results ?? [])
-      .map((r, i): PlaceSuggestion | null => {
-        const center = r.geo?.center;
-        const primary = r.text?.primary ?? r.geo?.name;
-        if (!primary) return null;
-        // Foursquare's `secondary` here is a "Search for …" prompt, not a real
-        // subtitle; primary already carries the region (e.g. "Chicago, IL").
-        return {
-          id: `${primary}-${i}`,
-          label: primary,
-          detail: r.geo?.cc && r.geo.cc !== 'US' ? r.geo.cc : '',
-          lat: center?.latitude,
-          lng: center?.longitude,
-        };
-      })
-      .filter((s): s is PlaceSuggestion => s != null && s.lat != null);
-  } catch (e) {
-    if (__DEV__) console.warn('[Plated] autocomplete error', e);
-    return [];
-  }
+  if (q.length < 2) return [];
+  const json = await callPlaces<{ results?: any[] }>({ op: 'autocomplete', query: q });
+  if (!json) return [];
+  return (json.results ?? [])
+    .map((r, i): PlaceSuggestion | null => {
+      const center = r.geo?.center;
+      const primary = r.text?.primary ?? r.geo?.name;
+      if (!primary) return null;
+      // Foursquare's `secondary` here is a "Search for …" prompt, not a real
+      // subtitle; primary already carries the region (e.g. "Chicago, IL").
+      return {
+        id: `${primary}-${i}`,
+        label: primary,
+        detail: r.geo?.cc && r.geo.cc !== 'US' ? r.geo.cc : '',
+        lat: center?.latitude,
+        lng: center?.longitude,
+      };
+    })
+    .filter((s): s is PlaceSuggestion => s != null && s.lat != null);
 }
 
 /**
@@ -171,37 +151,14 @@ export async function searchPlaces(
   query: string,
   opts: { near?: string; ll?: string } = {},
 ): Promise<PlaceResult[]> {
-  if (!KEY) return [];
-  const params = new URLSearchParams({
-    query: query || 'restaurant',
-    limit: '20',
-    // Scope to restaurants AND cafés/drinks (not just the "Food" root).
-    fsq_category_ids: DINING_CATEGORY_IDS,
+  // Limit, radius, and the dining category scope are fixed by the Edge Function
+  // so a caller can't widen them; only the query and where-to-look travel.
+  const json = await callPlaces<{ results?: FsqPlace[] }>({
+    op: 'search',
+    query,
+    ll: opts.ll,
+    near: opts.near,
   });
-  if (opts.ll) {
-    params.set('ll', opts.ll);
-    // Cover the whole metro (25km) so a named spot a few miles away still shows.
-    params.set('radius', '25000');
-  } else {
-    params.set('near', opts.near || 'New York, NY');
-  }
-
-  try {
-    const res = await fetch(`${BASE}/places/search?${params.toString()}`, {
-      headers: {
-        Authorization: `Bearer ${KEY}`,
-        'X-Places-Api-Version': API_VERSION,
-        Accept: 'application/json',
-      },
-    });
-    if (!res.ok) {
-      if (__DEV__) console.warn('[Plated] Foursquare search failed', res.status, await res.text());
-      return [];
-    }
-    const json = (await res.json()) as { results?: FsqPlace[] };
-    return (json.results ?? []).map(normalize).filter((r) => r.fsqId);
-  } catch (e) {
-    if (__DEV__) console.warn('[Plated] Foursquare request error', e);
-    return [];
-  }
+  if (!json) return [];
+  return (json.results ?? []).map(normalize).filter((r) => r.fsqId);
 }

@@ -26,10 +26,22 @@ in a local `.env` file. **Never commit `.env`** — it's gitignored.
 
 1. Go to **https://foursquare.com/developers** → sign up / log in.
 2. Create a **new project** → generate a **Service Key** (the new Places API key).
-3. Copy it → `EXPO_PUBLIC_FOURSQUARE_KEY`.
+3. Store it as an Edge Function secret — **not** in `.env`:
 
-> The free tier is generous for development. The key is currently read in the client; before public
-> launch we'll move `searchPlaces` behind a Supabase Edge Function so the key stays server-side.
+```bash
+supabase secrets set FOURSQUARE_KEY=your-service-key
+supabase functions deploy places
+```
+
+> This key is billable, so it never goes in the app. Anything named `EXPO_PUBLIC_*` is inlined into
+> the shipped JS bundle, where it can be read straight out of a downloaded build and spent. The
+> client calls the `places` Edge Function (`supabase/functions/places/index.ts`) instead, which holds
+> the key, requires a signed-in user, and builds the upstream request itself so a caller can't aim
+> the key at arbitrary Foursquare endpoints.
+>
+> Note that `verify_jwt` alone would **not** be enough here: it only proves a token was signed by
+> this project, and the public anon key is such a token. The function calls `getUser()` to tell a
+> real user from the anon key.
 
 ## 3. Wire it up
 
