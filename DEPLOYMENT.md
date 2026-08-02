@@ -84,6 +84,34 @@ Run the Play 14-day closed test in parallel, not after.
 - [ ] Never incentivize the *ordering* user (no points/cashback for tapping provider links) —
       affiliate networks terminate publishers for incentivized traffic.
 
+## 8. API key hygiene — one step left ⚠️
+
+Foursquare and Google Directions are now proxied by Edge Functions
+(`supabase/functions/{places,directions}`), so neither key is in the JS bundle
+and both require a signed-in user. **Verified by grepping a production Hermes
+export**, not just the source.
+
+The remaining gap: `EXPO_PUBLIC_GOOGLE_MAPS_KEY` and `GOOGLE_MAPS_IOS_API_KEY`
+are currently **the same key value**, and the Maps-SDK one is necessarily baked
+into `ios/Plated/Info.plist` in the shipped binary. So the secret now sitting in
+`GOOGLE_DIRECTIONS_KEY` is still extractable from the app — the proxy closed the
+JS path but not the native one. Two Console steps close it for good:
+
+- [ ] **Create a second Google key for Directions.** Restrict it to the
+      **Directions API only**, and store it as the function secret:
+      `supabase secrets set GOOGLE_DIRECTIONS_KEY=<new-key>`. It never ships
+      anywhere, so nothing can extract it.
+- [ ] **Restrict the existing Maps SDK key** to iOS bundle id `com.samhan.plated`
+      (and the Android package) + the Maps SDK APIs only. Extraction from
+      Info.plist then buys an attacker nothing.
+
+> Why the split is necessary: application restrictions (bundle id / referrer)
+> only work for client SDKs. Directions is a **web service** API, and those
+> accept **IP restrictions only** — impossible for a phone on a cell network.
+> A proxy is Google's own documented answer, which is why one key can't do both
+> jobs safely.
+> https://developers.google.com/maps/api-security-best-practices
+
 ## Known deferrals (intentional)
 
 - FlashList v2 — pointless at mock-data scale; adopt when real data ships.

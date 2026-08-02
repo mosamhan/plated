@@ -39,7 +39,16 @@ export interface RouteResult {
   steps: RouteStep[];
 }
 
-const KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? '';
+/**
+ * The Directions key is NOT in this bundle — it lives in the `directions` Edge
+ * Function (supabase/functions/directions/index.ts). Unlike the native Maps SDK
+ * keys, it can't be locked down in Cloud Console either: Directions is a web
+ * service API, and those only support IP restrictions, which a phone on a cell
+ * network can't satisfy. A proxy is Google's own recommendation for this case.
+ *
+ * Everything below still parses Google's response shape; only the fetch moved.
+ */
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 /**
  * Decode a Google "encoded polyline" string into lat/lng points.
@@ -123,18 +132,20 @@ export async function fetchRoute(
   destination: LatLng,
   opts: { avoidTolls?: boolean } = {},
 ): Promise<RouteResult | null> {
-  if (!KEY) return null;
-  const params = new URLSearchParams({
-    origin: `${origin.latitude},${origin.longitude}`,
-    destination: `${destination.latitude},${destination.longitude}`,
-    mode: 'driving',
-    key: KEY,
-  });
-  if (opts.avoidTolls) params.set('avoid', 'tolls');
+  if (!isSupabaseConfigured) return null;
 
   try {
-    const res = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`);
-    const json = await res.json();
+    const { data: json, error } = await supabase.functions.invoke<any>('directions', {
+      body: {
+        origin: { lat: origin.latitude, lng: origin.longitude },
+        destination: { lat: destination.latitude, lng: destination.longitude },
+        avoidTolls: opts.avoidTolls === true,
+      },
+    });
+    if (error || !json) {
+      if (__DEV__) console.warn('[Plated] directions function failed', error?.message);
+      return null;
+    }
     if (json.status !== 'OK' || !json.routes?.length) {
       if (__DEV__) console.warn('[Plated] directions failed', json.status, json.error_message);
       return null;

@@ -7,15 +7,10 @@
  * This function holds the key instead; the client calls here with its user JWT
  * and never sees it.
  *
- * Requiring a *real signed-in user* is done here, not by `verify_jwt`. That flag
- * only proves the token was signed by this project — and the anon key is such a
- * token, so it lets anon straight through. Measured, not assumed: with
- * verify_jwt on and the anon key as the bearer, this endpoint answered 200.
- * `getUser()` is what actually separates a user from the public key, and it
- * keeps holding even if that flag is ever flipped off.
- *
- * Requiring a session is affordable because every screen that searches places
- * already sits behind the auth gate in src/app/(tabs)/_layout.tsx.
+ * Auth is `requireUser` from _shared/http.ts, not `verify_jwt` — see that file
+ * for why the flag isn't the boundary it looks like. Requiring a session is
+ * affordable because every screen that searches places already sits behind the
+ * auth gate in src/app/(tabs)/_layout.tsx.
  *
  * Deliberately NOT a transparent pass-through: the client sends an operation
  * plus a few narrow values, and this file builds the upstream request. If it
@@ -27,7 +22,7 @@
  * Secret:  supabase secrets set FOURSQUARE_KEY=…
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { CORS, json, requireUser } from '../_shared/http.ts';
 
 const BASE = 'https://places-api.foursquare.com';
 const API_VERSION = '2025-06-17';
@@ -47,18 +42,6 @@ const DINING_CATEGORY_IDS = [
   '4bf58dd8d48988d16a941735', // Bakery
   '5e18993feee47d000759b256', // Bubble Tea Shop
 ].join(',');
-
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS, 'Content-Type': 'application/json' },
-  });
 
 /** Foursquare place ids are opaque alphanumeric+dash; anything else is a path-traversal attempt. */
 const FSQ_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -116,13 +99,7 @@ Deno.serve(async (req) => {
   if (!key) return json({ error: 'FOURSQUARE_KEY is not set' }, 500);
 
   // Spend nobody's credits for a caller who only has the public anon key.
-  const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-  const auth = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-  );
-  const { data: { user }, error: authError } = await auth.auth.getUser(jwt);
-  if (authError || !user) return json({ error: 'sign-in required' }, 401);
+  if (!(await requireUser(req))) return json({ error: 'sign-in required' }, 401);
 
   let body: Body;
   try {
