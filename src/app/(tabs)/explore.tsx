@@ -105,6 +105,12 @@ export default function Explore() {
   const dragFrom = useRef(MAP_HEIGHT_DEFAULT);
   /** The plate the sheet should offer alongside the place. */
   const [selectedPlate, setSelectedPlate] = useState<string | null>(null);
+  /**
+   * Which pin is ringed. Separate from the sheet's selection on purpose: the
+   * sheet covers the whole map, so a highlight that died with it could never
+   * actually be seen. It outlives the sheet and marks where you just looked.
+   */
+  const [highlighted, setHighlighted] = useState<string | null>(null);
   const [sheetSide, setSheetSide] = useState<'place' | 'plate'>('place');
   /** Where the camera is now, vs. the area the list is actually filtered to. */
   const [cameraRegion, setCameraRegion] = useState<Region | null>(null);
@@ -256,6 +262,7 @@ export default function Explore() {
     setSelectedPlate(orderId);
     setSheetSide('plate');
     focusRestaurant(restaurantId);
+    setHighlighted(restaurantId);
     setSelectedRestaurant(restaurantId);
   };
 
@@ -266,12 +273,14 @@ export default function Explore() {
   const openPin = (restaurantId: string) => {
     setSelectedPlate(null);
     setSheetSide('place');
+    setHighlighted(restaurantId);
     setSelectedRestaurant(restaurantId);
   };
 
+  // Closes the sheet only — the pin stays ringed and the tile stays outlined, so
+  // dismissing it reveals the answer to "where is this?" rather than undoing it.
   const closeSheet = () => {
     setSelectedRestaurant(null);
-    setSelectedPlate(null);
     setPreview(null);
   };
 
@@ -279,6 +288,7 @@ export default function Explore() {
   const openPreview = (place: PlaceResult) => {
     setSelectedRestaurant(null);
     setSelectedPlate(null);
+    setHighlighted(null);
     setPreview(place);
     if (place.lat != null && place.lng != null) {
       mapRef.current?.animateCamera(
@@ -411,7 +421,7 @@ export default function Explore() {
           mapTheme={mapTheme}
           onSelect={(r) => openPin(r.id)}
           onRegionChange={setCameraRegion}
-          highlightedId={selectedRestaurant}
+          highlightedId={highlighted}
           userLocation={userLocation}
           previewPlace={previewPin}
           routeCoords={route?.coordinates}
@@ -567,7 +577,7 @@ export default function Explore() {
             mapTheme={mapTheme}
             onSelect={(r) => openPin(r.id)}
             onRegionChange={setCameraRegion}
-            highlightedId={selectedRestaurant}
+            highlightedId={highlighted}
             userLocation={userLocation}
             previewPlace={previewPin}
             routeCoords={route?.coordinates}
