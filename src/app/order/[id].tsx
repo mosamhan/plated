@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -19,12 +19,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from '@/components/Avatar';
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { RatingBadge } from '@/components/RatingBadge';
+import { PlateCarousel } from '@/components/PlateCarousel';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { formatCount } from '@/components/StatPill';
 import { collabLabel } from '@/lib/collabs';
 import { buildPlateShareMessage } from '@/lib/invite';
-import { foodPlaceholder } from '@/data/images';
+import { postAverageRating, postMedia } from '@/lib/post';
 import { tapLight, tapMedium } from '@/lib/haptics';
+import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing, typography } from '@/theme/palettes';
@@ -58,10 +60,21 @@ export default function OrderDetail() {
     userFor,
     restaurantFor,
   } = useData();
+  const { openSaveSheet } = useCollections();
   const [sheet, setSheet] = useState(false);
   const [draft, setDraft] = useState('');
 
   const order = orders.find((o) => o.id === id);
+  // Which plates are ticked for ordering. Seeded to "all on" once the order
+  // loads — the common case is ordering the whole spread. Keyed by media index.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const media = order ? postMedia(order) : [];
+  useEffect(() => {
+    if (order) setSelected(new Set(media.map((_, i) => i)));
+    // Reset when the post changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id]);
+
   if (!order) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -76,19 +89,48 @@ export default function OrderDetail() {
   const user = userFor(order.userId);
   const collabs = collabLabel(order.collaborators, (id) => userFor(id).handle);
   const restaurant = restaurantFor(order.restaurantId);
+  const multiPlate = media.length > 1;
+  const selectedMedia = media.filter((_, i) => selected.has(i));
+  const toggleSelect = (i: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
 
-  // Shares the dish, matching the feed card — this screen is one plate.
-  const sharePlate = () => {
+  const sharePlateAt = (dishName: string, rating: number) => {
     tapLight();
     Share.share({
       message: buildPlateShareMessage({
-        dishName: order.dishName,
+        dishName,
         restaurantName: restaurant?.name,
-        rating: order.rating,
+        rating,
         handle: user.handle,
       }),
     }).catch(() => {});
   };
+
+  // Header share = the whole post (all plates), distinct from a per-plate share.
+  const sharePost = () => {
+    tapLight();
+    Share.share({
+      message: buildPlateShareMessage({
+        dishName: multiPlate ? `${media.length} plates` : order.dishName,
+        restaurantName: restaurant?.name,
+        rating: postAverageRating(order),
+        handle: user.handle,
+      }),
+    }).catch(() => {});
+  };
+
+  // Save the compiled order to a collection. The unit saved is the post (saved
+  // items are keyed by post id), so this bookmarks the spot+order to revisit;
+  // the selection tells the provider hand-off what to search for.
+  const saveOrderToCollection = () => {
+    tapLight();
+    openSaveSheet({ type: 'plate', id: order.id });
+  };
+
   const liked = isLiked(order.id);
   const saved = isSaved(order.id);
   const following = isFollowing(user.id);
@@ -110,9 +152,9 @@ export default function OrderDetail() {
       <View style={styles.headerOverlay}>
         <ScreenHeader
           transparent
-          // Share sits left of save — same pair, same order, as the feed card.
+          // Share sits left of save — shares the whole post (every plate).
           secondaryIcon="share-outline"
-          onSecondary={sharePlate}
+          onSecondary={sharePost}
           rightIcon={saved ? 'bookmark' : 'bookmark-outline'}
           onRight={() => {
             toggleSave(order.id);
@@ -122,21 +164,19 @@ export default function OrderDetail() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
-        <Image
-          source={{ uri: order.photo }}
-          placeholder={foodPlaceholder(order.id)}
-          placeholderContentFit="cover"
-          transition={{ duration: 250, effect: 'cross-dissolve', timing: 'ease-out' }}
-          priority="high"
-          style={[styles.hero, { backgroundColor: colors.surface }]}
-          contentFit="cover"
+        {/* Same swipeable carousel as the feed, so the detail matches the post. */}
+        <PlateCarousel
+          media={media}
+          onPress={() => {}}
+          reorders={order.reorders ?? 0}
+          colorSurface={colors.surface}
         />
 
         <View style={styles.body}>
           <Animated.View entering={FadeInDown.duration(300)} style={styles.titleRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={[styles.dishTitle, { color: colors.text, fontFamily: displayFont }]}>
-                {order.dishName}
+                {multiPlate ? `${media.length} plates` : order.dishName}
               </Text>
               <Pressable onPress={() => restaurant && router.push(`/restaurant/${restaurant.id}`)}>
                 <Text style={[styles.restaurant, { color: colors.accent }]}>
@@ -158,7 +198,12 @@ export default function OrderDetail() {
                 </View>
               )}
             </View>
-            <RatingBadge score={order.rating} size="lg" />
+            {/* Multi-plate posts show the average of their plates; a single
+                plate shows its own score. */}
+            <View style={{ alignItems: 'center' }}>
+              <RatingBadge score={multiPlate ? postAverageRating(order) : order.rating} size="lg" />
+              {multiPlate && <Text style={[styles.avgTag, { color: colors.textMuted }]}>avg</Text>}
+            </View>
           </Animated.View>
 
           {/* Creator */}
@@ -197,20 +242,50 @@ export default function OrderDetail() {
           <Animated.View entering={FadeInDown.delay(120).duration(300)}>
             <Text style={[styles.desc, { color: colors.text }]}>{order.description}</Text>
 
-            {/* The rest of the order — other menu items, each with its rating. */}
-            {order.items && order.items.length > 1 && (
-              <View style={{ marginTop: spacing.md }}>
-                <Text style={[styles.alsoLabel, { color: colors.textMuted }]}>ALSO ON THIS ORDER</Text>
-                {order.items
-                  .filter((it) => it.name !== order.dishName)
-                  .map((it) => (
-                    <View key={it.name} style={[styles.alsoRow, { borderBottomColor: colors.border }]}>
-                      <Text style={[styles.alsoName, { color: colors.text }]} numberOfLines={1}>{it.name}</Text>
-                      <RatingBadge score={it.rating} size="sm" />
-                    </View>
-                  ))}
+            {/* Order — every plate/drink on the post, tick the ones you want.
+                The bottom bar orders (or saves) exactly this selection. Each
+                row shares that specific plate; the header shares the whole
+                post. Per-plate *save* isn't offered yet — saved items are keyed
+                by post, so a single plate can't be saved apart from its post
+                until media entries get their own ids. */}
+            <View style={{ marginTop: spacing.lg }}>
+              <View style={styles.orderHead}>
+                <Text style={[styles.alsoLabel, { color: colors.textMuted }]}>ORDER</Text>
+                {multiPlate && (
+                  <Pressable
+                    onPress={() =>
+                      setSelected(selected.size === media.length ? new Set() : new Set(media.map((_, i) => i)))
+                    }
+                    hitSlop={8}>
+                    <Text style={[styles.selectAll, { color: colors.accent }]}>
+                      {selected.size === media.length ? 'Clear all' : 'Select all'}
+                    </Text>
+                  </Pressable>
+                )}
               </View>
-            )}
+              {media.map((m, i) => {
+                const on = selected.has(i);
+                return (
+                  <View key={i} style={[styles.orderRow, { borderColor: colors.border }]}>
+                    <Pressable onPress={() => toggleSelect(i)} style={styles.orderTick} hitSlop={6}>
+                      <Ionicons
+                        name={on ? 'checkbox' : 'square-outline'}
+                        size={24}
+                        color={on ? colors.accent : colors.textMuted}
+                      />
+                    </Pressable>
+                    <Image source={{ uri: m.uri }} style={styles.orderThumb} contentFit="cover" />
+                    <Text style={[styles.orderName, { color: colors.text }]} numberOfLines={1}>
+                      {m.dishName || 'Plate'}
+                    </Text>
+                    <RatingBadge score={m.rating} size="sm" />
+                    <Pressable onPress={() => sharePlateAt(m.dishName, m.rating)} hitSlop={6} style={{ marginLeft: 8 }}>
+                      <Ionicons name="share-outline" size={18} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
 
             <View style={styles.tags}>
               {order.tags.map((t) => (
@@ -315,15 +390,26 @@ export default function OrderDetail() {
           styles.cta,
           { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 },
         ]}>
+        {/* Two actions: hand the selection to a delivery/pickup provider, or —
+            for a spot you can't order from — save the compiled order to a
+            collection to revisit. Both act on exactly the ticked plates. Save
+            is the secondary (square) button so ordering stays the emphasis. */}
         <Pressable
-          style={[styles.ctaBtn, { backgroundColor: colors.orderCta }]}
+          onPress={saveOrderToCollection}
+          disabled={selected.size === 0}
+          style={[styles.ctaSave, { backgroundColor: colors.surface, borderColor: colors.border, opacity: selected.size ? 1 : 0.4 }]}>
+          <Ionicons name="bookmark-outline" size={20} color={colors.accent} />
+        </Pressable>
+        <Pressable
+          style={[styles.ctaBtn, { backgroundColor: colors.orderCta, opacity: selected.size ? 1 : 0.4 }]}
+          disabled={selected.size === 0}
           onPress={() => {
             tapMedium();
             setSheet(true);
           }}>
           <Ionicons name={reordered ? 'repeat' : 'bag-handle'} size={20} color={colors.orderCtaText} />
           <Text style={[styles.ctaText, { color: colors.orderCtaText }]}>
-            {reordered ? 'Order it again' : 'Order this plate'}
+            {multiPlate ? `Order ${selectedMedia.length} selected` : reordered ? 'Order it again' : 'Order this plate'}
           </Text>
         </Pressable>
       </View>
@@ -333,7 +419,11 @@ export default function OrderDetail() {
         onClose={() => setSheet(false)}
         order={order}
         restaurantName={restaurant?.name ?? ''}
-        dishName={order.dishName}
+        dishName={
+          selectedMedia.length
+            ? selectedMedia.map((m) => m.dishName).filter(Boolean).join(', ')
+            : order.dishName
+        }
         creatorHandle={user.handle}
         supportsCreator={user.compensationEligible}
       />
@@ -364,15 +454,19 @@ const styles = StyleSheet.create({
   followBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.pill },
   desc: { fontSize: 15, fontWeight: '500', lineHeight: 22, marginTop: spacing.lg },
   alsoLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 4 },
-  alsoRow: {
+  avgTag: { fontSize: 10, fontWeight: '700', marginTop: 2 },
+  orderHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  selectAll: { fontSize: 13, fontWeight: '800' },
+  orderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  alsoName: { flex: 1, fontSize: 14, fontWeight: '600' },
+  orderTick: {},
+  orderThumb: { width: 40, height: 40, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.06)' },
+  orderName: { flex: 1, fontSize: 14, fontWeight: '700' },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.lg },
   tag: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill },
   tagText: { fontSize: 13, fontWeight: '700' },
@@ -409,11 +503,23 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     paddingHorizontal: spacing.lg,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  ctaSave: {
+    width: 56,
+    paddingVertical: 15,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   ctaBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
