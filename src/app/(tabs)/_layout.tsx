@@ -97,7 +97,7 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
           {
             label: 'Rate a spot',
             icon: 'restaurant',
-            onPress: () => router.push('/create'),
+            onPress: () => router.push('/create-post'),
           },
           {
             label: 'Post a Plato',

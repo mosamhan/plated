@@ -50,6 +50,9 @@ export interface NewOrderInput {
    * best-rated entry, and `media` is stored whole on the order.
    */
   media?: PostMedia[];
+  /** More-options at create time. */
+  commentsDisabled?: boolean;
+  hideLikeCount?: boolean;
 }
 
 interface DataContextValue {
@@ -523,6 +526,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           reorders: 0,
           items,
           media,
+          commentsDisabled: input.commentsDisabled,
+          hideLikeCount: input.hideLikeCount,
         };
         setOrders((p) => [order, ...p]);
         return order;
@@ -559,6 +564,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           media: media
             ? media.map((m) => ({ uri: m.uri, type: m.type, dish_name: m.dishName, rating: m.rating }))
             : null,
+          comments_disabled: input.commentsDisabled ?? false,
+          hide_like_count: input.hideLikeCount ?? false,
         })
         .select('*, likes(count), comments(count), reorders(count)')
         .single();
@@ -573,7 +580,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       );
       if (itemsError && __DEV__) console.warn('[Plated] order_items insert failed', itemsError);
 
-      const order = { ...mapOrder(data), items, media };
+      const order = { ...mapOrder(data), items, media, commentsDisabled: input.commentsDisabled, hideLikeCount: input.hideLikeCount };
       setOrders((p) => [order, ...p]);
       return order;
     },

@@ -307,9 +307,13 @@ export default function OrderDetail() {
                   size={22}
                   color={liked ? colors.orderCta : colors.text}
                 />
-                <Text style={[styles.engText, { color: colors.textMuted }]}>
-                  {formatCount(order.likes + (liked ? 1 : 0))} likes
-                </Text>
+                {/* The poster hid the count — the heart still works, the total
+                    just isn't shown to anyone but them. */}
+                {!(order.hideLikeCount && order.userId !== currentUser.id) && (
+                  <Text style={[styles.engText, { color: colors.textMuted }]}>
+                    {formatCount(order.likes + (liked ? 1 : 0))} likes
+                  </Text>
+                )}
               </Pressable>
               <Pressable
                 style={styles.engItem}
@@ -320,11 +324,18 @@ export default function OrderDetail() {
             </View>
           </Animated.View>
 
-          {/* Comments */}
+          {/* Comments — the poster can turn these off at create time. */}
           <Animated.View entering={FadeInDown.delay(180).duration(300)}>
             <Text style={[typography.heading, { color: colors.text, marginTop: spacing.xl }]}>
-              Comments ({comments.length})
+              {order.commentsDisabled ? 'Comments off' : `Comments (${comments.length})`}
             </Text>
+            {order.commentsDisabled && (
+              <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: spacing.sm }}>
+                The poster turned off commenting for this post.
+              </Text>
+            )}
+            {!order.commentsDisabled && (
+            <>
             <View style={{ marginTop: spacing.md, gap: spacing.md }}>
               {comments.map((c) => {
                 const cu = c.userId === currentUser.id ? currentUser : userFor(c.userId);
@@ -380,6 +391,8 @@ export default function OrderDetail() {
                 />
               </Pressable>
             </View>
+            </>
+            )}
           </Animated.View>
         </View>
       </ScrollView>

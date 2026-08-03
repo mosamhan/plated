@@ -39,7 +39,7 @@ export function PlateCard({
 }) {
   const { colors } = useTheme();
   const router = useRouter();
-  const { isLiked, toggleLike, isSaved, toggleSave, userFor, restaurantFor } = useData();
+  const { isLiked, toggleLike, isSaved, toggleSave, userFor, restaurantFor, currentUser } = useData();
   const [sheet, setSheet] = useState(false);
   const [burst, setBurst] = useState(false);
   const lastTap = useRef(0);
@@ -187,15 +187,20 @@ export function PlateCard({
             size={22}
             color={liked ? colors.orderCta : colors.text}
           />
-          <Text style={[styles.actionText, { color: colors.textMuted }]}>
-            {formatCount(order.likes + (liked ? 1 : 0))}
-          </Text>
+          {/* Count hidden when the poster hid it (still shown to the poster). */}
+          {!(order.hideLikeCount && order.userId !== currentUser.id) && (
+            <Text style={[styles.actionText, { color: colors.textMuted }]}>
+              {formatCount(order.likes + (liked ? 1 : 0))}
+            </Text>
+          )}
         </Pressable>
         <Pressable style={styles.action} onPress={() => router.push(`/order/${order.id}`)} hitSlop={8}>
-          <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
-          <Text style={[styles.actionText, { color: colors.textMuted }]}>
-            {formatCount(order.comments)}
-          </Text>
+          <Ionicons name={order.commentsDisabled ? 'chatbubble-ellipses-outline' : 'chatbubble-outline'} size={20} color={colors.text} />
+          {!order.commentsDisabled && (
+            <Text style={[styles.actionText, { color: colors.textMuted }]}>
+              {formatCount(order.comments)}
+            </Text>
+          )}
         </Pressable>
         <Pressable
           style={styles.action}

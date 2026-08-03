@@ -83,6 +83,8 @@ export function mapOrder(row: any): Order {
         }))
       : undefined,
     collaborators: mapCollaborators(row.collaborators),
+    commentsDisabled: !!row.comments_disabled,
+    hideLikeCount: !!row.hide_like_count,
   };
 }
 

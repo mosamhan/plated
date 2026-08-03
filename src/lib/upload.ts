@@ -44,6 +44,29 @@ export async function pickImage(opts: { camera?: boolean; square?: boolean } = {
 }
 
 /**
+ * Pick several photos at once for a multi-plate post (up to `limit`, default
+ * 20). Uses the OS picker's own multi-selection — no custom grid — and returns
+ * the picked assets in selection order. Empty array on cancel or denial (with
+ * the same permission alert as pickImage).
+ */
+export async function pickImages(limit = 20): Promise<ImagePicker.ImagePickerAsset[]> {
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) {
+    alertPermissionDenied(false);
+    return [];
+  }
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsMultipleSelection: true,
+    selectionLimit: limit,
+    quality: 0.7,
+    base64: true,
+  });
+  if (result.canceled || !result.assets?.length) return [];
+  return result.assets.slice(0, limit);
+}
+
+/**
  * Record or pick a short vertical video for a Plato. Caps duration so uploads
  * stay reasonable. Returns null if the user cancels or permission is denied —
  * permission denial also surfaces an alert (see pickImage above).

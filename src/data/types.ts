@@ -103,6 +103,10 @@ export interface Order {
   reorders?: number;
   /** Co-creators. Only `accepted` entries are visible to anyone but the two parties. */
   collaborators?: Collaborator[];
+  /** Poster turned commenting off for this post (more-options at create time). */
+  commentsDisabled?: boolean;
+  /** Poster hid the like count — only they see it. */
+  hideLikeCount?: boolean;
 }
 
 export interface Comment {
