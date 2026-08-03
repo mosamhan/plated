@@ -1,4 +1,5 @@
 import type { Order } from '@/data/types';
+import { postMedia } from '@/lib/post';
 
 /**
  * One dish at a restaurant, with every rating of it collapsed into an average.
@@ -37,25 +38,31 @@ const key = dishKey;
  * rated, so it ranks higher.
  */
 export function summarizeDishes(orders: Order[]): DishSummary[] {
-  const groups = new Map<string, Order[]>();
+  // A rating is one *plate*, not one post: a post with several dishes expands
+  // via postMedia() so each dish is grouped and averaged on its own.
+  type Rated = { dishName: string; rating: number; photo: string; orderId: string };
+  const groups = new Map<string, Rated[]>();
   for (const o of orders) {
-    if (!o.dishName) continue;
-    const k = key(o.dishName);
-    const existing = groups.get(k);
-    if (existing) existing.push(o);
-    else groups.set(k, [o]);
+    for (const m of postMedia(o)) {
+      if (!m.dishName) continue;
+      const rated: Rated = { dishName: m.dishName, rating: m.rating, photo: m.uri, orderId: o.id };
+      const k = key(m.dishName);
+      const existing = groups.get(k);
+      if (existing) existing.push(rated);
+      else groups.set(k, [rated]);
+    }
   }
 
   return [...groups.values()]
     .map((group) => {
       const best = group.reduce((a, b) => (b.rating > a.rating ? b : a));
-      const total = group.reduce((sum, o) => sum + o.rating, 0);
+      const total = group.reduce((sum, r) => sum + r.rating, 0);
       return {
         dishName: best.dishName,
         rating: total / group.length,
         count: group.length,
         photo: best.photo,
-        orderId: best.id,
+        orderId: best.orderId,
       };
     })
     .sort((a, b) => b.rating - a.rating || b.count - a.count);

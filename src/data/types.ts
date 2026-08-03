@@ -52,6 +52,23 @@ export interface OrderItem {
   rating: number;
 }
 
+/**
+ * One photo/clip in a post's carousel, carrying its own dish and rating.
+ *
+ * A post is now several plates, not one: swiping the carousel moves between
+ * dishes, each with its own name and score. `items[]` (name+rating, no media)
+ * predates this and stays for legacy single-photo posts — `postMedia()` in
+ * lib/post normalises both shapes to this one so the UI only handles media.
+ */
+export interface PostMedia {
+  /** Image or short-clip URI. */
+  uri: string;
+  type: 'image' | 'clip';
+  dishName: string;
+  /** 0–10 rating for this specific plate. */
+  rating: number;
+}
+
 export interface Order {
   id: string;
   userId: string;
@@ -66,6 +83,13 @@ export interface Order {
    * dishName/rating mirror items[0]. Empty for legacy single-dish posts.
    */
   items?: OrderItem[];
+  /**
+   * The post's carousel: each plate's photo/clip + its dish name and rating.
+   * When present it's the source of truth for what's on the post; the headline
+   * photo/dishName/rating mirror media[0]. Absent on legacy single-photo posts,
+   * which `postMedia()` synthesises a one-entry carousel for.
+   */
+  media?: PostMedia[];
   likes: number;
   comments: number;
   /** ISO date string. */

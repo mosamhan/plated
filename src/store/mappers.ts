@@ -73,6 +73,15 @@ export function mapOrder(row: any): Order {
           .map((it: any) => ({ name: it.name, rating: Number(it.rating) }))
           .sort((a: any, b: any) => b.rating - a.rating)
       : undefined,
+    // Carousel media, when the post was created with the multi-plate flow.
+    media: Array.isArray(row.media)
+      ? row.media.map((m: any) => ({
+          uri: m.uri ?? m.url,
+          type: m.type === 'clip' ? 'clip' : 'image',
+          dishName: m.dish_name ?? m.dishName ?? '',
+          rating: Number(m.rating ?? 0),
+        }))
+      : undefined,
     collaborators: mapCollaborators(row.collaborators),
   };
 }

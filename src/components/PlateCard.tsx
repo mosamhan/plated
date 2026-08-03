@@ -8,6 +8,7 @@ import Animated, { FadeInDown, ZoomIn, ZoomOut } from 'react-native-reanimated';
 
 import { Avatar } from '@/components/Avatar';
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
+import { PlateCarousel } from '@/components/PlateCarousel';
 import { RatingBadge } from '@/components/RatingBadge';
 import { formatCount } from '@/components/StatPill';
 import { foodPlaceholder } from '@/data/images';
@@ -15,6 +16,7 @@ import { Order } from '@/data/types';
 import { collabEarningsNote, collabLabel } from '@/lib/collabs';
 import { showAlert } from '@/lib/dialog';
 import { exploreFocusHref } from '@/lib/inAppRoute';
+import { postMedia } from '@/lib/post';
 import { buildPlateShareMessage } from '@/lib/invite';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
@@ -146,40 +148,15 @@ export function PlateCard({
         </Pressable>
       </View>
 
-      {/* Photo with scrim — dish name lives on the image (2026 pattern) */}
-      <Pressable onPress={onPhotoPress}>
-        <Image
-          source={{ uri: order.photo }}
-          placeholder={foodPlaceholder(order.id)}
-          placeholderContentFit="cover"
-          transition={{ duration: 250, effect: 'cross-dissolve', timing: 'ease-out' }}
-          recyclingKey={order.id}
-          cachePolicy="memory-disk"
-          style={[styles.photo, { backgroundColor: colors.surface }]}
-          contentFit="cover"
+      {/* Swipeable plate carousel — one page per dish, each with its own
+          name + rating; a double-tap on any page still likes the post. */}
+      <View>
+        <PlateCarousel
+          media={postMedia(order)}
+          onPress={onPhotoPress}
+          reorders={order.reorders ?? 0}
+          colorSurface={colors.surface}
         />
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.38)', 'rgba(0,0,0,0.78)']}
-          locations={[0, 0.5, 1]}
-          style={styles.scrim}
-          pointerEvents="none"
-        />
-        <View style={styles.scrimContent} pointerEvents="none">
-          <View style={{ flex: 1, paddingRight: 10 }}>
-            <Text style={[styles.dish, { fontFamily: displayFont }]} numberOfLines={2}>
-              {order.dishName}
-            </Text>
-            {(order.reorders ?? 0) > 0 && (
-              <View style={styles.reorderRow}>
-                <Ionicons name="repeat" size={13} color="#FFD98A" />
-                <Text style={styles.reorderText}>
-                  {formatCount(order.reorders ?? 0)} reordered this plate
-                </Text>
-              </View>
-            )}
-          </View>
-          <RatingBadge score={order.rating} size="md" />
-        </View>
         {burst && (
           <View style={styles.burstWrap} pointerEvents="none">
             <Animated.View entering={ZoomIn.springify().damping(10)} exiting={ZoomOut.duration(250)}>
@@ -187,7 +164,7 @@ export function PlateCard({
             </Animated.View>
           </View>
         )}
-      </Pressable>
+      </View>
 
       {/* Caption */}
       <Pressable style={styles.body} onPress={() => router.push(`/order/${order.id}`)}>

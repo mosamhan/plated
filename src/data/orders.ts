@@ -9,8 +9,14 @@ export const ORDERS: Order[] = [
     dishName: 'The Golden Double',
     photo: foodPhoto(0),
     description:
-      'Two smashed patties, aged cheddar, house pickles. The crust on these patties is unreal — order it well-done.',
+      'Full spread on one visit — the double is the headliner but the fries and the shake earned their own ratings.',
     rating: 9.4,
+    // A multi-plate post: the carousel shows each dish with its own name+rating.
+    media: [
+      { uri: foodPhoto(0), type: 'image', dishName: 'The Golden Double', rating: 9.4 },
+      { uri: foodPhoto(7), type: 'image', dishName: 'Truffle Fries', rating: 8.8 },
+      { uri: foodPhoto(3), type: 'image', dishName: 'Salted Malt Shake', rating: 9.1 },
+    ],
     likes: 2840,
     comments: 132,
     createdAt: '2026-05-27T18:20:00Z',

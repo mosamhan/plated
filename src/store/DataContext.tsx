@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { CONTACTS } from '@/data/contacts';
 import { foodPhoto } from '@/data/images';
+import { plateRatings } from '@/lib/post';
 import { makeOrderId, ORDERS, REORDER_SEEDS } from '@/data/orders';
 import { getRestaurant as getMockRestaurant, RESTAURANTS } from '@/data/restaurants';
 import { COMMENTS, NOTIFICATIONS } from '@/data/social';
@@ -10,6 +11,7 @@ import {
   Comment,
   Contact,
   Order,
+  PostMedia,
   ReportReason,
   ReportTarget,
   Restaurant,
@@ -42,6 +44,12 @@ export interface NewOrderInput {
    * dishName/rating (legacy single-dish post).
    */
   items?: { name: string; rating: number }[];
+  /**
+   * The post's carousel — a photo/clip per plate with its own name+rating.
+   * When present, the headline photo/dish/rating are derived from the
+   * best-rated entry, and `media` is stored whole on the order.
+   */
+  media?: PostMedia[];
 }
 
 interface DataContextValue {
@@ -112,10 +120,16 @@ interface DataContextValue {
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 function platedRatingFor(orders: Order[], restaurantId: string) {
-  const list = orders.filter((o) => o.restaurantId === restaurantId);
-  if (list.length === 0) return { rating: 0, count: 0 };
-  const avg = list.reduce((s, o) => s + o.rating, 0) / list.length;
-  return { rating: Math.round(avg * 10) / 10, count: list.length };
+  // Every plate counts, not every post: a post with five dishes contributes
+  // five ratings to the restaurant's average, which is what "average of all
+  // the plates rated here" means. `plateRatings` expands each post's media
+  // (or its single legacy photo) into individual dish ratings.
+  const ratings = orders
+    .filter((o) => o.restaurantId === restaurantId)
+    .flatMap((o) => plateRatings(o).map((p) => p.rating));
+  if (ratings.length === 0) return { rating: 0, count: 0 };
+  const avg = ratings.reduce((s, r) => s + r, 0) / ratings.length;
+  return { rating: Math.round(avg * 10) / 10, count: ratings.length };
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
@@ -476,12 +490,21 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Create a plate ──────────────────────────────────────────────────────────
   const addOrder = useCallback(
     async (input: NewOrderInput): Promise<Order | null> => {
-      // Normalize items → headline is the highest-rated. Fall back to the
-      // single dish/rating for legacy single-dish posts.
-      const items = (input.items?.length ? input.items : [{ name: input.dishName, rating: input.rating }])
+      // A multi-plate post carries media; each media entry's dish+rating is
+      // also an item, so the two stay in sync. Fall back to `items`, then to
+      // the single dish/rating for legacy posts. Headline = highest-rated.
+      const media = input.media?.length ? input.media : undefined;
+      const items = (
+        media
+          ? media.map((m) => ({ name: m.dishName, rating: m.rating }))
+          : input.items?.length
+            ? input.items
+            : [{ name: input.dishName, rating: input.rating }]
+      )
         .filter((i) => i.name.trim())
         .sort((a, b) => b.rating - a.rating);
       const headline = items[0] ?? { name: input.dishName, rating: input.rating };
+      const headlinePhoto = media ? (media.find((m) => m.dishName === headline.name)?.uri ?? media[0].uri) : input.photo;
 
       if (!live || !userId) {
         // mock mode
@@ -490,7 +513,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           userId: currentUserId,
           restaurantId: input.restaurantId ?? 'r1',
           dishName: headline.name,
-          photo: input.photo,
+          photo: headlinePhoto,
           description: input.description,
           rating: headline.rating,
           likes: 0,
@@ -499,6 +522,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           tags: input.tags ?? [],
           reorders: 0,
           items,
+          media,
         };
         setOrders((p) => [order, ...p]);
         return order;
@@ -528,10 +552,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           user_id: userId,
           restaurant_id: restaurantId,
           dish_name: headline.name,
-          photo_url: input.photo,
+          photo_url: headlinePhoto,
           description: input.description,
           rating: headline.rating,
           tags: input.tags ?? [],
+          media: media
+            ? media.map((m) => ({ uri: m.uri, type: m.type, dish_name: m.dishName, rating: m.rating }))
+            : null,
         })
         .select('*, likes(count), comments(count), reorders(count)')
         .single();
@@ -546,7 +573,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       );
       if (itemsError && __DEV__) console.warn('[Plated] order_items insert failed', itemsError);
 
-      const order = { ...mapOrder(data), items };
+      const order = { ...mapOrder(data), items, media };
       setOrders((p) => [order, ...p]);
       return order;
     },
