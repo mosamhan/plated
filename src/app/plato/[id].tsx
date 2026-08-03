@@ -18,7 +18,16 @@ export default function PlatoViewer() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       {plato ? (
-        <PlatoReel video={plato} active height={height} bottomInset={insets.bottom + 12} />
+        <PlatoReel
+          video={plato}
+          active
+          height={height}
+          bottomInset={insets.bottom + 12}
+          // A route, not the map's sheet: this viewer is already a pushed screen
+          // with no map behind it, so the restaurant gets its own screen and the
+          // back button walks the stack the way the rest of the app does.
+          onRestaurantPress={(restaurantId) => router.push(`/restaurant/${restaurantId}`)}
+        />
       ) : (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '600' }}>

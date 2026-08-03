@@ -41,6 +41,12 @@ const DINING_CATEGORY_IDS = [
   '4bf58dd8d48988d112941735', // Juice Bar
   '4bf58dd8d48988d16a941735', // Bakery
   '5e18993feee47d000759b256', // Bubble Tea Shop
+  // Bagel Shop. The Food root does not reliably cover it: searching "PopUp
+  // Bagels" in New York returned that chain 0 times with the list above and 8
+  // times with this id added, even though other bagel shops came back fine.
+  // Foursquare's root→descendant expansion is inconsistent here, so the
+  // category is named outright rather than assumed.
+  '4bf58dd8d48988d179941735', // Bagel Shop
 ].join(',');
 
 /** Foursquare place ids are opaque alphanumeric+dash; anything else is a path-traversal attempt. */
@@ -51,6 +57,8 @@ const LATLNG = /^-?\d{1,3}(\.\d+)?,-?\d{1,3}(\.\d+)?$/;
 
 interface Body {
   op?: string;
+  /** 'anywhere' drops the radius; anything else keeps the local fence. */
+  scope?: string;
   query?: string;
   near?: string;
   ll?: string;
@@ -69,8 +77,21 @@ function upstreamPath(body: Body): string | null {
       });
       if (body.ll && LATLNG.test(body.ll)) {
         params.set('ll', body.ll);
-        // Cover the whole metro so a named spot a few miles out still shows.
-        params.set('radius', '25000');
+        /**
+         * The radius is a hard geo-filter, and both behaviours are needed:
+         *
+         * - Keep it (default) for normal searching. Without it Foursquare wants
+         *   a much stronger name match, so partial input collapses — "ip"
+         *   returned 3 results with the radius and 0 without, which breaks
+         *   type-ahead completely.
+         * - Drop it ('anywhere') to reach a named place outside the circle.
+         *   With the radius, "Katz's Delicatessen" from Chicago returns local
+         *   delis and no Katz's, because the New York one is fenced out.
+         *
+         * The client runs the fenced pass first and only widens when the local
+         * pass didn't turn up what was actually named — see `searchPlaces`.
+         */
+        if (body.scope !== 'anywhere') params.set('radius', '25000');
       } else {
         params.set('near', (body.near ?? '').trim().slice(0, 120) || 'New York, NY');
       }

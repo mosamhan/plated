@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RatingBadge } from '@/components/RatingBadge';
+import { useSheetDismiss } from '@/components/useSheetDismiss';
 import { openDirections, openReservation } from '@/lib/external';
 import { tapMedium } from '@/lib/haptics';
 import { radius, spacing } from '@/theme/palettes';
@@ -21,6 +22,13 @@ interface Props {
   primaryLabel: string;
   primaryIcon?: keyof typeof Ionicons.glyphMap;
   onPrimary: () => void;
+  /**
+   * Draws the route inside Plated. Replaces what used to be a Google/Apple Maps
+   * chooser here: Directions is in-app everywhere now, and the only hand-off
+   * left is Navigate inside the route's steps sheet. Falls back to the external
+   * hand-off when a caller can't route (no Plated row to route to).
+   */
+  onDirections?: () => void;
 }
 
 export function RestaurantActionSheet({
@@ -35,9 +43,11 @@ export function RestaurantActionSheet({
   primaryLabel,
   primaryIcon = 'arrow-forward',
   onPrimary,
+  onDirections,
 }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const drag = useSheetDismiss(onClose, visible);
   const place = { name, location, lat, lng };
 
   const Action = ({
@@ -73,10 +83,14 @@ export function RestaurantActionSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
+        <Animated.View style={drag.style}>
         <Pressable
           style={[styles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 16 }]}
           onPress={(e) => e.stopPropagation()}>
-          <View style={[styles.grabber, { backgroundColor: colors.border }]} />
+          {/* Grabber + title are the drag handle; the action rows below stay
+              tappable because the responder only engages after real movement. */}
+          <View {...drag.panHandlers}>
+            <View style={[styles.grabber, { backgroundColor: colors.border }]} />
 
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
@@ -86,6 +100,7 @@ export function RestaurantActionSheet({
               </Text>
             </View>
             {rating != null && rating > 0 && <RatingBadge score={rating} size="md" />}
+          </View>
           </View>
 
           <Pressable
@@ -101,8 +116,20 @@ export function RestaurantActionSheet({
 
           <Text style={[styles.group, { color: colors.textMuted }]}>DIRECTIONS</Text>
           <View style={{ gap: 8 }}>
-            <Action icon="navigate" color="#4285F4" label="Google Maps" sub="Directions" onPress={() => openDirections('google', place)} />
-            <Action icon="map" color="#34A853" label="Apple Maps" sub="Directions" onPress={() => openDirections('apple', place)} />
+            <Action
+              icon="navigate"
+              color={colors.accent}
+              label="Directions"
+              sub={onDirections ? 'Route on the Plated map' : 'Open in Maps'}
+              onPress={() => {
+                if (onDirections) {
+                  onClose();
+                  setTimeout(onDirections, 120);
+                } else {
+                  openDirections('google', place);
+                }
+              }}
+            />
           </View>
 
           <Text style={[styles.group, { color: colors.textMuted }]}>RESERVE A TABLE</Text>
@@ -111,6 +138,7 @@ export function RestaurantActionSheet({
             <Action icon="search" color="#6B7280" label="Search reservations" sub="Resy, Tock & more" onPress={() => openReservation('search', place)} />
           </View>
         </Pressable>
+        </Animated.View>
       </Pressable>
     </Modal>
   );

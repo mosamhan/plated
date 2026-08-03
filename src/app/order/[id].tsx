@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -21,6 +22,7 @@ import { RatingBadge } from '@/components/RatingBadge';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { formatCount } from '@/components/StatPill';
 import { collabLabel } from '@/lib/collabs';
+import { buildPlateShareMessage } from '@/lib/invite';
 import { foodPlaceholder } from '@/data/images';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
@@ -74,6 +76,19 @@ export default function OrderDetail() {
   const user = userFor(order.userId);
   const collabs = collabLabel(order.collaborators, (id) => userFor(id).handle);
   const restaurant = restaurantFor(order.restaurantId);
+
+  // Shares the dish, matching the feed card — this screen is one plate.
+  const sharePlate = () => {
+    tapLight();
+    Share.share({
+      message: buildPlateShareMessage({
+        dishName: order.dishName,
+        restaurantName: restaurant?.name,
+        rating: order.rating,
+        handle: user.handle,
+      }),
+    }).catch(() => {});
+  };
   const liked = isLiked(order.id);
   const saved = isSaved(order.id);
   const following = isFollowing(user.id);
@@ -95,6 +110,9 @@ export default function OrderDetail() {
       <View style={styles.headerOverlay}>
         <ScreenHeader
           transparent
+          // Share sits left of save — same pair, same order, as the feed card.
+          secondaryIcon="share-outline"
+          onSecondary={sharePlate}
           rightIcon={saved ? 'bookmark' : 'bookmark-outline'}
           onRight={() => {
             toggleSave(order.id);

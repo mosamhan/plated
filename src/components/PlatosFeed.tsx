@@ -6,7 +6,14 @@ import { PlatoVideo } from '@/data/platos';
 import { usePlatos } from '@/store/PlatosContext';
 
 /** Vertical, full-screen, snap-paged reels — only the visible clip plays. */
-export function PlatosFeed({ bottomInset }: { bottomInset: number }) {
+export function PlatosFeed({
+  bottomInset,
+  onRestaurantPress,
+}: {
+  bottomInset: number;
+  /** Opens the reel's restaurant in the same sheet a map pin opens. */
+  onRestaurantPress?: (restaurantId: string) => void;
+}) {
   const { platos, refresh, refreshTick } = usePlatos();
   const [containerH, setContainerH] = useState(0);
   const [current, setCurrent] = useState(0);
@@ -48,7 +55,13 @@ export function PlatosFeed({ bottomInset }: { bottomInset: number }) {
           }
           getItemLayout={(_, index) => ({ length: containerH, offset: containerH * index, index })}
           renderItem={({ item, index }) => (
-            <PlatoReel video={item} active={index === current} height={containerH} bottomInset={bottomInset} />
+            <PlatoReel
+              video={item}
+              active={index === current}
+              height={containerH}
+              bottomInset={bottomInset}
+              onRestaurantPress={onRestaurantPress}
+            />
           )}
         />
       )}

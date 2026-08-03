@@ -106,6 +106,23 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+/**
+ * Great-circle kilometres between two points. Separate from `metresBetween`
+ * below, which is an equirectangular approximation that's fine over a city but
+ * drifts badly at intercontinental range — and explaining *why* a route failed
+ * is exactly the case where the two points are far apart.
+ */
+export function kmBetween(a: LatLng, b: LatLng): number {
+  const R = 6371;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.latitude - a.latitude);
+  const dLng = rad(b.longitude - a.longitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /** Metres between two points (equirectangular approximation — fine at city scale). */
 function metresBetween(a: LatLng, b: LatLng): number {
   const latRad = ((a.latitude + b.latitude) / 2) * (Math.PI / 180);
@@ -124,15 +141,56 @@ function dropIfSame(path: LatLng[], anchor: LatLng, end: 'head'): LatLng[] {
 }
 
 /**
- * Fetch a driving route between two points. Returns null on any failure so the
- * caller can fall back gracefully (e.g. offer "open in Maps" instead).
+ * Why a route couldn't be drawn. Surfaced rather than collapsed into `null`
+ * because "there is no road between these two places" and "the service is
+ * down" are different problems and deserve different words to the user.
+ */
+export type RouteFailure =
+  /** Google found no drivable road route — different landmass, or no link. */
+  | 'unreachable'
+  /** Drivable in principle, but longer than Directions will return. */
+  | 'too-far'
+  /** An endpoint couldn't be matched to the road network at all. */
+  | 'not-found'
+  /** Quota exhausted (OVER_QUERY_LIMIT / OVER_DAILY_LIMIT). */
+  | 'quota'
+  /** Key or config problem — REQUEST_DENIED, or Supabase not configured. */
+  | 'unavailable'
+  /** Network failure, or anything Google didn't name. */
+  | 'error';
+
+export type RouteOutcome = { ok: true; route: RouteResult } | { ok: false; reason: RouteFailure };
+
+/** Map Google's `status` onto the reasons the UI knows how to phrase. */
+function failureFor(status: string): RouteFailure {
+  switch (status) {
+    case 'ZERO_RESULTS':
+      return 'unreachable';
+    case 'MAX_ROUTE_LENGTH_EXCEEDED':
+      return 'too-far';
+    case 'NOT_FOUND':
+      return 'not-found';
+    case 'OVER_QUERY_LIMIT':
+    case 'OVER_DAILY_LIMIT':
+      return 'quota';
+    case 'REQUEST_DENIED':
+      return 'unavailable';
+    default:
+      return 'error';
+  }
+}
+
+/**
+ * Fetch a driving route between two points. Reports *why* it failed so the
+ * caller can explain it, rather than always saying "try again in a moment" —
+ * which is wrong advice when the real answer is that you can't drive there.
  */
 export async function fetchRoute(
   origin: LatLng,
   destination: LatLng,
   opts: { avoidTolls?: boolean } = {},
-): Promise<RouteResult | null> {
-  if (!isSupabaseConfigured) return null;
+): Promise<RouteOutcome> {
+  if (!isSupabaseConfigured) return { ok: false, reason: 'unavailable' };
 
   try {
     const { data: json, error } = await supabase.functions.invoke<any>('directions', {
@@ -144,11 +202,11 @@ export async function fetchRoute(
     });
     if (error || !json) {
       if (__DEV__) console.warn('[Plated] directions function failed', error?.message);
-      return null;
+      return { ok: false, reason: 'error' };
     }
     if (json.status !== 'OK' || !json.routes?.length) {
       if (__DEV__) console.warn('[Plated] directions failed', json.status, json.error_message);
-      return null;
+      return { ok: false, reason: failureFor(json.status) };
     }
     const route = json.routes[0];
     const leg = route.legs?.[0];
@@ -179,13 +237,16 @@ export async function fetchRoute(
     );
 
     return {
-      coordinates: [origin, ...dropIfSame(path, origin, 'head'), destination],
-      distanceText: leg?.distance?.text ?? '',
-      durationText: leg?.duration?.text ?? '',
-      steps,
+      ok: true,
+      route: {
+        coordinates: [origin, ...dropIfSame(path, origin, 'head'), destination],
+        distanceText: leg?.distance?.text ?? '',
+        durationText: leg?.duration?.text ?? '',
+        steps,
+      },
     };
   } catch (e) {
     if (__DEV__) console.warn('[Plated] directions threw', e);
-    return null;
+    return { ok: false, reason: 'error' };
   }
 }

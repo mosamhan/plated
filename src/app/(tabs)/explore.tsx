@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import * as Location from 'expo-location';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -15,18 +16,19 @@ import {
 import type MapView from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ExploreMap, deriveCategory, type MapRestaurant, type PinCategory } from '@/components/ExploreMap';
+import { ExploreMap, type MapRestaurant } from '@/components/ExploreMap';
 import { FilterChips } from '@/components/FilterChips';
 import { InlineSearch } from '@/components/InlineSearch';
+import { ActionSheet } from '@/components/ActionSheet';
 import { CategoriesSheet, CollectionsSheet, MapSettingsSheet } from '@/components/MapSheets';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
 import { RestaurantDetailSheet } from '@/components/RestaurantDetailSheet';
 import { RouteStepsSheet } from '@/components/RouteStepsSheet';
-import { fetchRoute, type RouteResult } from '@/lib/directions';
+import { fetchRoute, kmBetween, type RouteFailure, type RouteResult } from '@/lib/directions';
 import type { PlaceResult } from '@/lib/places';
-import { isCafe } from '@/lib/venue';
-import { openMap } from '@/lib/external';
+import { LOVED_RATING, placeTypeFor, type PlaceStatus, type PlaceType } from '@/lib/placeType';
+import { openDirections } from '@/lib/external';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
@@ -40,6 +42,26 @@ const FILTERS = ['Trending', 'Top Rated', 'Most Reordered', 'Nearby'];
 
 const GAP = spacing.md;
 const PADDING = spacing.lg;
+/** Diameter of the round map controls; "Search this area" centres against it. */
+const MAP_CIRCLE = 44;
+
+/**
+ * Where a route is headed. Carries its own name and coordinates rather than an
+ * id alone, because Foursquare previews can be routed to before Plated has a
+ * row for them — there'd be nothing to look the name up from. `restaurantId` is
+ * set only when a row does exist, for the pin ring and the maps hand-off.
+ */
+type RouteDestination = { restaurantId?: string; name: string; lat: number; lng: number };
+
+/** Country name at a coordinate, or null if the OS geocoder can't say. */
+async function countryAt(p: { latitude: number; longitude: number }): Promise<string | null> {
+  try {
+    const [place] = await Location.reverseGeocodeAsync(p);
+    return place?.country ?? null;
+  } catch {
+    return null;
+  }
+}
 
 type Mode = 'platos' | 'discover';
 
@@ -78,7 +100,7 @@ export default function Explore() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
-  const { exploreOrders, topRestaurants, ordersByRestaurant, restaurantFor, ensureRestaurant } = useData();
+  const { exploreOrders, topRestaurants, ordersByRestaurant, restaurantFor, ensureRestaurant, currentUser } = useData();
   const { location } = useLocation();
   const { isSaved, openSaveSheet } = useCollections();
   const mapRef = useRef<MapView>(null);
@@ -87,22 +109,21 @@ export default function Explore() {
 
   // Map state (design §1 + §"State").
   const [mapQuery, setMapQuery] = useState('');
-  const [activeTypes, setActiveTypes] = useState<PinCategory[]>(['cafe', 'loved', 'been', 'dining']);
+  /** Empty means "no cuisine filter" — everything shows. Same rule as status. */
+  const [activeTypes, setActiveTypes] = useState<PlaceType[]>([]);
+  /** Empty means "don't filter by history" — not "show nothing". */
+  const [activeStatuses, setActiveStatuses] = useState<PlaceStatus[]>([]);
   const [myTableOnly, setMyTableOnly] = useState(false);
   const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null);
-  const [avoidTolls, setAvoidTolls] = useState(false);
   // Map appearance can be overridden independently of the app theme (design §3).
   const [mapThemeOverride, setMapThemeOverride] = useState<'light' | 'dark' | null>(null);
   const [activeSheet, setActiveSheet] = useState<null | 'settings' | 'collections' | 'categories'>(null);
-  const [route, setRoute] = useState<(RouteResult & { restaurantId: string }) | null>(null);
+  const [route, setRoute] = useState<(RouteResult & { destination: RouteDestination }) | null>(null);
   // The map is a window inside Discover; expanding is a state of it, not a mode.
   const [mapExpanded, setMapExpanded] = useState(false);
   // Drag-resizable, because how much map you want depends on whether you're
   // reading the list or working the map. The ref mirrors it so the pan handler
   // isn't rebuilt (and doesn't go stale) on every pixel of a drag.
-  const [mapHeight, setMapHeight] = useState(MAP_HEIGHT_DEFAULT);
-  const mapHeightRef = useRef(MAP_HEIGHT_DEFAULT);
-  const dragFrom = useRef(MAP_HEIGHT_DEFAULT);
   /** The plate the sheet should offer alongside the place. */
   const [selectedPlate, setSelectedPlate] = useState<string | null>(null);
   /**
@@ -117,6 +138,8 @@ export default function Explore() {
   const [areaRegion, setAreaRegion] = useState<Region | null>(null);
   const [routing, setRouting] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(false);
+  /** Google vs Apple for the Navigate hand-off — asked each time. */
+  const [mapsChooserOpen, setMapsChooserOpen] = useState(false);
   /** Fullscreen search: collapsed to a circle until asked for. */
   const [fullSearchOpen, setFullSearchOpen] = useState(false);
   /** Something has been typed, so hovering away shouldn't take it back. */
@@ -135,31 +158,92 @@ export default function Explore() {
   const [preview, setPreview] = useState<PlaceResult | null>(null);
   const mapTheme: 'light' | 'dark' = mapThemeOverride ?? (colors.isDark ? 'dark' : 'light');
 
-  // Draw a driving route from the user to a restaurant, inside the app: fetch
-  // the Directions polyline, close the overlay, and fit the camera to the line.
-  const startRoute = async (restaurantId: string) => {
-    const dest = restaurantFor(restaurantId);
+  /**
+   * Say why a route couldn't be drawn, in terms of the actual situation rather
+   * than a blanket "try again" — which is useless advice when the honest answer
+   * is that no road connects the two places.
+   *
+   * Countries come from the OS geocoder, best-effort: naming them turns "no
+   * route" into something the user can act on. When it can't resolve them the
+   * copy falls back to distance alone rather than guessing. A drivable border
+   * crossing never reaches here — Google returns a route for those.
+   */
+  const explainRouteFailure = async (
+    reason: RouteFailure,
+    dest: RouteDestination,
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number },
+  ) => {
+    if (reason === 'quota') {
+      showAlert('Directions unavailable', 'Plated has hit its directions limit for now. Try again later.');
+      return;
+    }
+    if (reason === 'unavailable') {
+      showAlert('Directions unavailable', "Directions aren't available right now.");
+      return;
+    }
+    if (reason === 'not-found') {
+      showAlert('Can’t route there', `We couldn’t match ${dest.name} to a road on the map.`);
+      return;
+    }
+    if (reason === 'error') {
+      showAlert('Could not build a route', 'Please try again in a moment.');
+      return;
+    }
+
+    // 'unreachable' and 'too-far' are both about the gap, so quantify it.
+    const km = kmBetween(from, to);
+    const far = km >= 10 ? `${Math.round(km).toLocaleString()} km` : `${km.toFixed(1)} km`;
+    const [here, there] = await Promise.all([countryAt(from), countryAt(to)]);
+    const abroad = here && there && here !== there ? there : null;
+
+    if (reason === 'too-far') {
+      showAlert(
+        'Too far to map',
+        `${dest.name} is about ${far} away${abroad ? `, in ${abroad}` : ''}. That's drivable, but further than Directions will return a route for.`,
+      );
+      return;
+    }
+    showAlert(
+      'No road route',
+      abroad
+        ? `${dest.name} is in ${abroad}, about ${far} from you${here ? ` in ${here}` : ''} — there's no drivable road between the two, so a car won't get you there.`
+        : `${dest.name} is about ${far} away and no drivable road connects it to where you are.`,
+    );
+  };
+
+  /**
+   * Draw a driving route to a destination, inside the app: fetch the polyline,
+   * close the overlay, and fit the camera to the line. Every "Directions" in
+   * Plated lands here — the only hand-off to a maps app is Navigate, inside the
+   * steps sheet, where turn-by-turn is the actual ask.
+   *
+   * Forces Discover + the expanded map once the route resolves: the caller may
+   * be on Platos, or may have arrived from another screen entirely, and a route
+   * drawn on a map that isn't on screen is invisible.
+   */
+  const startRoute = async (dest: RouteDestination) => {
     if (location.lat == null || location.lng == null) {
       showAlert('Location needed', 'Set your location so Plated can draw a route from where you are.');
       return;
     }
-    if (dest?.lat == null || dest?.lng == null) {
-      showAlert('No coordinates', "We don't have this place's location yet.");
-      return;
-    }
+    const from = { latitude: location.lat, longitude: location.lng };
+    const to = { latitude: dest.lat, longitude: dest.lng };
     setRouting(true);
-    const result = await fetchRoute(
-      { latitude: location.lat, longitude: location.lng },
-      { latitude: dest.lat, longitude: dest.lng },
-      { avoidTolls },
-    );
+    const outcome = await fetchRoute(from, to);
     setRouting(false);
-    if (!result) {
-      showAlert('Could not build a route', 'Please try again in a moment.');
+    if (!outcome.ok) {
+      await explainRouteFailure(outcome.reason, dest, from, to);
       return;
     }
+    const result = outcome.route;
+    // Only once there's actually a line to show: switching the user off Platos
+    // and expanding the map to then say "couldn't build a route" would have
+    // rearranged the screen for nothing.
+    setMode('discover');
+    setMapExpanded(true);
     setSelectedRestaurant(null);
-    setRoute({ ...result, restaurantId });
+    setRoute({ ...result, destination: dest });
     requestAnimationFrame(() => {
       mapRef.current?.fitToCoordinates(result.coordinates, {
         edgePadding: { top: 120, right: 60, bottom: 200, left: 60 },
@@ -167,6 +251,67 @@ export default function Explore() {
       });
     });
   };
+
+  /** Route to a saved row by id — resolves its name/coords, or explains why not. */
+  const routeToRestaurant = (restaurantId: string) => {
+    const r = restaurantFor(restaurantId);
+    if (r?.lat == null || r?.lng == null) {
+      showAlert('No coordinates', "We don't have this place's location yet.");
+      return;
+    }
+    startRoute({ restaurantId, name: r.name, lat: r.lat, lng: r.lng });
+  };
+
+  /**
+   * Directions pressed on a screen with no map of its own (the restaurant
+   * screen, search) arrives as route params — see `lib/inAppRoute`. The whole
+   * destination travels, so there's nothing to look up and no wait for data.
+   *
+   * Consumed once and cleared: without that, coming back to this tab later
+   * would silently redraw a stale route.
+   */
+  const { routeId, routeName, routeLat, routeLng, focusId } = useLocalSearchParams<{
+    routeId?: string;
+    routeName?: string;
+    routeLat?: string;
+    routeLng?: string;
+    focusId?: string;
+  }>();
+
+  /**
+   * A restaurant tapped from the feed: land on Discover with the map showing
+   * that place and its card open. Cleared after use for the same reason the
+   * route params are — otherwise returning to the tab reopens it.
+   */
+  const consumedFocus = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusId || consumedFocus.current === focusId) return;
+    if (!restaurantFor(focusId)) return; // data not in yet; retry next render
+    consumedFocus.current = focusId;
+    router.setParams({ focusId: undefined });
+    setMode('discover');
+    openPin(focusId);
+    focusRestaurant(focusId);
+    // openPin/focusRestaurant close over render state; the param is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, restaurantFor]);
+  const consumedRoute = useRef<string | null>(null);
+  useEffect(() => {
+    if (!routeLat || !routeLng) return;
+    const key = `${routeId ?? ''}@${routeLat},${routeLng}`;
+    if (consumedRoute.current === key) return;
+    consumedRoute.current = key;
+    router.setParams({ routeId: undefined, routeName: undefined, routeLat: undefined, routeLng: undefined });
+    startRoute({
+      restaurantId: routeId,
+      name: routeName || 'Destination',
+      lat: Number(routeLat),
+      lng: Number(routeLng),
+    });
+    // startRoute closes over render-scoped state; re-running on all of it would
+    // refire the route. The params are the only trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId, routeName, routeLat, routeLng]);
 
   const withinArea = (r: Region, lat: number, lng: number) =>
     Math.abs(lat - r.latitude) <= r.latitudeDelta / 2 && Math.abs(lng - r.longitude) <= r.longitudeDelta / 2;
@@ -181,30 +326,17 @@ export default function Explore() {
       ? { latitude: preview.lat, longitude: preview.lng, name: preview.name }
       : null;
 
-  const mapMax = Math.round(windowHeight * 0.52);
-  const resizeMap = (h: number) => {
-    const next = Math.max(MAP_HEIGHT_MIN, Math.min(mapMax, h));
-    mapHeightRef.current = next;
-    setMapHeight(next);
-  };
-
-  const resizer = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 2,
-        onPanResponderGrant: () => {
-          dragFrom.current = mapHeightRef.current;
-        },
-        onPanResponderMove: (_, g) => resizeMap(dragFrom.current + g.dy),
-      }),
-    // resizeMap only reads refs and the clamp bound.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mapMax],
-  );
-
   const data = useMemo(() => {
-    const list = exploreOrders(filter);
+    let list = exploreOrders(filter);
+    // The cuisine chips filter the grid as well as the pins — picking "Pizza"
+    // and still being shown every plate in the city reads as the filter having
+    // been ignored.
+    if (activeTypes.length > 0) {
+      list = list.filter((o) => {
+        const r = restaurantFor(o.restaurantId);
+        return !!r && activeTypes.includes(placeTypeFor(r.cuisine));
+      });
+    }
     if (!areaRegion) return list;
     // Only plates whose restaurant sits in the framed area. A plate whose
     // restaurant has no coordinates can't be placed, so it drops out rather
@@ -213,7 +345,7 @@ export default function Explore() {
       const r = restaurantFor(o.restaurantId);
       return r?.lat != null && r?.lng != null && withinArea(areaRegion, r.lat, r.lng);
     });
-  }, [exploreOrders, filter, areaRegion, restaurantFor]);
+  }, [exploreOrders, filter, areaRegion, restaurantFor, activeTypes]);
 
   // Restaurants that have coordinates, tagged with their per-user category.
   const mapRestaurants = useMemo<MapRestaurant[]>(() => {
@@ -221,27 +353,37 @@ export default function Explore() {
       .filter((r) => r.lat != null && r.lng != null)
       .map((r) => {
         const saved = isSaved({ type: 'restaurant', id: r.id });
-        const rated = ordersByRestaurant(r.id).length > 0;
+        // "Been" and "Loved" are about *this* user, so they read the current
+        // user's own ratings here rather than the restaurant's overall score.
+        const mine = ordersByRestaurant(r.id).filter((o) => o.userId === currentUser.id);
+        const best = mine.reduce((m, o) => Math.max(m, o.rating), 0);
+        const statuses: PlaceStatus[] = [];
+        if (best >= LOVED_RATING) statuses.push('loved');
+        if (mine.length > 0) statuses.push('been');
+        if (saved) statuses.push('saved');
         return {
           ...r,
           lat: r.lat as number,
           lng: r.lng as number,
           saved,
-          category: deriveCategory({ saved, rated, isCafe: isCafe(r.cuisine) }),
+          type: placeTypeFor(r.cuisine),
+          statuses,
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topRestaurants, ordersByRestaurant, isSaved]);
+  }, [topRestaurants, ordersByRestaurant, isSaved, currentUser.id]);
 
   const visiblePins = useMemo(() => {
     const q = mapQuery.trim().toLowerCase();
     return mapRestaurants.filter(
       (r) =>
         (!q || r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.location.toLowerCase().includes(q)) &&
-        activeTypes.includes(r.category) &&
+        (activeTypes.length === 0 || activeTypes.includes(r.type)) &&
+        // No status selected = no history filter, rather than an empty map.
+        (activeStatuses.length === 0 || activeStatuses.some((st) => r.statuses.includes(st))) &&
         (!myTableOnly || r.saved),
     );
-  }, [mapRestaurants, mapQuery, activeTypes, myTableOnly]);
+  }, [mapRestaurants, mapQuery, activeTypes, activeStatuses, myTableOnly]);
 
   const region: Region = useMemo(() => {
     if (location.lat != null && location.lng != null) {
@@ -277,11 +419,18 @@ export default function Explore() {
     setSelectedRestaurant(restaurantId);
   };
 
-  // Closes the sheet only — the pin stays ringed and the tile stays outlined, so
-  // dismissing it reveals the answer to "where is this?" rather than undoing it.
+  /**
+   * Dismissing the card deselects: the tile's accent outline and the pin's ring
+   * both clear, so closing reads as undoing the selection rather than leaving
+   * the map marked. (This deliberately reverses the earlier behaviour of
+   * keeping the pin ringed to answer "where is this?" — a highlight nothing on
+   * screen explains looks like a stuck state.)
+   */
   const closeSheet = () => {
     setSelectedRestaurant(null);
     setPreview(null);
+    setSelectedPlate(null);
+    setHighlighted(null);
   };
 
   /** Put an off-Plated place on the map and open it, without writing anything. */
@@ -340,8 +489,8 @@ export default function Explore() {
       <RestaurantDetailSheet
         restaurantId={selectedRestaurant}
         onClose={closeSheet}
-        avoidTolls={avoidTolls}
-        onRoute={startRoute}
+        onRoute={routeToRestaurant}
+        onRoutePreview={startRoute}
         plateId={selectedPlate}
         side={sheetSide}
         onSideChange={setSheetSide}
@@ -353,26 +502,46 @@ export default function Explore() {
         <RouteStepsSheet
           visible={stepsOpen}
           onClose={() => setStepsOpen(false)}
-          destination={restaurantFor(route.restaurantId)?.name ?? 'Route'}
+          destination={route.destination.name}
           distanceText={route.distanceText}
           durationText={route.durationText}
           steps={route.steps}
+          // The one deliberate hand-off left: turn-by-turn is what a maps app is
+          // for, so Navigate leaves. Which app is the user's call, not the
+          // platform's — the chooser opens instead of assuming Apple on iOS.
           onNavigate={() => {
-            const r = restaurantFor(route.restaurantId);
             setStepsOpen(false);
-            if (r) openMap(r);
+            setMapsChooserOpen(true);
           }}
         />
       )}
+
+      {/* Google vs Apple, asked each time. Coordinates come off the route's
+          destination, which a Foursquare preview has even with no Plated row. */}
+      <ActionSheet
+        visible={mapsChooserOpen && !!route}
+        onClose={() => setMapsChooserOpen(false)}
+        title={route ? `Navigate to ${route.destination.name}` : undefined}
+        actions={[
+          {
+            label: 'Google Maps',
+            icon: 'navigate',
+            onPress: () => route && openDirections('google', route.destination),
+          },
+          {
+            label: 'Apple Maps',
+            icon: 'map',
+            onPress: () => route && openDirections('apple', route.destination),
+          },
+        ]}
+      />
 
       {activeSheet === 'settings' && (
         <MapSettingsSheet
           onClose={() => setActiveSheet(null)}
           mapTheme={mapTheme}
           setMapTheme={setMapThemeOverride}
-          avoidTolls={avoidTolls}
-          setAvoidTolls={setAvoidTolls}
-          myTableOnly={myTableOnly}
+            myTableOnly={myTableOnly}
           setMyTableOnly={setMyTableOnly}
           onOpenCollections={() => setActiveSheet('collections')}
           onOpenCategories={() => setActiveSheet('categories')}
@@ -383,7 +552,13 @@ export default function Explore() {
         <CollectionsSheet onClose={() => setActiveSheet(null)} onSelectRestaurant={openPin} />
       )}
       {activeSheet === 'categories' && (
-        <CategoriesSheet onClose={() => setActiveSheet(null)} activeTypes={activeTypes} setActiveTypes={setActiveTypes} />
+        <CategoriesSheet
+          onClose={() => setActiveSheet(null)}
+          activeTypes={activeTypes}
+          setActiveTypes={setActiveTypes}
+          activeStatuses={activeStatuses}
+          setActiveStatuses={setActiveStatuses}
+        />
       )}
 
     </>
@@ -402,10 +577,27 @@ export default function Explore() {
   if (mode === 'platos') {
     return (
       <View style={{ flex: 1, backgroundColor: '#000' }}>
-        <PlatosFeed bottomInset={12} />
+        <PlatosFeed bottomInset={12} onRestaurantPress={openPin} />
         <View style={[styles.overlayToggle, { top: insets.top + 8 }]}>
           <ModeToggle mode={mode} setMode={setMode} overlay />
         </View>
+
+        {/* Tapping a reel's restaurant opens the same sheet as a map pin. Only
+            this one overlay: the rest of `overlays` is map chrome, and there is
+            no map mounted here. Directions still routes in-app — startRoute
+            flips back to Discover and expands the map, so the line is drawn on
+            a map the user can actually see. */}
+        <RestaurantDetailSheet
+          restaurantId={selectedRestaurant}
+          onClose={closeSheet}
+            onRoute={routeToRestaurant}
+          onRoutePreview={startRoute}
+          plateId={selectedPlate}
+          side={sheetSide}
+          onSideChange={setSheetSide}
+          preview={preview}
+          onAdopt={adoptPreview}
+        />
       </View>
     );
   }
@@ -479,7 +671,7 @@ export default function Explore() {
           onPress={() => setMapExpanded(false)}
           style={[
             styles.underMenu,
-            { top: insets.top + 14 + 44 + 10, backgroundColor: colors.card, borderColor: colors.border },
+            { top: insets.top + 14 + MAP_CIRCLE + 10, backgroundColor: colors.card, borderColor: colors.border },
             // While the search is open it drops its label and matches the menu
             // circle above it. That keeps it entirely left of the results list,
             // which starts just right of the menu — so the two never overlap
@@ -492,7 +684,14 @@ export default function Explore() {
           )}
         </Pressable>
 
-        {!route && <View style={[styles.areaWrap, { top: insets.top + 128 }]}>{searchThisArea}</View>}
+        {/* Sits in the top row's own band, centred in the gap between the menu
+            and search circles rather than stacked below them. Matching the row's
+            height and centring vertically keeps it aligned to the circles
+            whatever the pill's text height works out to. Hidden while the search
+            is open, since the field expands across that gap. */}
+        {!route && !fullSearchOpen && (
+          <View style={[styles.areaWrap, { top: insets.top + 14, height: MAP_CIRCLE }]}>{searchThisArea}</View>
+        )}
 
         {/* In-app route banner — distance + ETA, with clear + hand-off options. */}
         {route && (
@@ -502,7 +701,7 @@ export default function Explore() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.routeTitle, { color: colors.text }]} numberOfLines={1}>
-                {restaurantFor(route.restaurantId)?.name ?? 'Route'}
+                {route.destination.name}
               </Text>
               <Text style={[styles.routeMeta, { color: colors.textMuted }]}>
                 {route.distanceText} · {route.durationText} drive
@@ -537,7 +736,7 @@ export default function Explore() {
   // Discover — the map as a live window over the plates it's showing.
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <View style={{ paddingTop: insets.top + 8 }}>
+      <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
         <View style={styles.titleRow}>
           <Text style={[typography.title, { color: colors.text }]}>Explore</Text>
           {/* Label only — changing it now lives in the map's controls menu, so
@@ -566,10 +765,30 @@ export default function Explore() {
           <InlineSearch onSelectRated={openPin} onSelectExternal={openPreview} />
         </View>
 
-        {/* The map window. Pinned rather than part of the scroll content: tapping
-            a plate highlights its pin, which is useless if the map has scrolled
-            away. */}
-        <View style={[styles.mapWindow, { borderColor: colors.border, height: mapHeight }]}>
+      </View>
+
+      <FlatList
+        data={data}
+        key="grid"
+        numColumns={2}
+        keyExtractor={(o) => o.id}
+        columnWrapperStyle={{ paddingHorizontal: PADDING, gap: GAP }}
+        contentContainerStyle={{ paddingBottom: 110, gap: GAP }}
+        showsVerticalScrollIndicator={false}
+        renderItem={({ item }) => (
+          <PlateTile
+            order={item}
+            width={tileWidth}
+            selected={item.id === selectedPlate}
+            onPress={() => openPlate(item.id, item.restaurantId)}
+          />
+        )}
+        ListHeaderComponent={
+          <>
+        {/* The map scrolls with the page; the header above (title, mode toggle,
+            menu + search) is what stays put. In the list header rather than
+            above the list so there's one scroll, not two stacked ones. */}
+        <View style={styles.mapWindow}>
           <ExploreMap
             ref={mapRef}
             restaurants={visiblePins}
@@ -595,6 +814,13 @@ export default function Explore() {
           )}
           {!route && <View style={styles.areaWrapInline}>{searchThisArea}</View>}
 
+          {/* The border is drawn *over* the map rather than on the clipping
+              container. GMSMapView is a native view, so the container's rounded
+              clip antialiases against the map's own white backing and leaves a
+              1px light seam inside the border — most visible against the lake in
+              light mode. Painting the ring on top covers that seam. */}
+          <View pointerEvents="none" style={[styles.mapWindowRing, { borderColor: colors.border }]} />
+
           {/* A route drawn on a 220pt map is unreadable on its own, so the
               summary states where you're headed and offers the full screen. */}
           {route && (
@@ -606,7 +832,7 @@ export default function Explore() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.routeTitle, { color: colors.text }]} numberOfLines={1}>
-                  {restaurantFor(route.restaurantId)?.name ?? 'Route'}
+                  {route.destination.name}
                 </Text>
                 <Text style={[styles.routeMeta, { color: colors.textMuted }]} numberOfLines={1}>
                   {route.distanceText} · {route.durationText} drive
@@ -632,32 +858,9 @@ export default function Explore() {
           )}
         </View>
 
-        {/* Resize grip. Outside the map so the drag isn't competing with the
-            map's own pan gesture. */}
-        <View {...resizer.panHandlers} style={styles.grip} hitSlop={{ top: 6, bottom: 6 }}>
-          <View style={[styles.gripBar, { backgroundColor: colors.border }]} />
-        </View>
 
         <FilterChips options={FILTERS} value={filter} onChange={setFilter} />
-      </View>
 
-      <FlatList
-        data={data}
-        key="grid"
-        numColumns={2}
-        keyExtractor={(o) => o.id}
-        columnWrapperStyle={{ paddingHorizontal: PADDING, gap: GAP }}
-        contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: 110, gap: GAP }}
-        showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => (
-          <PlateTile
-            order={item}
-            width={tileWidth}
-            selected={item.id === selectedPlate}
-            onPress={() => openPlate(item.id, item.restaurantId)}
-          />
-        )}
-        ListHeaderComponent={
           <View style={styles.countRow}>
             <Text style={[styles.count, { color: colors.textMuted }]}>
               {data.length} {data.length === 1 ? 'plate' : 'plates'} · {filter}
@@ -669,6 +872,7 @@ export default function Explore() {
               </Pressable>
             )}
           </View>
+          </>
         }
         ListEmptyComponent={
           <Text style={[styles.empty, { color: colors.textMuted }]}>
@@ -682,8 +886,12 @@ export default function Explore() {
   );
 }
 
-const MAP_HEIGHT_DEFAULT = 220;
-const MAP_HEIGHT_MIN = 130;
+/**
+ * Fixed, not drag-resizable. The map lives inside the page's scroll now, and a
+ * vertical resize gesture on top of a vertical scroll meant neither worked
+ * reliably — the grip won drags that were meant to scroll the page.
+ */
+const MAP_HEIGHT = 220;
 
 const styles = StyleSheet.create({
   controlRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: PADDING, marginTop: 14 },
@@ -695,12 +903,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  /**
+   * The pinned chrome. It needs its own bottom edge and padding because the
+   * page scrolls underneath it — without them the plate grid slides up flush
+   * against the search field with nothing separating the two.
+   */
+  header: { paddingBottom: 14, borderBottomWidth: StyleSheet.hairlineWidth },
   mapWindow: {
+    height: MAP_HEIGHT,
     marginHorizontal: PADDING,
-    marginTop: 14,
+    marginTop: 16,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  mapWindowRing: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
   },
   expandBtn: {
     position: 'absolute',
@@ -735,9 +958,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   miniStepsText: { fontSize: 12, fontWeight: '800' },
-  grip: { alignItems: 'center', justifyContent: 'center', height: 22 },
-  gripBar: { width: 44, height: 4, borderRadius: 2 },
-  areaWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  areaWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
   areaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -796,9 +1017,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   mapCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: MAP_CIRCLE,
+    height: MAP_CIRCLE,
+    borderRadius: MAP_CIRCLE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,

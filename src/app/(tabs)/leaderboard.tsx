@@ -1,12 +1,14 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FILTERABLE_PLACE_TYPES, PLACE_TYPE_META } from '@/components/ExploreMap';
 import { FilterChips } from '@/components/FilterChips';
 import { RankRow } from '@/components/RankRow';
 import { distanceKm, NEAR_RADIUS_KM } from '@/lib/geo';
+import { placeTypeFor, type PlaceType } from '@/lib/placeType';
 import { isCafe } from '@/lib/venue';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
@@ -35,16 +37,29 @@ export default function Leaderboard() {
     return distanceKm(origin, { lat: r.lat, lng: r.lng }) <= NEAR_RADIUS_KM;
   };
 
+  /**
+   * Cuisine narrowing, so the board can answer "what's the best pizza here?"
+   * rather than only "what's the best anything here?". Empty = no narrowing,
+   * matching how the map's filters behave. Local to Ranks on purpose: changing
+   * what you're ranking shouldn't silently re-filter the Explore map.
+   */
+  const [cuisine, setCuisine] = useState<PlaceType | null>(null);
+  const matchesCuisine = (c?: string) => cuisine == null || placeTypeFor(c) === cuisine;
+
   // Best Restaurants / Best Cafés split the venue list by type.
   const venues = useMemo(
-    () => topRestaurants().filter((r) => withinRange(r)),
-    [topRestaurants, near, origin?.lat, origin?.lng], // eslint-disable-line react-hooks/exhaustive-deps
+    () => topRestaurants().filter((r) => withinRange(r) && matchesCuisine(r.cuisine)),
+    [topRestaurants, near, origin?.lat, origin?.lng, cuisine], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const restaurants = useMemo(() => venues.filter((r) => !isCafe(r.cuisine)), [venues]);
   const cafes = useMemo(() => venues.filter((r) => isCafe(r.cuisine)), [venues]);
   const plates = useMemo(
-    () => topPlates().filter((o) => withinRange(restaurantFor(o.restaurantId))),
-    [topPlates, restaurantFor, near, origin?.lat, origin?.lng], // eslint-disable-line react-hooks/exhaustive-deps
+    () =>
+      topPlates().filter((o) => {
+        const r = restaurantFor(o.restaurantId);
+        return withinRange(r) && matchesCuisine(r?.cuisine);
+      }),
+    [topPlates, restaurantFor, near, origin?.lat, origin?.lng, cuisine], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const subtitle = near
@@ -68,6 +83,35 @@ export default function Leaderboard() {
         )}
 
         <FilterChips options={TABS} value={tab} onChange={setTab} />
+
+        {/* Cuisine row. Scrolls horizontally because there are 14 of them and
+            they'd otherwise wrap into a wall above the actual rankings. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.cuisineRow}>
+          {FILTERABLE_PLACE_TYPES.map((t) => {
+            const on = cuisine === t;
+            return (
+              <Pressable
+                key={t}
+                onPress={() => setCuisine(on ? null : t)}
+                style={[
+                  styles.cuisineChip,
+                  { borderColor: on ? colors.accent : colors.border, backgroundColor: on ? colors.accentSoft : 'transparent' },
+                ]}>
+                <MaterialCommunityIcons
+                  name={PLACE_TYPE_META[t].icon}
+                  size={14}
+                  color={on ? colors.accent : colors.textMuted}
+                />
+                <Text style={[styles.cuisineText, { color: on ? colors.text : colors.textMuted }]}>
+                  {PLACE_TYPE_META[t].label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 110 }}>
@@ -165,6 +209,17 @@ function Empty({ text }: { text: string }) {
 
 const styles = StyleSheet.create({
   sub: { fontSize: 14, fontWeight: '500', paddingHorizontal: spacing.lg, marginTop: 4, marginBottom: 12 },
+  cuisineRow: { flexDirection: 'row', gap: 8, paddingHorizontal: spacing.lg, paddingTop: 10, paddingBottom: 2 },
+  cuisineChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  cuisineText: { fontSize: 13, fontWeight: '700' },
   scopeRow: { flexDirection: 'row', gap: 8, paddingHorizontal: spacing.lg, marginBottom: 12 },
   scopeChip: {
     flexDirection: 'row',

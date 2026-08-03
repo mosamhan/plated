@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { useAuth } from '@/store/AuthContext';
+import { useLocation } from '@/store/LocationContext';
 import { useTheme } from '@/theme/ThemeContext';
 
 /** Minimal shape of the props expo-router passes to a custom tabBar. */
@@ -111,6 +112,19 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
 
 export default function TabsLayout() {
   const { signedIn, loading } = useAuth();
+  const { promptForLocationOnce } = useLocation();
+
+  /**
+   * First run: ask for location once the user is actually inside the app.
+   * Deliberately not on the auth screen or during the splash — a permission
+   * dialog with no visible context behind it is the one people reflexively
+   * decline, and on iOS that decline is permanent without a trip to Settings.
+   * Granting it sets Plated's own location straight from the device.
+   */
+  useEffect(() => {
+    if (signedIn) void promptForLocationOnce();
+  }, [signedIn, promptForLocationOnce]);
+
   if (loading) return null; // session restoring — index.tsx shows the loader
   if (!signedIn) return <Redirect href="/(auth)/sign-in" />;
 

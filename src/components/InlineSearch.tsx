@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -47,6 +48,7 @@ export function InlineSearch({
   const { colors } = useTheme();
   const { topRestaurants } = useData();
   const { placeQuery } = useLocation();
+  const router = useRouter();
 
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -109,6 +111,14 @@ export function InlineSearch({
   const open = focused && q.length > 0;
   const nothing = open && !searching && rated.length === 0 && external.length === 0;
 
+  /** Hand the term to the full search screen, keeping it in the field there. */
+  const submit = () => {
+    const term = q.trim();
+    if (!term) return;
+    onDismiss?.();
+    router.push(`/search?q=${encodeURIComponent(term)}`);
+  };
+
   const dismiss = () => {
     setFocused(false);
     setQuery('');
@@ -133,6 +143,11 @@ export function InlineSearch({
           autoCapitalize="words"
           autoCorrect={false}
           returnKeyType="search"
+          // Enter always hands off to the full search screen. The dropdown is a
+          // shortlist biased to where you are; the full screen is the place to
+          // see everything the term matches — on Plated and not — which is what
+          // you want when the spot is in another city or you're planning a trip.
+          onSubmitEditing={submit}
           autoFocus={autoFocus}
         />
         {(q.length > 0 || onDismiss) && (

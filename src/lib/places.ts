@@ -142,23 +142,78 @@ export async function autocompleteLocations(query: string): Promise<PlaceSuggest
     .filter((s): s is PlaceSuggestion => s != null && s.lat != null);
 }
 
+async function runSearch(body: {
+  query: string;
+  ll?: string;
+  near?: string;
+  scope?: 'nearby' | 'anywhere';
+}): Promise<PlaceResult[]> {
+  // Limit and the dining category scope are fixed by the Edge Function so a
+  // caller can't widen them; only the query and where-to-look travel.
+  const json = await callPlaces<{ results?: FsqPlace[] }>({ op: 'search', ...body });
+  if (!json) return [];
+  return (json.results ?? []).map(normalize).filter((r) => r.fsqId);
+}
+
+/** Lowercase, punctuation-free, single-spaced — for comparing names to input. */
+const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 /**
- * Search restaurants near a place string (e.g. "New York, NY") or lat/lng.
- * Returns [] (and logs) if the key is missing or the request fails, so callers
- * can fall back to seeded data gracefully.
+ * Search restaurants: local first, widening only when the local pass didn't
+ * find what was named, and ranked so the closest match to what was typed leads.
+ *
+ * The local pass keeps Foursquare's radius, because dropping it makes the API
+ * demand a much stronger name match and partial input stops returning anything
+ * ("ip" → 3 results fenced, 0 unfenced). Type-ahead depends on it.
+ *
+ * The widening pass drops the radius, because the radius is a hard filter and a
+ * place outside it is invisible — "Katz's Delicatessen" from Chicago otherwise
+ * returns local delis and never the New York one. It's skipped whenever the
+ * local pass already contains a name matching the query, so ordinary searches
+ * cost exactly one request and are unchanged.
+ *
+ * Last resort, only when both passes come back empty: treat the trailing word
+ * as a place hint ("Ichiran Shibuya" → query "Ichiran", near "Shibuya"). The
+ * `ll` bias doesn't reach across continents, and passing the whole query as
+ * `near` doesn't work — Foursquare geocodes it, then matches the venue name
+ * against the area and returns unrelated places.
  */
 export async function searchPlaces(
   query: string,
   opts: { near?: string; ll?: string } = {},
 ): Promise<PlaceResult[]> {
-  // Limit, radius, and the dining category scope are fixed by the Edge Function
-  // so a caller can't widen them; only the query and where-to-look travel.
-  const json = await callPlaces<{ results?: FsqPlace[] }>({
-    op: 'search',
-    query,
-    ll: opts.ll,
-    near: opts.near,
+  const q = norm(query);
+  const nearby = await runSearch({ query, ll: opts.ll, near: opts.near, scope: 'nearby' });
+
+  // "Did we find the thing they named?" — a substring match on the whole query,
+  // not per-word, so "Katz's Delicatessen" isn't satisfied by any old deli.
+  const foundNamed = q.length > 0 && nearby.some((r) => norm(r.name).includes(q));
+
+  let merged = nearby;
+  if (!foundNamed && q.length >= 4) {
+    const wider = await runSearch({ query, ll: opts.ll, near: opts.near, scope: 'anywhere' });
+    const seen = new Set(nearby.map((r) => r.fsqId));
+    merged = [...nearby, ...wider.filter((r) => !seen.has(r.fsqId))];
+  }
+
+  if (merged.length === 0) {
+    const words = query.trim().split(/\s+/).filter(Boolean);
+    if (words.length < 2) return merged;
+    return runSearch({ query: words.slice(0, -1).join(' '), near: words[words.length - 1] });
+  }
+
+  // Closest match to the input first. A stable partition, so within each group
+  // Foursquare's own ranking (which is proximity-aware) is preserved.
+  const scored = merged.map((r, i) => {
+    const n = norm(r.name);
+    const rank = n === q ? 0 : n.startsWith(q) ? 1 : n.includes(q) ? 2 : 3;
+    return { r, rank, i };
   });
-  if (!json) return [];
-  return (json.results ?? []).map(normalize).filter((r) => r.fsqId);
+  scored.sort((a, b) => a.rank - b.rank || a.i - b.i);
+  return scored.map((s) => s.r);
 }

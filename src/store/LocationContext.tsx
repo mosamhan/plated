@@ -3,6 +3,8 @@ import * as Location from 'expo-location';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'plated.location';
+/** Set once we've asked, so a decline isn't re-prompted on every launch. */
+const ASKED_KEY = 'plated.locationAsked';
 
 export interface PlatedLocation {
   label: string; // e.g. "New York, NY"
@@ -20,6 +22,13 @@ interface LocationContextValue {
   busy: boolean;
   error: string | null;
   useDeviceLocation: () => Promise<boolean>;
+  /**
+   * First-run only: asks for location permission and, if granted, sets Plated's
+   * location from the device. No-ops once asked, and no-ops if a location has
+   * already been chosen — re-asking someone who declined is what turns a soft
+   * no into a permanent one.
+   */
+  promptForLocationOnce: () => Promise<void>;
   setManualLocation: (label: string, coords?: { lat: number; lng: number }) => void;
 }
 
@@ -29,6 +38,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useState<PlatedLocation>(DEFAULT_LOCATION);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The stored location has been read; prompting before this would race it. */
+  const [restored, setRestored] = useState(false);
 
   // Restore the saved location on launch.
   useEffect(() => {
@@ -36,7 +47,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       .then((raw) => {
         if (raw) setLocation(JSON.parse(raw));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setRestored(true));
   }, []);
 
   const persist = useCallback((loc: PlatedLocation) => {
@@ -83,6 +95,17 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     [persist],
   );
 
+  const promptForLocationOnce = useCallback(async () => {
+    if (!restored) return;
+    const asked = await AsyncStorage.getItem(ASKED_KEY).catch(() => null);
+    if (asked) return;
+    // Mark first, not after: a crash or a backgrounded prompt mid-flow
+    // shouldn't queue the OS dialog up again next launch.
+    await AsyncStorage.setItem(ASKED_KEY, '1').catch(() => {});
+    if (location.source !== 'default') return;
+    await useDeviceLocation();
+  }, [restored, location.source, useDeviceLocation]);
+
   const placeQuery =
     location.lat != null && location.lng != null
       ? { ll: `${location.lat},${location.lng}` }
@@ -95,6 +118,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     error,
     useDeviceLocation,
     setManualLocation,
+    promptForLocationOnce,
   };
 
   return <LocationContext.Provider value={value}>{children}</LocationContext.Provider>;

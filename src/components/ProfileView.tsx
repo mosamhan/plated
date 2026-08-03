@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -34,6 +34,7 @@ import { usePlatos } from '@/store/PlatosContext';
 import { useCollectionContents } from '@/store/useCollectionContents';
 import { usePublicCollections } from '@/store/usePublicCollections';
 import { displayFont } from '@/theme/fonts';
+import { buildProfileShareMessage } from '@/lib/invite';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -47,7 +48,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked } = useData();
+  const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked, suggestedUsers, currentUser } = useData();
   const { location } = useLocation();
   const { platos } = usePlatos();
   const { collections, createCollection, openSaveSheet, isSaved: isSavedInCollections } = useCollections();
@@ -64,6 +65,43 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const orders = ordersByUser(user.id);
   const userPlatos = platos.filter((p) => p.creatorId === user.id);
   const following = isFollowing(user.id);
+
+  /**
+   * Who to look at next, ranked from signals the data model actually has:
+   * overlapping restaurants with the profile you're viewing (the strongest —
+   * it's why you're here), then overlap with your own ratings, then reach.
+   *
+   * "Similar followings" isn't in here because only *your* follow list is
+   * loaded — other users' following lists aren't, so any mutual-follow score
+   * would be invented rather than measured. Worth adding once that ships.
+   */
+  const suggested = useMemo(() => {
+    if (isCurrent) return [];
+    const placesOf = (id: string) => new Set(ordersByUser(id).map((o) => o.restaurantId));
+    const theirs = placesOf(user.id);
+    const mine = placesOf(currentUser.id);
+    return suggestedUsers()
+      .filter((u) => u.id !== user.id && u.id !== currentUser.id && !isFollowing(u.id) && !isBlocked(u.id))
+      .map((u) => {
+        const places = placesOf(u.id);
+        const withThem = [...places].filter((r) => theirs.has(r)).length;
+        const withMe = [...places].filter((r) => mine.has(r)).length;
+        const reason = withThem
+          ? `Rates the same places as ${user.name.split(' ')[0]}`
+          : withMe
+            ? 'Been where you’ve been'
+            : 'Popular on Plated';
+        return { user: u, score: withThem * 3 + withMe * 2, reason };
+      })
+      .sort((a, b) => b.score - a.score || b.user.followers - a.user.followers)
+      .slice(0, 8);
+  }, [isCurrent, user.id, user.name, currentUser.id, ordersByUser, suggestedUsers, isFollowing, isBlocked]);
+
+  // Shares a link to this profile. Uses the handle rather than the display
+  // name — that's what someone types to find them again.
+  const shareProfile = () => {
+    Share.share({ message: buildProfileShareMessage({ name: user.name, handle: user.handle }) }).catch(() => {});
+  };
   const blocked = isBlocked(user.id);
 
   const onInvite = () =>
@@ -183,10 +221,25 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           </View>
         )}
 
-        {/* Actions */}
+        {/* Actions. On your own profile: Edit / Share side by side, with a
+            person-add square opening the existing discover-people screen —
+            finding people is adjacent to sharing yourself, so they sit together
+            rather than being buried in settings. */}
         <View style={{ paddingHorizontal: PADDING, marginTop: spacing.lg }}>
           {isCurrent ? (
-            <Button label="Edit profile" variant="secondary" icon="create-outline" onPress={() => router.push('/edit-profile')} />
+            <View style={styles.selfActions}>
+              <View style={{ flex: 1 }}>
+                <Button label="Edit profile" variant="secondary" icon="create-outline" onPress={() => router.push('/edit-profile')} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button label="Share profile" variant="secondary" icon="share-outline" onPress={shareProfile} />
+              </View>
+              <Pressable
+                onPress={() => router.push('/discover-people')}
+                style={[styles.discoverBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Ionicons name="person-add-outline" size={19} color={colors.text} />
+              </Pressable>
+            </View>
           ) : (
             <Button
               label={following ? 'Following' : 'Follow'}
@@ -196,6 +249,44 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
             />
           )}
         </View>
+
+        {/* Suggested for you — only on someone else's profile, where "who else
+            is like this" is a question the user is already asking. */}
+        {!isCurrent && suggested.length > 0 && (
+          <View style={{ marginTop: spacing.lg }}>
+            <Text style={[styles.suggestHead, { color: colors.textMuted }]}>SUGGESTED FOR YOU</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.suggestRow}>
+              {suggested.map(({ user: u, reason }) => (
+                <Pressable
+                  key={u.id}
+                  onPress={() => router.push(`/user/${u.id}`)}
+                  style={[styles.suggestCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Avatar uri={u.avatar} size={56} verified={u.verified} />
+                  <Text style={[styles.suggestName, { color: colors.text }]} numberOfLines={1}>
+                    {u.name}
+                  </Text>
+                  <Text style={[styles.suggestReason, { color: colors.textMuted }]} numberOfLines={2}>
+                    {reason}
+                  </Text>
+                  <Pressable
+                    onPress={() => toggleFollow(u.id)}
+                    style={[styles.suggestBtn, { backgroundColor: isFollowing(u.id) ? colors.surface : colors.accent, borderColor: colors.border }]}>
+                    <Text
+                      style={[
+                        styles.suggestBtnText,
+                        { color: isFollowing(u.id) ? colors.text : colors.accentText },
+                      ]}>
+                      {isFollowing(u.id) ? 'Following' : 'Follow'}
+                    </Text>
+                  </Pressable>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* Creator compensation */}
         {isCurrent && <CompensationCard user={user} onInvite={onInvite} />}
@@ -537,6 +628,35 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   partnerText: { fontSize: 13, fontWeight: '700', flex: 1 },
+  suggestHead: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, paddingHorizontal: PADDING, marginBottom: 10 },
+  suggestRow: { flexDirection: 'row', gap: 10, paddingHorizontal: PADDING },
+  suggestCard: {
+    width: 150,
+    alignItems: 'center',
+    gap: 6,
+    padding: 12,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  suggestName: { fontSize: 14, fontWeight: '800' },
+  suggestReason: { fontSize: 11, fontWeight: '600', textAlign: 'center', minHeight: 28 },
+  suggestBtn: {
+    marginTop: 2,
+    paddingHorizontal: 18,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  suggestBtnText: { fontSize: 13, fontWeight: '800' },
+  selfActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  discoverBtn: {
+    width: 48,
+    height: 44,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tabRow: {
     flexDirection: 'row',
     marginTop: spacing.xl,

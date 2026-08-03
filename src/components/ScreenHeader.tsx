@@ -11,13 +11,19 @@ interface Props {
   title?: string;
   transparent?: boolean;
   rightIcon?: keyof typeof Ionicons.glyphMap;
+  /**
+   * A second icon action, drawn immediately to the *left* of `rightIcon`. For
+   * screens that need both a share and a save without one displacing the other.
+   */
+  secondaryIcon?: keyof typeof Ionicons.glyphMap;
+  onSecondary?: () => void;
   /** Text action instead of an icon — for verbs an icon can't carry ("Manage"). */
   rightLabel?: string;
   onRight?: () => void;
   closeMode?: boolean;
 }
 
-export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRight, closeMode }: Props) {
+export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRight, closeMode, secondaryIcon, onSecondary }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -50,6 +56,14 @@ export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRigh
       ) : (
         <View style={{ flex: 1 }} />
       )}
+      {secondaryIcon && (
+        <Pressable
+          onPress={onSecondary}
+          hitSlop={10}
+          style={[styles.iconBtn, transparent && { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+          <Ionicons name={secondaryIcon} size={21} color={transparent ? '#fff' : colors.text} />
+        </Pressable>
+      )}
       {rightLabel ? (
         <Pressable onPress={onRight} hitSlop={10} style={styles.labelBtn}>
           <Text style={[styles.labelText, { color: transparent ? '#fff' : colors.accent }]}>
@@ -57,7 +71,10 @@ export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRigh
           </Text>
         </Pressable>
       ) : rightIcon ? (
-        <Pressable onPress={onRight} hitSlop={10} style={styles.iconBtn}>
+        <Pressable
+          onPress={onRight}
+          hitSlop={10}
+          style={[styles.iconBtn, transparent && { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
           <Ionicons name={rightIcon} size={22} color={transparent ? '#fff' : colors.text} />
         </Pressable>
       ) : (

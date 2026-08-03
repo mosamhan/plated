@@ -101,9 +101,13 @@ JS path but not the native one. Two Console steps close it for good:
       **Directions API only**, and store it as the function secret:
       `supabase secrets set GOOGLE_DIRECTIONS_KEY=<new-key>`. It never ships
       anywhere, so nothing can extract it.
-- [ ] **Restrict the existing Maps SDK key** to iOS bundle id `com.samhan.plated`
-      (and the Android package) + the Maps SDK APIs only. Extraction from
-      Info.plist then buys an attacker nothing.
+- [ ] **Restrict the iOS Maps SDK key** (`GOOGLE_MAPS_IOS_API_KEY`): Application
+      restrictions → **iOS apps** → bundle id `com.samhan.plated`; API
+      restrictions → **Maps SDK for iOS** only. Extraction from Info.plist then
+      buys an attacker nothing.
+- [ ] **Restrict the Android Maps SDK key** (`GOOGLE_MAPS_ANDROID_API_KEY`):
+      Application restrictions → **Android apps** → package `com.samhan.plated`
+      + the release SHA-1; API restrictions → **Maps SDK for Android** only.
 
 > Why the split is necessary: application restrictions (bundle id / referrer)
 > only work for client SDKs. Directions is a **web service** API, and those
@@ -111,6 +115,16 @@ JS path but not the native one. Two Console steps close it for good:
 > A proxy is Google's own documented answer, which is why one key can't do both
 > jobs safely.
 > https://developers.google.com/maps/api-security-best-practices
+
+> Why iOS and Android can't share one key either: **API** restrictions are a
+> multi-select (one key can enable many services), but **Application**
+> restrictions are a single radio — None / HTTP referrers / IP / Android / iOS.
+> Google: *"If you place an application restriction on an API key, you cannot
+> use it on other platforms."* A shared key would have to be
+> Application-restricted **None**, and it ships in plaintext inside
+> `Info.plist` / `AndroidManifest.xml` — i.e. anyone who unzips the app can bill
+> your project. Two keys is the only configuration where both platforms are
+> restricted. Don't merge them.
 
 ## Known deferrals (intentional)
 

@@ -26,9 +26,15 @@ interface Props {
   active: boolean;
   height: number;
   bottomInset: number;
+  /**
+   * Opens the restaurant behind the reel — the same sheet a map pin opens. Only
+   * called for Platos tied to a saved row; a Foursquare-only Plato has just a
+   * name, so there is nothing to open and the line stays plain text.
+   */
+  onRestaurantPress?: (restaurantId: string) => void;
 }
 
-export function PlatoReel({ video, active, height, bottomInset }: Props) {
+export function PlatoReel({ video, active, height, bottomInset, onRestaurantPress }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const { isLiked, toggleLike, recordView } = usePlatos();
@@ -44,6 +50,14 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
   const [sheet, setSheet] = useState(false);
   const liked = isLiked(video.id);
   const platoSaved = isSaved({ type: 'plato', id: video.id });
+  const { restaurantId } = video;
+  const openRestaurant =
+    onRestaurantPress && restaurantId
+      ? () => {
+          tapLight();
+          onRestaurantPress(restaurantId);
+        }
+      : undefined;
 
   // Only the active (visible) reel plays.
   useEffect(() => {
@@ -153,7 +167,12 @@ export function PlatoReel({ video, active, height, bottomInset }: Props) {
           <RatingBadge score={video.rating} size="sm" />
         </View>
         <Text style={styles.restaurant} numberOfLines={1}>
-          <Ionicons name="location" size={12} color="#FFD98A" /> {video.restaurantName}
+          {/* Nested rather than wrapped in a Pressable so the line keeps its
+              inline layout and truncation, and only the restaurant reacts —
+              not the collaborator suffix trailing it. */}
+          <Text onPress={openRestaurant} suppressHighlighting={!openRestaurant}>
+            <Ionicons name="location" size={12} color="#FFD98A" /> {video.restaurantName}
+          </Text>
           {collabs ? ` · with ${collabs}` : ''}
         </Text>
         <Text style={styles.caption} numberOfLines={2}>{video.caption}</Text>

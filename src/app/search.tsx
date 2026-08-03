@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,7 @@ import { RatingBadge } from '@/components/RatingBadge';
 import { RestaurantActionSheet } from '@/components/RestaurantActionSheet';
 import { TextField } from '@/components/TextField';
 import { Restaurant } from '@/data/types';
+import { exploreRouteHref } from '@/lib/inAppRoute';
 import { isPlacesConfigured, PlaceResult, searchPlaces } from '@/lib/places';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
@@ -25,7 +26,10 @@ export default function Search() {
   const insets = useSafeAreaInsets();
   const { searchRestaurants, restaurantWithRating } = useData();
   const { location, placeQuery } = useLocation();
-  const [query, setQuery] = useState('');
+  // Seeded from ?q= so pressing enter in Explore's inline search lands here
+  // with the term already run, rather than making the user retype it.
+  const { q: initialQuery } = useLocalSearchParams<{ q?: string }>();
+  const [query, setQuery] = useState(initialQuery ?? '');
   const [places, setPlaces] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<Selected | null>(null);
@@ -109,11 +113,15 @@ export default function Search() {
         <View style={styles.fsqHead}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.section, { color: colors.text, marginBottom: 0 }]}>
-              {query.trim() ? 'Results' : 'Restaurants near you'}
+              {query.trim() ? 'Everywhere else' : 'Restaurants near you'}
             </Text>
+            {/* Results are ranked around this location but no longer fenced to
+                it, so this reads as "closest first" rather than "only here". */}
             <Pressable onPress={() => router.push('/settings/location')} style={styles.nearRow} hitSlop={8}>
               <Ionicons name="location" size={12} color={colors.accent} />
-              <Text style={[styles.nearLabel, { color: colors.text }]}>{location.label}</Text>
+              <Text style={[styles.nearLabel, { color: colors.text }]}>
+                {query.trim() ? `Nearest ${location.label} first` : location.label}
+              </Text>
               <Text style={[styles.nearChange, { color: colors.accent }]}>Change</Text>
             </Pressable>
           </View>
@@ -124,7 +132,7 @@ export default function Search() {
           <View style={styles.emptyBox}>
             <Text style={[styles.hint, { color: colors.textMuted }]}>
               {query.trim()
-                ? `No “${query.trim()}” found near ${location.label}. If it's in another city, change your location.`
+                ? `Nothing matches “${query.trim()}” — on Plated or anywhere we can see.`
                 : `No restaurants found near ${location.label} yet.`}
             </Text>
             <Pressable
@@ -169,6 +177,19 @@ export default function Search() {
           primaryLabel="View on Plated"
           primaryIcon="restaurant"
           onPrimary={() => router.push(`/restaurant/${selected.restaurant.id}`)}
+          onDirections={
+            selected.restaurant.lat != null && selected.restaurant.lng != null
+              ? () =>
+                  router.navigate(
+                    exploreRouteHref({
+                      id: selected.restaurant.id,
+                      name: selected.restaurant.name,
+                      lat: selected.restaurant.lat!,
+                      lng: selected.restaurant.lng!,
+                    }),
+                  )
+              : undefined
+          }
         />
       )}
       {selected?.kind === 'fsq' && (
@@ -183,6 +204,20 @@ export default function Search() {
           primaryLabel="Add a plate here"
           primaryIcon="add"
           onPrimary={() => addAt(selected.place)}
+          // No Plated row behind this one yet, so the destination travels by
+          // coordinate — Explore routes to it all the same.
+          onDirections={
+            selected.place.lat != null && selected.place.lng != null
+              ? () =>
+                  router.navigate(
+                    exploreRouteHref({
+                      name: selected.place.name,
+                      lat: selected.place.lat!,
+                      lng: selected.place.lng!,
+                    }),
+                  )
+              : undefined
+          }
         />
       )}
     </View>

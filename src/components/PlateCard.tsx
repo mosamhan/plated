@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, ZoomIn, ZoomOut } from 'react-native-reanimated';
 
 import { Avatar } from '@/components/Avatar';
@@ -14,6 +14,8 @@ import { foodPlaceholder } from '@/data/images';
 import { Order } from '@/data/types';
 import { collabEarningsNote, collabLabel } from '@/lib/collabs';
 import { showAlert } from '@/lib/dialog';
+import { exploreFocusHref } from '@/lib/inAppRoute';
+import { buildPlateShareMessage } from '@/lib/invite';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
 import { displayFont } from '@/theme/fonts';
@@ -54,6 +56,20 @@ export function PlateCard({
   const user = userFor(order.userId);
   const collabs = collabLabel(order.collaborators, (id) => userFor(id).handle);
   const restaurant = restaurantFor(order.restaurantId);
+
+  // Shares the dish, not the venue — this card is a plate, and the rating on it
+  // is the part worth sending.
+  const sharePlate = () => {
+    tapLight();
+    Share.share({
+      message: buildPlateShareMessage({
+        dishName: order.dishName,
+        restaurantName: restaurant?.name,
+        rating: order.rating,
+        handle: userFor(order.userId).handle,
+      }),
+    }).catch(() => {});
+  };
   const liked = isLiked(order.id);
   const saved = savedOverride ?? isSaved(order.id);
 
@@ -112,7 +128,10 @@ export function PlateCard({
                 </Pressable>
               )}
             </View>
-            <Pressable onPress={() => restaurant && router.push(`/restaurant/${restaurant.id}`)}>
+            {/* Opens the place on the Discover map rather than a detail screen:
+                from the feed, "where is this?" is the question, and the map
+                answers it with the card on top. */}
+            <Pressable onPress={() => restaurant && router.navigate(exploreFocusHref(restaurant.id))}>
               <Text style={[styles.sub, { color: colors.textMuted }]} numberOfLines={1}>
                 at {restaurant?.name ?? 'a restaurant'}
                 {collabs ? ` · with ${collabs}` : ''}
@@ -216,6 +235,9 @@ export function PlateCard({
             size={20}
             color={saved ? colors.accent : colors.text}
           />
+        </Pressable>
+        <Pressable style={styles.action} onPress={sharePlate} hitSlop={8}>
+          <Ionicons name="share-outline" size={20} color={colors.text} />
         </Pressable>
 
         <View style={{ flex: 1 }} />

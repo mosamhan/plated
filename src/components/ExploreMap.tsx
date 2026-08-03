@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
@@ -6,26 +6,72 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Region } from 'react-n
 
 import type { LatLng } from '@/lib/directions';
 import { mapStyleDark, mapStyleLight } from '@/lib/mapStyles';
+import type { PlaceStatus, PlaceType } from '@/lib/placeType';
 import { RestaurantWithRating } from '@/store/DataContext';
 
-/**
- * Pin category — drives the pin's color + glyph. 'cafe' is a venue type
- * (coffee/tea/dessert spots), the rest are the user's relationship to a
- * restaurant (design §1). A place is exactly one category.
- */
-export type PinCategory = 'cafe' | 'loved' | 'been' | 'dining';
+/** Icon names come from MaterialCommunityIcons — see `MciName`. */
+type MciName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
-export const PIN_META: Record<PinCategory, { color: string; icon: keyof typeof Ionicons.glyphMap; label: string }> = {
-  cafe: { color: '#8B5E34', icon: 'cafe', label: 'Cafés & drinks' },
-  loved: { color: '#E4483B', icon: 'heart', label: 'Loved' },
-  been: { color: '#2E9E63', icon: 'checkmark', label: 'Been there' },
-  dining: { color: '#251B10', icon: 'restaurant', label: 'Fine dining' },
+/**
+ * A pin carries two independent things: the **glyph** says what kind of place
+ * it is, the **colour** says how you relate to it. They used to be one enum,
+ * which forced a choice — a loved pizzeria could be "Loved" or "Pizza" but not
+ * both, and filtering for one hid the other.
+ *
+ * MaterialCommunityIcons rather than Ionicons: Ionicons has no noodle bowl, no
+ * taco and no steak, so the food types were landing on stand-ins (ramen was an
+ * apple). This set has a real glyph for each one.
+ */
+export const PLACE_TYPE_META: Record<PlaceType, { icon: MciName; label: string }> = {
+  cafe: { icon: 'coffee', label: 'Café & drinks' },
+  bakery: { icon: 'cupcake', label: 'Bakery & dessert' },
+  bar: { icon: 'glass-cocktail', label: 'Bar' },
+  pizza: { icon: 'pizza', label: 'Pizza' },
+  sushi: { icon: 'rice', label: 'Sushi & Japanese' },
+  ramen: { icon: 'noodles', label: 'Ramen & noodles' },
+  burgers: { icon: 'hamburger', label: 'Burgers' },
+  mexican: { icon: 'taco', label: 'Tacos & Mexican' },
+  italian: { icon: 'pasta', label: 'Italian' },
+  french: { icon: 'glass-wine', label: 'French & fine dining' },
+  steakhouse: { icon: 'food-steak', label: 'Steakhouse & BBQ' },
+  seafood: { icon: 'fish', label: 'Seafood' },
+  midEast: { icon: 'food-drumstick', label: 'Halal & Middle Eastern' },
+  vegan: { icon: 'leaf', label: 'Vegan & salads' },
+  other: { icon: 'storefront-outline', label: 'Everything else' },
 };
+
+/**
+ * The types offered as filters. 'other' is deliberately absent: with no filter
+ * selected everything already shows, so a catch-all chip only exists to be
+ * turned *off*, which is a confusing way to express "hide the unclassified".
+ */
+export const FILTERABLE_PLACE_TYPES = (Object.keys(PLACE_TYPE_META) as PlaceType[]).filter(
+  (t) => t !== 'other',
+);
+
+/** Colour by status, highest priority first — a place can hold several. */
+export const STATUS_META: Record<PlaceStatus, { color: string; icon: keyof typeof Ionicons.glyphMap; label: string }> = {
+  loved: { color: '#E4483B', icon: 'heart', label: 'Loved' },
+  saved: { color: '#B07207', icon: 'bookmark', label: 'Saved' },
+  been: { color: '#2E9E63', icon: 'checkmark', label: 'Been there' },
+};
+
+/** Neutral pin colour for a place you have no history with. */
+const NEUTRAL_PIN = '#8B5E34';
+
+export const STATUS_ORDER: PlaceStatus[] = ['loved', 'saved', 'been'];
+
+/** The colour a pin takes: strongest status wins, neutral when there's none. */
+export function pinColorFor(statuses: PlaceStatus[]): string {
+  const top = STATUS_ORDER.find((s) => statuses.includes(s));
+  return top ? STATUS_META[top].color : NEUTRAL_PIN;
+}
 
 export interface MapRestaurant extends RestaurantWithRating {
   lat: number;
   lng: number;
-  category: PinCategory;
+  type: PlaceType;
+  statuses: PlaceStatus[];
   saved: boolean;
 }
 
@@ -160,7 +206,8 @@ export const ExploreMap = forwardRef<MapView, Props>(function ExploreMap(
             tracksViewChanges={false}
             onPress={() => onSelect(r)}>
             <Pin
-              category={r.category}
+              type={r.type}
+              statuses={r.statuses}
               score={r.platedRating}
               saved={r.saved}
               highlighted={highlighted}
@@ -207,28 +254,31 @@ export const ExploreMap = forwardRef<MapView, Props>(function ExploreMap(
 });
 
 function Pin({
-  category,
+  type,
+  statuses,
   score,
   saved,
   highlighted,
   detail = 'mid',
   name,
 }: {
-  category: PinCategory;
+  type: PlaceType;
+  statuses: PlaceStatus[];
   score: number;
   saved: boolean;
   highlighted?: boolean;
   detail?: PinDetail;
   name?: string;
 }) {
-  const meta = PIN_META[category];
+  const glyph = PLACE_TYPE_META[type].icon;
+  const tint = pinColorFor(statuses);
 
   // Zoomed out (and not the selected pin): a bare dot. Enough to read the shape
   // of the city without a hundred labels fighting each other.
   if (detail === 'far' && !highlighted) {
     return (
-      <View style={[styles.pinFar, { backgroundColor: meta.color, borderColor: saved ? '#B07207' : '#fff' }]}>
-        <Ionicons name={meta.icon} size={9} color="#fff" />
+      <View style={[styles.pinFar, { backgroundColor: tint, borderColor: saved ? '#B07207' : '#fff' }]}>
+        <MaterialCommunityIcons name={glyph} size={10} color="#fff" />
       </View>
     );
   }
@@ -243,11 +293,11 @@ function Pin({
         // information, so it has to survive being selected.
         highlighted && styles.pinHighlighted,
       ]}>
-      <View style={[styles.dot, { backgroundColor: meta.color }]}>
-        <Ionicons name={meta.icon} size={12} color="#fff" />
+      <View style={[styles.dot, highlighted && styles.dotLg, { backgroundColor: tint }]}>
+        <MaterialCommunityIcons name={glyph} size={highlighted ? 15 : 13} color="#fff" />
       </View>
-      <Text style={styles.score}>{score > 0 ? score.toFixed(1) : '—'}</Text>
-      {saved && <Ionicons name="star" size={11} color="#B07207" style={{ marginLeft: -1 }} />}
+      <Text style={[styles.score, highlighted && styles.scoreLg]}>{score > 0 ? score.toFixed(1) : '—'}</Text>
+      {saved && <Ionicons name="star" size={highlighted ? 13 : 11} color="#B07207" style={{ marginLeft: -1 }} />}
     </View>
       {/* Close in, the score alone stops being the useful bit — you want to know
           which place it is. */}
@@ -304,12 +354,7 @@ function UserDot() {
  * distinguishable on the map; restaurants fall back to the user's relationship
  * (saved → loved, rated → been, else dining).
  */
-export function deriveCategory(opts: { saved: boolean; rated: boolean; isCafe?: boolean }): PinCategory {
-  if (opts.isCafe) return 'cafe';
-  if (opts.saved) return 'loved';
-  if (opts.rated) return 'been';
-  return 'dining';
-}
+
 
 // Marker views are white-on-tinted-land, so hardcode the light chrome (they sit
 // on the map, not the app surface) — only the score text tracks nothing here.
@@ -367,12 +412,23 @@ const styles = StyleSheet.create({
   pinHighlighted: {
     borderColor: '#B07207',
     borderWidth: 3,
-    transform: [{ scale: 1.18 }],
+    // Grown by real layout, not `transform: scale`. react-native-maps rasterises
+    // a marker into an image the size of the view's *frame*, and a transform
+    // doesn't grow the frame — the enlarged pill overflowed it and came out
+    // clipped flat along the bottom and right, with the gold ring sliced off.
+    // Bigger padding/dot/type grows the frame too, so nothing is cut and the
+    // art stays crisp instead of being an upscaled bitmap.
+    paddingLeft: 5,
+    paddingRight: 11,
+    paddingVertical: 6,
+    gap: 6,
     shadowColor: '#000',
     shadowOpacity: 0.35,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
+  dotLg: { width: 24, height: 24, borderRadius: 12 },
+  scoreLg: { fontSize: 15 },
   pin: {
     flexDirection: 'row',
     alignItems: 'center',
