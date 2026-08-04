@@ -28,6 +28,40 @@ export interface DishSummary {
 /** Case- and spacing-insensitive, so "flat white" and "Flat White" are one dish. */
 export const dishKey = (name: string) => name.toLowerCase().replace(/\s+/g, ' ').trim();
 
+/** A menu row: a Plated-rated dish, or an unrated item from the API menu. */
+export type MenuRow =
+  | { rated: true; dishName: string; rating: number; count: number; photo: string }
+  | { rated: false; dishName: string };
+
+/**
+ * The menu, Foursquare-first with crowd ratings overlaid.
+ *
+ * Rated dishes lead, in the order `summarizeDishes` ranked them (best average,
+ * then most-rated). Any API menu item nobody has rated is appended in menu
+ * order, deduped against the rated dishes by name. An empty `apiMenu` — the
+ * common premium-field-absent case — leaves exactly the crowd menu, which is
+ * the graceful fallback.
+ */
+export function mergeMenu(crowd: DishSummary[], apiMenu: string[]): MenuRow[] {
+  const ratedKeys = new Set(crowd.map((d) => dishKey(d.dishName)));
+  const rated: MenuRow[] = crowd.map((d) => ({
+    rated: true,
+    dishName: d.dishName,
+    rating: d.rating,
+    count: d.count,
+    photo: d.photo,
+  }));
+  const seenApi = new Set<string>();
+  const unrated: MenuRow[] = [];
+  for (const name of apiMenu) {
+    const k = dishKey(name);
+    if (!name.trim() || ratedKeys.has(k) || seenApi.has(k)) continue;
+    seenApi.add(k);
+    unrated.push({ rated: false, dishName: name.trim() });
+  }
+  return [...rated, ...unrated];
+}
+
 const key = dishKey;
 
 /**

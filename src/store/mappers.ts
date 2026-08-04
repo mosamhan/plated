@@ -45,6 +45,7 @@ export function mapRestaurant(row: any): Restaurant {
     lat: row.lat ?? undefined,
     lng: row.lng ?? undefined,
     priceLevel: (row.price_level as Restaurant['priceLevel']) ?? '$$',
+    fsqId: row.fsq_id ?? undefined,
   };
 }
 

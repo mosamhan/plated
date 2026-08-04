@@ -33,6 +33,8 @@ export interface Restaurant {
   lat?: number;
   lng?: number;
   priceLevel: '$' | '$$' | '$$$';
+  /** Foursquare place id — lets the menu pull FSQ's structured dish list. */
+  fsqId?: string;
 }
 
 /**
