@@ -115,6 +115,12 @@ interface DataContextValue {
 
   // mutations
   addOrder: (input: NewOrderInput) => Promise<Order | null>;
+  /** Delete one of your own posts. */
+  deleteOrder: (orderId: string) => void;
+  /** Change who can see your post. */
+  setOrderVisibility: (orderId: string, visibility: 'public' | 'friends' | 'private') => void;
+  /** Archive/unarchive your post — hidden from everyone but you when archived. */
+  setOrderArchived: (orderId: string, archived: boolean) => void;
   /** Upsert a searched Foursquare place → its restaurant id (for the detail sheet). */
   ensureRestaurant: (place: PlaceResult) => Promise<string | undefined>;
   updateProfile: (patch: Partial<User>) => void;
@@ -229,7 +235,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const currentUser = userFor(currentUserId);
 
   // ── Visible orders (filter blocked authors) ─────────────────────────────────
-  const visibleOrders = useMemo(() => orders.filter((o) => !blocked.has(o.userId)), [orders, blocked]);
+  // Feeds, rankings and restaurant aggregations run off this: blocked authors
+  // out, and archived posts out. Archived rows only ever reach the client for
+  // their own author (RLS), so this is what keeps an author's archived posts
+  // out of their *own* feed while still letting the profile grid show them.
+  // Friends/private posts are already filtered at the DB by RLS — a viewer who
+  // shouldn't see one never receives it — so there's nothing to re-filter here.
+  const visibleOrders = useMemo(
+    () => orders.filter((o) => !blocked.has(o.userId) && !o.archived),
+    [orders, blocked],
+  );
 
   const feedOrders = useCallback(
     () => [...visibleOrders].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
@@ -602,6 +617,32 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, live, userId],
   );
 
+  // Delete one of your own posts. Optimistic: drop it locally, then delete the
+  // row (RLS "delete own order" allows it only for the author).
+  const deleteOrder = useCallback(
+    (orderId: string) => {
+      setOrders((p) => p.filter((o) => o.id !== orderId));
+      if (live) supabase.from('orders').delete().eq('id', orderId).then(() => {});
+    },
+    [live],
+  );
+
+  const setOrderVisibility = useCallback(
+    (orderId: string, visibility: 'public' | 'friends' | 'private') => {
+      setOrders((p) => p.map((o) => (o.id === orderId ? { ...o, visibility } : o)));
+      if (live) supabase.from('orders').update({ visibility }).eq('id', orderId).then(() => {});
+    },
+    [live],
+  );
+
+  const setOrderArchived = useCallback(
+    (orderId: string, archived: boolean) => {
+      setOrders((p) => p.map((o) => (o.id === orderId ? { ...o, archived } : o)));
+      if (live) supabase.from('orders').update({ archived }).eq('id', orderId).then(() => {});
+    },
+    [live],
+  );
+
   const value = useMemo<DataContextValue>(
     () => ({
       orders,
@@ -647,10 +688,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       unblockUser,
       blockedUsers,
       addOrder,
+      deleteOrder,
+      setOrderVisibility,
+      setOrderArchived,
       ensureRestaurant,
       updateProfile,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, ensureRestaurant, updateProfile],
+    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

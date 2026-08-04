@@ -9,6 +9,7 @@ import Animated, { FadeInDown, ZoomIn, ZoomOut } from 'react-native-reanimated';
 import { Avatar } from '@/components/Avatar';
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { PlateCarousel } from '@/components/PlateCarousel';
+import { PostOptionsSheet } from '@/components/PostOptionsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { formatCount } from '@/components/StatPill';
 import { foodPlaceholder } from '@/data/images';
@@ -41,6 +42,7 @@ export function PlateCard({
   const router = useRouter();
   const { isLiked, toggleLike, isSaved, toggleSave, userFor, restaurantFor, currentUser } = useData();
   const [sheet, setSheet] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [burst, setBurst] = useState(false);
   const lastTap = useRef(0);
   const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,9 +142,7 @@ export function PlateCard({
             </Pressable>
           </View>
         </Pressable>
-        <Pressable
-          hitSlop={8}
-          onPress={() => router.push(`/report?targetType=plate&targetId=${order.id}`)}>
+        <Pressable hitSlop={8} onPress={() => setOptionsOpen(true)}>
           <Ionicons name="ellipsis-horizontal" size={20} color={colors.textMuted} />
         </Pressable>
       </View>
@@ -243,6 +243,8 @@ export function PlateCard({
         creatorHandle={user.handle}
         supportsCreator={user.compensationEligible}
       />
+
+      <PostOptionsSheet order={order} visible={optionsOpen} onClose={() => setOptionsOpen(false)} />
     </Animated.View>
   );
 }

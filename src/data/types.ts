@@ -109,6 +109,10 @@ export interface Order {
   commentsDisabled?: boolean;
   /** Poster hid the like count — only they see it. */
   hideLikeCount?: boolean;
+  /** Who can see this post. Enforced in the DB, not just the client. */
+  visibility?: 'public' | 'friends' | 'private';
+  /** Hidden from everyone but the author, who can restore it. */
+  archived?: boolean;
 }
 
 export interface Comment {

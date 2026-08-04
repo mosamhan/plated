@@ -86,6 +86,8 @@ export function mapOrder(row: any): Order {
     collaborators: mapCollaborators(row.collaborators),
     commentsDisabled: !!row.comments_disabled,
     hideLikeCount: !!row.hide_like_count,
+    visibility: (row.visibility as Order['visibility']) ?? 'public',
+    archived: !!row.archived,
   };
 }
 

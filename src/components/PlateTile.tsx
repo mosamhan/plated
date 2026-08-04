@@ -49,6 +49,14 @@ export function PlateTile({ order, width, onPress, selected }: Props) {
         <View style={styles.badge}>
           <RatingBadge score={order.rating} size="sm" />
         </View>
+        {/* Only the author ever has an archived post in state; badge it so the
+            grid shows it's hidden from everyone else. */}
+        {order.archived && (
+          <View style={styles.archived}>
+            <Ionicons name="archive" size={9} color="#fff" />
+            <Text style={styles.archivedText}>Archived</Text>
+          </View>
+        )}
         {/* FTC: disclosure must appear where the endorsement appears, not one tap later */}
         {user.compensationEligible && (
           <View style={styles.commission}>
@@ -90,6 +98,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   commissionText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
+  archived: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  archivedText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
   body: { padding: 10 },
   dish: { fontSize: 14, fontWeight: '800', letterSpacing: -0.2 },
   meta: { fontSize: 12, fontWeight: '500', marginTop: 2 },

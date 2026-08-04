@@ -307,9 +307,14 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
 
         {tab === 'plates' && (
           <View style={styles.grid}>
-            {orders.map((o) => (
-              <PlateTile key={o.id} order={o} width={tileWidth} />
-            ))}
+            {/* Archived posts show on your own profile (badged) so you can find
+                and restore them; they're hidden from everyone else — RLS keeps
+                them out of others' loads, and this guards the belt-and-braces. */}
+            {orders
+              .filter((o) => isCurrent || !o.archived)
+              .map((o) => (
+                <PlateTile key={o.id} order={o} width={tileWidth} />
+              ))}
             {orders.length === 0 && (
               <Text style={[styles.empty, { color: colors.textMuted }]}>No plates yet.</Text>
             )}

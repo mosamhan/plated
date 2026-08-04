@@ -20,6 +20,7 @@ import { Avatar } from '@/components/Avatar';
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { PlateCarousel } from '@/components/PlateCarousel';
+import { PostOptionsSheet } from '@/components/PostOptionsSheet';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { formatCount } from '@/components/StatPill';
 import { collabLabel } from '@/lib/collabs';
@@ -62,6 +63,7 @@ export default function OrderDetail() {
   } = useData();
   const { openSaveSheet } = useCollections();
   const [sheet, setSheet] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [draft, setDraft] = useState('');
 
   const order = orders.find((o) => o.id === id);
@@ -90,6 +92,7 @@ export default function OrderDetail() {
   const collabs = collabLabel(order.collaborators, (id) => userFor(id).handle);
   const restaurant = restaurantFor(order.restaurantId);
   const multiPlate = media.length > 1;
+  const isOwner = order.userId === currentUser.id;
   const selectedMedia = media.filter((_, i) => selected.has(i));
   const toggleSelect = (i: number) =>
     setSelected((prev) => {
@@ -314,11 +317,17 @@ export default function OrderDetail() {
                   </Text>
                 )}
               </Pressable>
-              <Pressable
-                style={styles.engItem}
-                onPress={() => router.push(`/report?targetType=plate&targetId=${order.id}`)}>
-                <Ionicons name="flag-outline" size={18} color={colors.textMuted} />
-                <Text style={[styles.engText, { color: colors.textMuted }]}>Report</Text>
+              {/* Owner sees post controls (audience/archive/delete); everyone
+                  else sees Report — both live in PostOptionsSheet. */}
+              <Pressable style={styles.engItem} onPress={() => setOptionsOpen(true)}>
+                <Ionicons
+                  name={isOwner ? 'ellipsis-horizontal' : 'flag-outline'}
+                  size={18}
+                  color={colors.textMuted}
+                />
+                <Text style={[styles.engText, { color: colors.textMuted }]}>
+                  {isOwner ? 'Manage post' : 'Report'}
+                </Text>
               </Pressable>
             </View>
           </Animated.View>
@@ -425,6 +434,13 @@ export default function OrderDetail() {
           </Text>
         </Pressable>
       </View>
+
+      <PostOptionsSheet
+        order={order}
+        visible={optionsOpen}
+        onClose={() => setOptionsOpen(false)}
+        onDeleted={() => router.back()}
+      />
 
       <OrderProviderSheet
         visible={sheet}
