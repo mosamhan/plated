@@ -5,17 +5,28 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FILTERABLE_PLACE_TYPES, PLACE_TYPE_META } from '@/components/ExploreMap';
-import { FilterChips } from '@/components/FilterChips';
 import { RankRow } from '@/components/RankRow';
 import { distanceKm, NEAR_RADIUS_KM } from '@/lib/geo';
 import { placeTypeFor, type PlaceType } from '@/lib/placeType';
-import { isCafe } from '@/lib/venue';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-const TABS = ['Best Plates', 'Best Restaurants', 'Best Cafés'];
+/**
+ * Ranks has one filter row, not two. The old Best Plates / Restaurants / Cafés
+ * tabs are folded into the cuisine filters as leading entries:
+ *   - `overall` ranks every restaurant (any cuisine) — the old Best Restaurants
+ *   - `plates`  ranks every plate — the old Best Plates
+ *   - `cafe` (a cuisine) already covers the old Best Cafés
+ * Every other entry is a cuisine, ranking restaurants of that type. Single
+ * select, since it's a mode, not a set.
+ */
+type RankFilter = 'overall' | 'plates' | PlaceType;
+const LEAD: { key: RankFilter; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
+  { key: 'overall', label: 'Overall', icon: 'trophy-outline' },
+  { key: 'plates', label: 'Overall plate', icon: 'silverware-fork-knife' },
+];
 
 export default function Leaderboard() {
   const { colors } = useTheme();
@@ -23,7 +34,7 @@ export default function Leaderboard() {
   const insets = useSafeAreaInsets();
   const { topRestaurants, topPlates, userFor, restaurantFor } = useData();
   const { location } = useLocation();
-  const [tab, setTab] = useState(TABS[0]);
+  const [filter, setFilter] = useState<RankFilter>('overall');
 
   const hasCoords = location.lat != null && location.lng != null;
   const [scope, setScope] = useState<'near' | 'global'>('global');
@@ -37,29 +48,21 @@ export default function Leaderboard() {
     return distanceKm(origin, { lat: r.lat, lng: r.lng }) <= NEAR_RADIUS_KM;
   };
 
-  /**
-   * Cuisine narrowing, so the board can answer "what's the best pizza here?"
-   * rather than only "what's the best anything here?". Empty = no narrowing,
-   * matching how the map's filters behave. Local to Ranks on purpose: changing
-   * what you're ranking shouldn't silently re-filter the Explore map.
-   */
-  const [cuisine, setCuisine] = useState<PlaceType | null>(null);
-  const matchesCuisine = (c?: string) => cuisine == null || placeTypeFor(c) === cuisine;
+  const showingPlates = filter === 'plates';
+  // A cuisine is selected when the filter isn't one of the two "overall" modes.
+  const cuisine: PlaceType | null = filter === 'overall' || filter === 'plates' ? null : filter;
 
-  // Best Restaurants / Best Cafés split the venue list by type.
-  const venues = useMemo(
-    () => topRestaurants().filter((r) => withinRange(r) && matchesCuisine(r.cuisine)),
-    [topRestaurants, near, origin?.lat, origin?.lng, cuisine], // eslint-disable-line react-hooks/exhaustive-deps
-  );
-  const restaurants = useMemo(() => venues.filter((r) => !isCafe(r.cuisine)), [venues]);
-  const cafes = useMemo(() => venues.filter((r) => isCafe(r.cuisine)), [venues]);
-  const plates = useMemo(
+  // Restaurants ranked, optionally narrowed to one cuisine. Empty in plates mode.
+  const restaurants = useMemo(
     () =>
-      topPlates().filter((o) => {
-        const r = restaurantFor(o.restaurantId);
-        return withinRange(r) && matchesCuisine(r?.cuisine);
-      }),
-    [topPlates, restaurantFor, near, origin?.lat, origin?.lng, cuisine], // eslint-disable-line react-hooks/exhaustive-deps
+      showingPlates
+        ? []
+        : topRestaurants().filter((r) => withinRange(r) && (cuisine == null || placeTypeFor(r.cuisine) === cuisine)),
+    [topRestaurants, near, origin?.lat, origin?.lng, filter], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const plates = useMemo(
+    () => (showingPlates ? topPlates().filter((o) => withinRange(restaurantFor(o.restaurantId))) : []),
+    [topPlates, restaurantFor, near, origin?.lat, origin?.lng, filter], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const subtitle = near
@@ -82,32 +85,27 @@ export default function Leaderboard() {
           </Pressable>
         )}
 
-        <FilterChips options={TABS} value={tab} onChange={setTab} />
-
-        {/* Cuisine row. Scrolls horizontally because there are 14 of them and
-            they'd otherwise wrap into a wall above the actual rankings. */}
+        {/* One filter row: the two "overall" modes lead, then every cuisine.
+            Scrolls horizontally — there are 16 and they'd wrap into a wall. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.cuisineRow}>
-          {FILTERABLE_PLACE_TYPES.map((t) => {
-            const on = cuisine === t;
+          {[
+            ...LEAD.map((l) => ({ key: l.key, label: l.label, icon: l.icon })),
+            ...FILTERABLE_PLACE_TYPES.map((t) => ({ key: t, label: PLACE_TYPE_META[t].label, icon: PLACE_TYPE_META[t].icon })),
+          ].map((f) => {
+            const on = filter === f.key;
             return (
               <Pressable
-                key={t}
-                onPress={() => setCuisine(on ? null : t)}
+                key={f.key}
+                onPress={() => setFilter(f.key as RankFilter)}
                 style={[
                   styles.cuisineChip,
                   { borderColor: on ? colors.accent : colors.border, backgroundColor: on ? colors.accentSoft : 'transparent' },
                 ]}>
-                <MaterialCommunityIcons
-                  name={PLACE_TYPE_META[t].icon}
-                  size={14}
-                  color={on ? colors.accent : colors.textMuted}
-                />
-                <Text style={[styles.cuisineText, { color: on ? colors.text : colors.textMuted }]}>
-                  {PLACE_TYPE_META[t].label}
-                </Text>
+                <MaterialCommunityIcons name={f.icon} size={14} color={on ? colors.accent : colors.textMuted} />
+                <Text style={[styles.cuisineText, { color: on ? colors.text : colors.textMuted }]}>{f.label}</Text>
               </Pressable>
             );
           })}
@@ -115,42 +113,8 @@ export default function Leaderboard() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 110 }}>
-        {tab === 'Best Restaurants' &&
-          (restaurants.length ? (
-            restaurants.map((r, i) => (
-              <RankRow
-                key={r.id}
-                rank={i + 1}
-                image={r.image}
-                title={r.name}
-                subtitle={`${r.cuisine} · ${r.orderCount} ${r.orderCount === 1 ? 'item' : 'items'} rated`}
-                score={r.platedRating}
-                onPress={() => router.push(`/restaurant/${r.id}`)}
-              />
-            ))
-          ) : (
-            <Empty text={`No ranked restaurants in ${location.label} yet.`} />
-          ))}
-
-        {tab === 'Best Cafés' &&
-          (cafes.length ? (
-            cafes.map((r, i) => (
-              <RankRow
-                key={r.id}
-                rank={i + 1}
-                image={r.image}
-                title={r.name}
-                subtitle={`${r.cuisine} · ${r.orderCount} ${r.orderCount === 1 ? 'item' : 'items'} rated`}
-                score={r.platedRating}
-                onPress={() => router.push(`/restaurant/${r.id}`)}
-              />
-            ))
-          ) : (
-            <Empty text={`No ranked cafés in ${location.label} yet.`} />
-          ))}
-
-        {tab === 'Best Plates' &&
-          (plates.length ? (
+        {showingPlates ? (
+          plates.length ? (
             plates.map((o, i) => {
               const r = restaurantFor(o.restaurantId);
               const u = userFor(o.userId);
@@ -169,7 +133,28 @@ export default function Leaderboard() {
             })
           ) : (
             <Empty text={`No ranked plates in ${location.label} yet.`} />
-          ))}
+          )
+        ) : restaurants.length ? (
+          restaurants.map((r, i) => (
+            <RankRow
+              key={r.id}
+              rank={i + 1}
+              image={r.image}
+              title={r.name}
+              subtitle={`${r.cuisine} · ${r.orderCount} ${r.orderCount === 1 ? 'item' : 'items'} rated`}
+              score={r.platedRating}
+              onPress={() => router.push(`/restaurant/${r.id}`)}
+            />
+          ))
+        ) : (
+          <Empty
+            text={
+              cuisine
+                ? `No ranked ${PLACE_TYPE_META[cuisine].label.toLowerCase()} in ${location.label} yet.`
+                : `No ranked restaurants in ${location.label} yet.`
+            }
+          />
+        )}
       </ScrollView>
     </View>
   );
