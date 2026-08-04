@@ -24,7 +24,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { formatCount } from '@/components/StatPill';
 import { collabLabel } from '@/lib/collabs';
 import { buildPlateShareMessage } from '@/lib/invite';
-import { postAverageRating, postMedia } from '@/lib/post';
+import { postAverageRating, postMedia, postShareArgs } from '@/lib/post';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
@@ -115,9 +115,8 @@ export default function OrderDetail() {
     tapLight();
     Share.share({
       message: buildPlateShareMessage({
-        dishName: multiPlate ? `${media.length} plates` : order.dishName,
+        ...postShareArgs(order),
         restaurantName: restaurant?.name,
-        rating: postAverageRating(order),
         handle: user.handle,
       }),
     }).catch(() => {});

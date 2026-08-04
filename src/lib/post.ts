@@ -34,3 +34,16 @@ export function postAverageRating(order: Order): number {
   if (plates.length === 0) return order.rating;
   return plates.reduce((s, m) => s + m.rating, 0) / plates.length;
 }
+
+/**
+ * Share args for a whole post — the subject is the spread, not one dish. A
+ * multi-plate post shares as "N plates" at its average rating; a single-plate
+ * post shares as that dish. Used by both the feed card and the post-detail
+ * header so they share identically.
+ */
+export function postShareArgs(order: Order): { dishName: string; rating: number } {
+  const plates = postMedia(order);
+  return plates.length > 1
+    ? { dishName: `${plates.length} plates`, rating: postAverageRating(order) }
+    : { dishName: order.dishName, rating: order.rating };
+}

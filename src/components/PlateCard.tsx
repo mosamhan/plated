@@ -16,7 +16,7 @@ import { Order } from '@/data/types';
 import { collabEarningsNote, collabLabel } from '@/lib/collabs';
 import { showAlert } from '@/lib/dialog';
 import { exploreFocusHref } from '@/lib/inAppRoute';
-import { postMedia } from '@/lib/post';
+import { postMedia, postShareArgs } from '@/lib/post';
 import { buildPlateShareMessage } from '@/lib/invite';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
@@ -59,15 +59,14 @@ export function PlateCard({
   const collabs = collabLabel(order.collaborators, (id) => userFor(id).handle);
   const restaurant = restaurantFor(order.restaurantId);
 
-  // Shares the dish, not the venue — this card is a plate, and the rating on it
-  // is the part worth sending.
-  const sharePlate = () => {
+  // Shares the whole post (all plates), matching the post-detail header — not
+  // just the headline dish.
+  const sharePost = () => {
     tapLight();
     Share.share({
       message: buildPlateShareMessage({
-        dishName: order.dishName,
+        ...postShareArgs(order),
         restaurantName: restaurant?.name,
-        rating: order.rating,
         handle: userFor(order.userId).handle,
       }),
     }).catch(() => {});
@@ -218,7 +217,7 @@ export function PlateCard({
             color={saved ? colors.accent : colors.text}
           />
         </Pressable>
-        <Pressable style={styles.action} onPress={sharePlate} hitSlop={8}>
+        <Pressable style={styles.action} onPress={sharePost} hitSlop={8}>
           <Ionicons name="share-outline" size={20} color={colors.text} />
         </Pressable>
 
