@@ -4,11 +4,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { PlatoCommentsSheet } from '@/components/PlatoCommentsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
+import { VideoScrubber } from '@/components/VideoScrubber';
 import { formatCount } from '@/components/StatPill';
 import { PlatoVideo } from '@/data/platos';
 import { collabLabel } from '@/lib/collabs';
@@ -48,6 +49,11 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
   const [paused, setPaused] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
+  // The plates this one video covers. Swiping the label moves between them; the
+  // video keeps playing. Falls back to the single dish for legacy Platos.
+  const plates = video.plates?.length ? video.plates : [{ dishName: video.dishName, rating: video.rating }];
+  const [plateIdx, setPlateIdx] = useState(0);
+  const [labelW, setLabelW] = useState(0);
   const liked = isLiked(video.id);
   const platoSaved = isSaved({ type: 'plato', id: video.id });
   const { restaurantId } = video;
@@ -162,9 +168,36 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
           )}
         </Pressable>
 
-        <View style={styles.dishRow}>
-          <Text style={[styles.dish, { fontFamily: displayFont }]} numberOfLines={1}>{video.dishName}</Text>
-          <RatingBadge score={video.rating} size="sm" />
+        {/* Plate label — one page per plate; swipe to move between the dishes
+            this video covers. The video doesn't change. */}
+        <View onLayout={(e) => setLabelW(e.nativeEvent.layout.width)}>
+          {labelW > 0 && (
+            <FlatList
+              data={plates}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(_, i) => String(i)}
+              onMomentumScrollEnd={(e) =>
+                setPlateIdx(Math.round(e.nativeEvent.contentOffset.x / labelW))
+              }
+              renderItem={({ item }) => (
+                <View style={[styles.dishRow, { width: labelW }]}>
+                  <Text style={[styles.dish, { fontFamily: displayFont }]} numberOfLines={1}>
+                    {item.dishName}
+                  </Text>
+                  <RatingBadge score={item.rating} size="sm" />
+                </View>
+              )}
+            />
+          )}
+          {plates.length > 1 && (
+            <View style={styles.plateDots}>
+              {plates.map((_, i) => (
+                <View key={i} style={[styles.plateDot, { opacity: i === plateIdx ? 1 : 0.4 }]} />
+              ))}
+            </View>
+          )}
         </View>
         <Text style={styles.restaurant} numberOfLines={1}>
           {/* Nested rather than wrapped in a Pressable so the line keeps its
@@ -178,11 +211,14 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
         <Text style={styles.caption} numberOfLines={2}>{video.caption}</Text>
       </View>
 
+      {/* TikTok-style seek bar, flush to the bottom of the reel. */}
+      <VideoScrubber player={player} bottom={bottomInset} />
+
       <OrderProviderSheet
         visible={sheet}
         onClose={() => setSheet(false)}
         restaurantName={video.restaurantName}
-        dishName={video.dishName}
+        dishName={plates[plateIdx]?.dishName ?? video.dishName}
         creatorHandle={video.creatorHandle}
         supportsCreator={video.compensationEligible}
       />
@@ -210,6 +246,8 @@ const styles = StyleSheet.create({
   commissionText: { color: '#FFD98A', fontSize: 10, fontWeight: '800' },
   dishRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   dish: { color: '#fff', fontSize: 24, letterSpacing: -0.3, flexShrink: 1 },
+  plateDots: { flexDirection: 'row', gap: 5, marginTop: 6 },
+  plateDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' },
   restaurant: { color: '#FFD98A', fontSize: 13, fontWeight: '700', marginTop: 4 },
   caption: { color: 'rgba(255,255,255,0.92)', fontSize: 14, fontWeight: '500', marginTop: 8, lineHeight: 19 },
 });

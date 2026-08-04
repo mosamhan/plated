@@ -122,6 +122,9 @@ export function mapPlato(row: any): PlatoVideo {
     comments: countOf(row.comments),
     views: row.view_count ?? 0,
     collaborators: mapCollaborators(row.collaborators),
+    plates: Array.isArray(row.plates)
+      ? row.plates.map((p: any) => ({ dishName: p.dish_name ?? p.dishName ?? '', rating: Number(p.rating ?? 0) }))
+      : undefined,
     visibility: (row.visibility as PlatoVideo['visibility']) ?? 'public',
     archived: !!row.archived,
   };

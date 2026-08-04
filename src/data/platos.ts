@@ -26,6 +26,12 @@ export interface PlatoVideo {
   comments: number;
   /** Distinct viewers (see plato_views in 0009) — not counting rewatches. */
   views: number;
+  /**
+   * The plates this one video covers — dish name + rating each. Swiped through
+   * on the reel while the single video keeps playing. Falls back to the single
+   * dishName/rating when absent (legacy Platos).
+   */
+  plates?: { dishName: string; rating: number }[];
   /** Who can see this Plato. Enforced in the DB (0017), not just the client. */
   visibility?: 'public' | 'friends' | 'private';
   /** Hidden from everyone but the author, who can restore it. */
