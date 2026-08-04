@@ -26,6 +26,10 @@ export interface PlatoVideo {
   comments: number;
   /** Distinct viewers (see plato_views in 0009) — not counting rewatches. */
   views: number;
+  /** Who can see this Plato. Enforced in the DB (0017), not just the client. */
+  visibility?: 'public' | 'friends' | 'private';
+  /** Hidden from everyone but the author, who can restore it. */
+  archived?: boolean;
   /** Co-creators. Only `accepted` entries are visible to anyone but the two parties. */
   collaborators?: Collaborator[];
 }

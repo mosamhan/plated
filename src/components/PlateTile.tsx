@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { PostOptionsSheet } from '@/components/PostOptionsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { foodPlaceholder } from '@/data/images';
 import { Order } from '@/data/types';
@@ -11,7 +13,12 @@ import { useData } from '@/store/DataContext';
 import { radius } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-interface Props {
+interface ManageProps {
+  /** Show the "⋯" manage menu (own profile only): audience / archive / delete. */
+  manageable?: boolean;
+}
+
+interface Props extends ManageProps {
   order: Order;
   width?: number;
   /** Overrides opening the post — Explore uses it to drive the map instead. */
@@ -20,11 +27,12 @@ interface Props {
   selected?: boolean;
 }
 
-export function PlateTile({ order, width, onPress, selected }: Props) {
+export function PlateTile({ order, width, onPress, selected, manageable }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
-  const { userFor, restaurantFor } = useData();
+  const { userFor, restaurantFor, currentUser, deleteOrder, setOrderVisibility, setOrderArchived } = useData();
   const restaurant = restaurantFor(order.restaurantId);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const user = userFor(order.userId);
 
   return (
@@ -57,6 +65,11 @@ export function PlateTile({ order, width, onPress, selected }: Props) {
             <Text style={styles.archivedText}>Archived</Text>
           </View>
         )}
+        {manageable && (
+          <Pressable onPress={() => setOptionsOpen(true)} hitSlop={8} style={styles.manageBtn}>
+            <Ionicons name="ellipsis-horizontal" size={15} color="#fff" />
+          </Pressable>
+        )}
         {/* FTC: disclosure must appear where the endorsement appears, not one tap later */}
         {user.compensationEligible && (
           <View style={styles.commission}>
@@ -73,6 +86,19 @@ export function PlateTile({ order, width, onPress, selected }: Props) {
           {restaurant?.name} · @{user.handle}
         </Text>
       </View>
+      {manageable && (
+        <PostOptionsSheet
+          visible={optionsOpen}
+          onClose={() => setOptionsOpen(false)}
+          isOwner={order.userId === currentUser.id}
+          visibility={order.visibility ?? 'public'}
+          archived={!!order.archived}
+          reportTarget={`/report?targetType=plate&targetId=${order.id}`}
+          onSetVisibility={(v) => setOrderVisibility(order.id, v)}
+          onSetArchived={(a) => setOrderArchived(order.id, a)}
+          onDelete={() => deleteOrder(order.id)}
+        />
+      )}
     </AnimatedPressable>
   );
 }
@@ -98,6 +124,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   commissionText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
+  manageBtn: {
+    position: 'absolute',
+    right: 8,
+    top: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   archived: {
     position: 'absolute',
     left: 8,

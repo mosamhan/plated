@@ -122,6 +122,8 @@ export function mapPlato(row: any): PlatoVideo {
     comments: countOf(row.comments),
     views: row.view_count ?? 0,
     collaborators: mapCollaborators(row.collaborators),
+    visibility: (row.visibility as PlatoVideo['visibility']) ?? 'public',
+    archived: !!row.archived,
   };
 }
 

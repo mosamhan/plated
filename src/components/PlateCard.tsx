@@ -40,7 +40,7 @@ export function PlateCard({
 }) {
   const { colors } = useTheme();
   const router = useRouter();
-  const { isLiked, toggleLike, isSaved, toggleSave, userFor, restaurantFor, currentUser } = useData();
+  const { isLiked, toggleLike, isSaved, toggleSave, userFor, restaurantFor, currentUser, deleteOrder, setOrderVisibility, setOrderArchived } = useData();
   const [sheet, setSheet] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [burst, setBurst] = useState(false);
@@ -244,7 +244,17 @@ export function PlateCard({
         supportsCreator={user.compensationEligible}
       />
 
-      <PostOptionsSheet order={order} visible={optionsOpen} onClose={() => setOptionsOpen(false)} />
+      <PostOptionsSheet
+        visible={optionsOpen}
+        onClose={() => setOptionsOpen(false)}
+        isOwner={order.userId === currentUser.id}
+        visibility={order.visibility ?? 'public'}
+        archived={!!order.archived}
+        reportTarget={`/report?targetType=plate&targetId=${order.id}`}
+        onSetVisibility={(v) => setOrderVisibility(order.id, v)}
+        onSetArchived={(a) => setOrderArchived(order.id, a)}
+        onDelete={() => deleteOrder(order.id)}
+      />
     </Animated.View>
   );
 }

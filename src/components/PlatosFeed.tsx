@@ -14,7 +14,10 @@ export function PlatosFeed({
   /** Opens the reel's restaurant in the same sheet a map pin opens. */
   onRestaurantPress?: (restaurantId: string) => void;
 }) {
-  const { platos, refresh, refreshTick } = usePlatos();
+  const { platos: allPlatos, refresh, refreshTick } = usePlatos();
+  // Archived Platos reach the client only for their author (RLS); keep them out
+  // of the feed even for the author — they live on the profile grid instead.
+  const platos = allPlatos.filter((p) => !p.archived);
   const [containerH, setContainerH] = useState(0);
   const [current, setCurrent] = useState(0);
   const [refreshing, setRefreshing] = useState(false);

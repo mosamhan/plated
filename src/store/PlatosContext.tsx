@@ -36,6 +36,12 @@ interface PlatosContextValue {
   isCommentLiked: (commentId: string) => boolean;
   toggleCommentLike: (platoId: string, commentId: string) => void;
   addPlato: (input: NewPlatoInput) => Promise<PlatoVideo | null>;
+  /** Delete your own Plato. */
+  deletePlato: (id: string) => void;
+  /** Change who can see your Plato. */
+  setPlatoVisibility: (id: string, visibility: 'public' | 'friends' | 'private') => void;
+  /** Archive/unarchive your Plato — hidden from everyone but you when archived. */
+  setPlatoArchived: (id: string, archived: boolean) => void;
 }
 
 const PlatosContext = createContext<PlatosContextValue | undefined>(undefined);
@@ -355,9 +361,33 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     [currentUser, live, userId],
   );
 
+  // Content controls — mirror the plate ones (see DataContext). Optimistic
+  // local update, then the row write; RLS scopes each to the author.
+  const deletePlato = useCallback(
+    (id: string) => {
+      setPlatos((p) => p.filter((x) => x.id !== id));
+      if (live) supabase.from('plato_videos').delete().eq('id', id).then(() => {});
+    },
+    [live],
+  );
+  const setPlatoVisibility = useCallback(
+    (id: string, visibility: 'public' | 'friends' | 'private') => {
+      setPlatos((p) => p.map((x) => (x.id === id ? { ...x, visibility } : x)));
+      if (live) supabase.from('plato_videos').update({ visibility }).eq('id', id).then(() => {});
+    },
+    [live],
+  );
+  const setPlatoArchived = useCallback(
+    (id: string, archived: boolean) => {
+      setPlatos((p) => p.map((x) => (x.id === id ? { ...x, archived } : x)));
+      if (live) supabase.from('plato_videos').update({ archived }).eq('id', id).then(() => {});
+    },
+    [live],
+  );
+
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato }),
-    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato],
+    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived }),
+    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;

@@ -313,7 +313,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
             {orders
               .filter((o) => isCurrent || !o.archived)
               .map((o) => (
-                <PlateTile key={o.id} order={o} width={tileWidth} />
+                <PlateTile key={o.id} order={o} width={tileWidth} manageable={isCurrent} />
               ))}
             {orders.length === 0 && (
               <Text style={[styles.empty, { color: colors.textMuted }]}>No plates yet.</Text>
@@ -323,15 +323,18 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
 
         {tab === 'platos' && (
           <View style={styles.grid}>
-            {userPlatos.map((p) => (
-              <PlatoTile
-                key={p.id}
-                video={p}
-                width={tileWidth}
-                onSave={() => openSaveSheet({ type: 'plato', id: p.id })}
-                savedOverride={isSavedInCollections({ type: 'plato', id: p.id })}
-              />
-            ))}
+            {userPlatos
+              .filter((p) => isCurrent || !p.archived)
+              .map((p) => (
+                <PlatoTile
+                  key={p.id}
+                  video={p}
+                  width={tileWidth}
+                  onSave={() => openSaveSheet({ type: 'plato', id: p.id })}
+                  savedOverride={isSavedInCollections({ type: 'plato', id: p.id })}
+                  manageable={isCurrent}
+                />
+              ))}
             {userPlatos.length === 0 && (
               <Text style={[styles.empty, { color: colors.textMuted }]}>
                 {isCurrent ? 'No Platos yet — tap + to post one.' : 'No Platos yet.'}

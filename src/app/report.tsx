@@ -25,6 +25,7 @@ const REASONS: ReportReason[] = [
 
 const TITLES: Record<ReportTarget, string> = {
   plate: 'Report plate',
+  plato: 'Report Plato',
   user: 'Report user',
   comment: 'Report comment',
 };

@@ -4,38 +4,48 @@ import { useRouter } from 'expo-router';
 import { ActionSheet, type SheetAction } from '@/components/ActionSheet';
 import { confirmAction } from '@/lib/dialog';
 import { tapLight } from '@/lib/haptics';
-import type { Order } from '@/data/types';
-import { useData } from '@/store/DataContext';
+
+type Visibility = 'public' | 'friends' | 'private';
 
 /**
- * The "⋯" menu for a post, opened from the feed card and the post detail.
+ * The "⋯" menu for a post — a plate or a Plato. Opened from the feed card,
+ * the post detail, and the profile grid tiles.
  *
- * Its own post: change audience (public / friends / only me), archive or
- * restore, delete. Someone else's: report. Kept in one component so both
- * entry points show the same options and the owner/other split lives in one
- * place. Audience/archive/delete are enforced in the DB (RLS + the mutations
- * in DataContext); this is just the control surface.
+ * Its own post: change audience (public / friends / only me), archive/restore,
+ * delete. Someone else's: report. Content-type-agnostic — the caller passes the
+ * current state and the mutations, so one component drives both plates
+ * (DataContext) and Platos (PlatosContext). The actual enforcement lives in the
+ * DB (RLS + those mutations); this is just the control surface.
  */
 export function PostOptionsSheet({
-  order,
   visible,
   onClose,
+  isOwner,
+  visibility,
+  archived,
+  reportTarget,
+  onSetVisibility,
+  onSetArchived,
+  onDelete,
   onDeleted,
 }: {
-  order: Order;
   visible: boolean;
   onClose: () => void;
-  /** Called after a delete, so a detail screen can pop back. */
+  isOwner: boolean;
+  visibility: Visibility;
+  archived: boolean;
+  /** `report?targetType=…&targetId=…` path for the non-owner Report action. */
+  reportTarget: string;
+  onSetVisibility: (v: Visibility) => void;
+  onSetArchived: (archived: boolean) => void;
+  onDelete: () => void;
+  /** Fired after a confirmed delete, so a detail screen can pop back. */
   onDeleted?: () => void;
 }) {
   const router = useRouter();
-  const { currentUser, deleteOrder, setOrderVisibility, setOrderArchived } = useData();
-  const isOwner = order.userId === currentUser.id;
   const [audienceOpen, setAudienceOpen] = useState(false);
 
-  const visibility = order.visibility ?? 'public';
-  const audienceLabel =
-    visibility === 'friends' ? 'Friends' : visibility === 'private' ? 'Only me' : 'Public';
+  const audienceLabel = visibility === 'friends' ? 'Friends' : visibility === 'private' ? 'Only me' : 'Public';
 
   const ownerActions: SheetAction[] = [
     {
@@ -44,11 +54,11 @@ export function PostOptionsSheet({
       onPress: () => setAudienceOpen(true),
     },
     {
-      label: order.archived ? 'Restore from archive' : 'Archive',
-      icon: order.archived ? 'refresh-outline' : 'archive-outline',
+      label: archived ? 'Restore from archive' : 'Archive',
+      icon: archived ? 'refresh-outline' : 'archive-outline',
       onPress: () => {
         tapLight();
-        setOrderArchived(order.id, !order.archived);
+        onSetArchived(!archived);
       },
     },
     {
@@ -62,7 +72,7 @@ export function PostOptionsSheet({
           confirmLabel: 'Delete',
           destructive: true,
           onConfirm: () => {
-            deleteOrder(order.id);
+            onDelete();
             onDeleted?.();
           },
         }),
@@ -70,36 +80,27 @@ export function PostOptionsSheet({
   ];
 
   const otherActions: SheetAction[] = [
-    {
-      label: 'Report',
-      icon: 'flag-outline',
-      destructive: true,
-      onPress: () => router.push(`/report?targetType=plate&targetId=${order.id}`),
-    },
+    { label: 'Report', icon: 'flag-outline', destructive: true, onPress: () => router.push(reportTarget as never) },
   ];
 
   const audienceActions: SheetAction[] = (
     [
-      { v: 'public', label: 'Public', hint: 'Anyone on Plated', icon: 'earth-outline' },
-      { v: 'friends', label: 'Friends', hint: 'People you follow who follow you back', icon: 'people-outline' },
-      { v: 'private', label: 'Only me', hint: 'Just you', icon: 'lock-closed-outline' },
+      { v: 'public', label: 'Public', icon: 'earth-outline' },
+      { v: 'friends', label: 'Friends', icon: 'people-outline' },
+      { v: 'private', label: 'Only me', icon: 'lock-closed-outline' },
     ] as const
   ).map((o) => ({
     label: visibility === o.v ? `${o.label} ✓` : o.label,
     icon: o.icon,
     onPress: () => {
       tapLight();
-      setOrderVisibility(order.id, o.v);
+      onSetVisibility(o.v);
     },
   }));
 
   return (
     <>
-      <ActionSheet
-        visible={visible && !audienceOpen}
-        onClose={onClose}
-        actions={isOwner ? ownerActions : otherActions}
-      />
+      <ActionSheet visible={visible && !audienceOpen} onClose={onClose} actions={isOwner ? ownerActions : otherActions} />
       <ActionSheet
         visible={audienceOpen}
         onClose={() => {

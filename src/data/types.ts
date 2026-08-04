@@ -156,7 +156,7 @@ export type ReportReason =
   | 'Intellectual property'
   | 'Other';
 
-export type ReportTarget = 'plate' | 'user' | 'comment';
+export type ReportTarget = 'plate' | 'plato' | 'user' | 'comment';
 
 export interface ContentReport {
   id: string;

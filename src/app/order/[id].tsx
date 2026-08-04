@@ -60,6 +60,9 @@ export default function OrderDetail() {
     currentUser,
     userFor,
     restaurantFor,
+    deleteOrder,
+    setOrderVisibility,
+    setOrderArchived,
   } = useData();
   const { openSaveSheet } = useCollections();
   const [sheet, setSheet] = useState(false);
@@ -436,9 +439,15 @@ export default function OrderDetail() {
       </View>
 
       <PostOptionsSheet
-        order={order}
         visible={optionsOpen}
         onClose={() => setOptionsOpen(false)}
+        isOwner={isOwner}
+        visibility={order.visibility ?? 'public'}
+        archived={!!order.archived}
+        reportTarget={`/report?targetType=plate&targetId=${order.id}`}
+        onSetVisibility={(v) => setOrderVisibility(order.id, v)}
+        onSetArchived={(a) => setOrderArchived(order.id, a)}
+        onDelete={() => deleteOrder(order.id)}
         onDeleted={() => router.back()}
       />
 
