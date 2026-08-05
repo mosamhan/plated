@@ -259,6 +259,18 @@ export default function Explore() {
     });
   };
 
+  /**
+   * Clear the drawn route AND deselect the pin. The pin stays ringed while a
+   * route is up, and its marker never re-mounts (its key encodes the highlight,
+   * which doesn't change) — so react-native-maps keeps it natively selected and
+   * a re-tap fires no onPress, leaving the card unable to reopen. Clearing the
+   * highlight re-mounts the marker, so tapping it again works.
+   */
+  const clearRoute = () => {
+    setRoute(null);
+    setHighlighted(null);
+  };
+
   /** Route to a saved row by id — resolves its name/coords, or explains why not. */
   const routeToRestaurant = (restaurantId: string) => {
     const r = restaurantFor(restaurantId);
@@ -785,7 +797,7 @@ export default function Explore() {
               <Ionicons name="list" size={14} color={colors.accentText} />
               <Text style={[styles.routeGoText, { color: colors.accentText }]}>Steps</Text>
             </Pressable>
-            <Pressable onPress={() => setRoute(null)} hitSlop={8} style={styles.routeClose}>
+            <Pressable onPress={clearRoute} hitSlop={8} style={styles.routeClose}>
               <Ionicons name="close" size={20} color={colors.textMuted} />
             </Pressable>
           </View>
@@ -930,7 +942,7 @@ export default function Explore() {
               </Pressable>
               <Ionicons name="expand" size={15} color={colors.textMuted} />
               <Pressable
-                onPress={() => setRoute(null)}
+                onPress={clearRoute}
                 hitSlop={10}
                 style={{ paddingHorizontal: 2 }}>
                 <Ionicons name="close" size={18} color={colors.textMuted} />
