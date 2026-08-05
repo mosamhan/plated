@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { RestaurantDetailSheet } from '@/components/RestaurantDetailSheet';
-import { exploreRouteHref } from '@/lib/inAppRoute';
+import { exploreFocusHref, exploreRouteHref } from '@/lib/inAppRoute';
 import { useData } from '@/store/DataContext';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -47,6 +47,9 @@ export default function RestaurantScreen() {
           if (r?.lat == null || r?.lng == null) return;
           router.navigate(exploreRouteHref({ id: restaurantId, name: r.name, lat: r.lat, lng: r.lng }));
         }}
+        // "Map" jumps to the full-screen Explore map on this pin, with the card
+        // re-shown as a half sheet below it.
+        onOpenMap={() => router.navigate(exploreFocusHref(id, { expand: true }))}
       />
     </View>
   );

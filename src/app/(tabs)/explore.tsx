@@ -270,31 +270,36 @@ export default function Explore() {
    * Consumed once and cleared: without that, coming back to this tab later
    * would silently redraw a stale route.
    */
-  const { routeId, routeName, routeLat, routeLng, focusId } = useLocalSearchParams<{
+  const { routeId, routeName, routeLat, routeLng, focusId, focusExpand } = useLocalSearchParams<{
     routeId?: string;
     routeName?: string;
     routeLat?: string;
     routeLng?: string;
     focusId?: string;
+    focusExpand?: string;
   }>();
 
   /**
-   * A restaurant tapped from the feed: land on Discover with the map showing
-   * that place and its card open. Cleared after use for the same reason the
-   * route params are — otherwise returning to the tab reopens it.
+   * A restaurant tapped from the feed (or a card's "Map" button): land on
+   * Discover with the map showing that place and its card open. With
+   * focusExpand, the map opens full-screen and the card sits as a half sheet
+   * below it. Cleared after use for the same reason the route params are —
+   * otherwise returning to the tab reopens it.
    */
   const consumedFocus = useRef<string | null>(null);
   useEffect(() => {
     if (!focusId || consumedFocus.current === focusId) return;
     if (!restaurantFor(focusId)) return; // data not in yet; retry next render
     consumedFocus.current = focusId;
-    router.setParams({ focusId: undefined });
+    const expand = focusExpand === '1';
+    router.setParams({ focusId: undefined, focusExpand: undefined });
     setMode('discover');
+    setMapExpanded(expand);
     openPin(focusId);
-    focusRestaurant(focusId);
+    focusRestaurant(focusId, expand);
     // openPin/focusRestaurant close over render state; the param is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId, restaurantFor]);
+  }, [focusId, focusExpand, restaurantFor]);
   const consumedRoute = useRef<string | null>(null);
   useEffect(() => {
     if (!routeLat || !routeLng) return;
@@ -393,10 +398,13 @@ export default function Explore() {
   }, [location.lat, location.lng]);
 
   /** Frame a restaurant on the map without changing the zoom the user chose. */
-  const focusRestaurant = (restaurantId: string) => {
+  const focusRestaurant = (restaurantId: string, biasUp = false) => {
     const r = restaurantFor(restaurantId);
     if (r?.lat == null || r?.lng == null) return;
-    mapRef.current?.animateCamera({ center: { latitude: r.lat, longitude: r.lng } }, { duration: 350 });
+    // When the card covers the bottom half (expanded map), shift the camera
+    // south of the pin so the pin lands in the visible top half above the card.
+    const lat = biasUp ? r.lat - 0.012 : r.lat;
+    mapRef.current?.animateCamera({ center: { latitude: lat, longitude: r.lng } }, { duration: 350 });
   };
 
   /** A plate was tapped: pin its restaurant and open the sheet on the plate. */
@@ -496,6 +504,17 @@ export default function Explore() {
         onSideChange={setSheetSide}
         preview={preview}
         onAdopt={adoptPreview}
+        // Already on the map — "Map" just fills the screen; the card then caps
+        // to half so the pin shows above. Redundant once the map is expanded.
+        onOpenMap={
+          mapExpanded
+            ? undefined
+            : () => {
+                setMapExpanded(true);
+                if (selectedRestaurant) focusRestaurant(selectedRestaurant, true);
+              }
+        }
+        halfHeight={mapExpanded}
       />
 
       {route && (

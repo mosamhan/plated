@@ -24,8 +24,13 @@ export interface RouteTarget {
  * opens. Used from the feed, where "where is this?" is the question a detail
  * screen answers worse than a map does.
  */
-export function exploreFocusHref(restaurantId: string) {
-  return { pathname: '/(tabs)/explore' as const, params: { focusId: restaurantId } };
+export function exploreFocusHref(restaurantId: string, opts: { expand?: boolean } = {}) {
+  return {
+    pathname: '/(tabs)/explore' as const,
+    // `expand` opens the map full-screen (with the card as a half sheet below)
+    // rather than the small Discover window.
+    params: { focusId: restaurantId, ...(opts.expand ? { focusExpand: '1' } : {}) },
+  };
 }
 
 /** `router.navigate(exploreRouteHref(dest))` to draw a route on the Explore map. */
