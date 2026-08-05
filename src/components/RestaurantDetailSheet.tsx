@@ -37,7 +37,6 @@ export function RestaurantDetailSheet({
   preview,
   onAdopt,
   onOpenMap,
-  halfHeight,
 }: {
   restaurantId: string | null;
   onClose: () => void;
@@ -69,16 +68,12 @@ export function RestaurantDetailSheet({
   onAdopt?: (place: PlaceResult, then: 'save' | 'plate') => void;
   /** When set, a "Map" button appears — opens the full-screen map on the pin. */
   onOpenMap?: () => void;
-  /** Shrinks the sheet to ~half so a full-screen map shows above it. */
-  halfHeight?: boolean;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { restaurantWithRating, ordersByRestaurant, userFor, restaurantMenu } = useData();
   const { isSaved, openSaveSheet } = useCollections();
-  // Over a full-screen map, the sheet caps low so the map + pin shows above it.
-  const wrapCap = halfHeight ? styles.sheetWrapHalf : styles.sheetWrap;
 
   const visible = restaurantId != null || preview != null;
   // Drag the grey bar at the top of the card down to dismiss. Scoped to the bar
@@ -170,7 +165,7 @@ export function RestaurantDetailSheet({
       {/* Transparent backdrop — the map shows through, tap to dismiss. */}
       <Pressable style={styles.backdrop} onPress={onClose}>
         {preview && !restaurant && (
-          <Animated.View style={[wrapCap, drag.style]}>
+          <Animated.View style={[styles.sheetWrap, drag.style]}>
           <Pressable style={[styles.sheet, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
             <View style={[styles.previewHero, { backgroundColor: colors.surface }]}>
               <View style={styles.grabberWrap} pointerEvents="box-none">
@@ -264,7 +259,7 @@ export function RestaurantDetailSheet({
           </Pressable>
         )}
         {restaurant && !menuOpen && (
-          <Animated.View style={[wrapCap, drag.style]}>
+          <Animated.View style={[styles.sheetWrap, drag.style]}>
           <Pressable style={[styles.sheet, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
             {/* Photo hero — grabber + X, and the drag handle for dismissing. */}
             <View style={styles.hero}>
@@ -516,7 +511,6 @@ const styles = StyleSheet.create({
    * sheet floating with a gap under it and the page showing through.
    */
   sheetWrap: { maxHeight: '82%' },
-  sheetWrapHalf: { maxHeight: '52%' },
   sheet: {
     // No maxHeight here. A percentage resolves against the *parent*, and the
     // parent is now the animated wrapper, which is content-sized — so an 82%

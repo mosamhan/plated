@@ -121,6 +121,13 @@ export default function Explore() {
   const [route, setRoute] = useState<(RouteResult & { destination: RouteDestination }) | null>(null);
   // The map is a window inside Discover; expanding is a state of it, not a mode.
   const [mapExpanded, setMapExpanded] = useState(false);
+  /**
+   * Set when the map was opened full-screen from a restaurant card's "Map"
+   * button: the card is dismissed so the map is fully usable, the camera frames
+   * this pin, and the collapse control reads "Back to plate" (reopens the card)
+   * instead of "Show plates". Cleared when they go back or collapse.
+   */
+  const [mapFocus, setMapFocus] = useState<string | null>(null);
   // Drag-resizable, because how much map you want depends on whether you're
   // reading the list or working the map. The ref mirrors it so the pan handler
   // isn't rebuilt (and doesn't go stale) on every pixel of a drag.
@@ -294,10 +301,17 @@ export default function Explore() {
     const expand = focusExpand === '1';
     router.setParams({ focusId: undefined, focusExpand: undefined });
     setMode('discover');
-    setMapExpanded(expand);
-    openPin(focusId);
-    focusRestaurant(focusId, expand);
-    // openPin/focusRestaurant close over render state; the param is the trigger.
+    if (expand) {
+      // Full-screen map on the pin, no card — "Back to plate" brings it back.
+      setSelectedRestaurant(null);
+      setHighlighted(focusId);
+      setMapFocus(focusId);
+      setMapExpanded(true);
+    } else {
+      openPin(focusId);
+      focusRestaurant(focusId);
+    }
+    // These close over render state; the param is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId, focusExpand, restaurantFor]);
   const consumedRoute = useRef<string | null>(null);
@@ -391,20 +405,40 @@ export default function Explore() {
   }, [mapRestaurants, mapQuery, activeTypes, activeStatuses, myTableOnly]);
 
   const region: Region = useMemo(() => {
+    // Opened on a pin from a card's "Map" button: frame that pin, zoomed in, so
+    // the expanded map lands on it (the map mounts after the tap, so a ref-based
+    // animateCamera would fire against a null ref — driving it through the
+    // region the map initialises with is what actually works).
+    if (mapFocus) {
+      const r = restaurantFor(mapFocus);
+      if (r?.lat != null && r?.lng != null) {
+        return { latitude: r.lat, longitude: r.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 };
+      }
+    }
     if (location.lat != null && location.lng != null) {
       return { latitude: location.lat, longitude: location.lng, latitudeDelta: 0.09, longitudeDelta: 0.09 };
     }
     return DEFAULT_REGION;
-  }, [location.lat, location.lng]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.lat, location.lng, mapFocus]);
+
+  /** Recenter the map on the user's location dot, zoomed into their area. */
+  const centerOnMe = () => {
+    if (location.lat == null || location.lng == null) {
+      showAlert('Location needed', 'Set your location so Plated can center the map on you.');
+      return;
+    }
+    mapRef.current?.animateToRegion(
+      { latitude: location.lat, longitude: location.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 },
+      350,
+    );
+  };
 
   /** Frame a restaurant on the map without changing the zoom the user chose. */
-  const focusRestaurant = (restaurantId: string, biasUp = false) => {
+  const focusRestaurant = (restaurantId: string) => {
     const r = restaurantFor(restaurantId);
     if (r?.lat == null || r?.lng == null) return;
-    // When the card covers the bottom half (expanded map), shift the camera
-    // south of the pin so the pin lands in the visible top half above the card.
-    const lat = biasUp ? r.lat - 0.012 : r.lat;
-    mapRef.current?.animateCamera({ center: { latitude: lat, longitude: r.lng } }, { duration: 350 });
+    mapRef.current?.animateCamera({ center: { latitude: r.lat, longitude: r.lng } }, { duration: 350 });
   };
 
   /** A plate was tapped: pin its restaurant and open the sheet on the plate. */
@@ -425,6 +459,8 @@ export default function Explore() {
     setSheetSide('place');
     setHighlighted(restaurantId);
     setSelectedRestaurant(restaurantId);
+    // Opening a card exits map-focus mode, so the control reverts to "Show plates".
+    setMapFocus(null);
   };
 
   /**
@@ -504,17 +540,20 @@ export default function Explore() {
         onSideChange={setSheetSide}
         preview={preview}
         onAdopt={adoptPreview}
-        // Already on the map — "Map" just fills the screen; the card then caps
-        // to half so the pin shows above. Redundant once the map is expanded.
+        // "Map" dismisses the card and opens the full-screen map framed on the
+        // pin, so the map is fully usable; "Back to plate" brings the card back.
         onOpenMap={
-          mapExpanded
-            ? undefined
-            : () => {
+          selectedRestaurant
+            ? () => {
+                const id = selectedRestaurant;
+                setSelectedRestaurant(null);
+                setSelectedPlate(null);
+                setHighlighted(id);
+                setMapFocus(id);
                 setMapExpanded(true);
-                if (selectedRestaurant) focusRestaurant(selectedRestaurant, true);
               }
+            : undefined
         }
-        halfHeight={mapExpanded}
       />
 
       {route && (
@@ -685,9 +724,19 @@ export default function Explore() {
         </View>
 
         {/* Under the menu rather than in the top row: the row is the search's to
-            take, and stacking these two keeps the map controls in one corner. */}
+            take, and stacking these two keeps the map controls in one corner.
+            Opened from a card's Map button, this reads "Back to plate" and
+            reopens that card; otherwise it collapses the map back to Discover. */}
         <Pressable
-          onPress={() => setMapExpanded(false)}
+          onPress={() => {
+            if (mapFocus) {
+              const id = mapFocus;
+              setMapFocus(null);
+              openPin(id);
+            } else {
+              setMapExpanded(false);
+            }
+          }}
           style={[
             styles.underMenu,
             { top: insets.top + 14 + MAP_CIRCLE + 10, backgroundColor: colors.card, borderColor: colors.border },
@@ -697,9 +746,11 @@ export default function Explore() {
             // rather than one being drawn over the other.
             fullSearchOpen && styles.underMenuTight,
           ]}>
-          <Ionicons name="contract" size={15} color={colors.text} />
+          <Ionicons name={mapFocus ? 'arrow-back' : 'contract'} size={15} color={colors.text} />
           {!fullSearchOpen && (
-            <Text style={[styles.collapseText, { color: colors.text }]}>Show plates</Text>
+            <Text style={[styles.collapseText, { color: colors.text }]}>
+              {mapFocus ? 'Back to plate' : 'Show plates'}
+            </Text>
           )}
         </Pressable>
 
@@ -746,6 +797,17 @@ export default function Explore() {
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Building route…</Text>
           </View>
         )}
+
+        {/* Recenter on the user's location, zoomed into their area. Sits above
+            the route banner when one's up so the two don't overlap. */}
+        <Pressable
+          onPress={centerOnMe}
+          style={[
+            styles.locateBtn,
+            { bottom: (route ? 92 : 24) + insets.bottom, backgroundColor: colors.card, borderColor: colors.border },
+          ]}>
+          <Ionicons name="locate" size={22} color={colors.accent} />
+        </Pressable>
 
         {overlays}
       </View>
@@ -1024,6 +1086,21 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   underMenuTight: { width: 44, height: 44, paddingHorizontal: 0, justifyContent: 'center' },
+  locateBtn: {
+    position: 'absolute',
+    right: spacing.lg,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
   mapTopRow: {
     // Above the stacked controls below it: the search dropdown belongs to this
     // row, and the later-painted "Show plates" was covering the first result.
