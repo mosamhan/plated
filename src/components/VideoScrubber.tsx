@@ -20,7 +20,17 @@ function fmt(sec: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export function VideoScrubber({ player, bottom }: { player: VideoPlayer; bottom: number }) {
+export function VideoScrubber({
+  player,
+  bottom,
+  onScrubbingChange,
+}: {
+  player: VideoPlayer;
+  bottom: number;
+  /** Fires true on grab, false on release — lets the reel clear its overlay
+   *  chrome (caption, title, rail) while the user is scrubbing. */
+  onScrubbingChange?: (scrubbing: boolean) => void;
+}) {
   const [width, setWidth] = useState(0);
   const [progress, setProgress] = useState(0); // 0..1, playback
   const [dragging, setDragging] = useState(false);
@@ -49,6 +59,7 @@ export function VideoScrubber({ player, bottom }: { player: VideoPlayer; bottom:
       onPanResponderGrant: (e) => {
         draggingRef.current = true;
         setDragging(true);
+        onScrubbingChange?.(true);
         setDragFrac(fracFromX(e.nativeEvent.locationX));
       },
       onPanResponderMove: (e) => setDragFrac(fracFromX(e.nativeEvent.locationX)),
@@ -61,10 +72,12 @@ export function VideoScrubber({ player, bottom }: { player: VideoPlayer; bottom:
         setProgress(frac);
         draggingRef.current = false;
         setDragging(false);
+        onScrubbingChange?.(false);
       },
       onPanResponderTerminate: () => {
         draggingRef.current = false;
         setDragging(false);
+        onScrubbingChange?.(false);
       },
     }),
   ).current;

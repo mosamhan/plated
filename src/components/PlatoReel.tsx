@@ -39,7 +39,8 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
   const { colors } = useTheme();
   const router = useRouter();
   const { isLiked, toggleLike, recordView } = usePlatos();
-  const { userFor } = useData();
+  const { userFor, restaurantFor } = useData();
+  const platoRestaurant = video.restaurantId ? restaurantFor(video.restaurantId) : undefined;
   const collabs = collabLabel(video.collaborators, (id) => userFor(id).handle);
   const { openSaveSheet, isSaved } = useCollections();
   const player = useVideoPlayer(video.videoUrl, (p) => {
@@ -54,6 +55,9 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
   const plates = video.plates?.length ? video.plates : [{ dishName: video.dishName, rating: video.rating }];
   const [plateIdx, setPlateIdx] = useState(0);
   const [labelW, setLabelW] = useState(0);
+  // While scrubbing, clear the overlay chrome so the video is unobstructed —
+  // like TikTok. The scrubber itself stays.
+  const [scrubbing, setScrubbing] = useState(false);
   const liked = isLiked(video.id);
   const platoSaved = isSaved({ type: 'plato', id: video.id });
   const { restaurantId } = video;
@@ -120,12 +124,12 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
       {/* Bottom scrim */}
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.85)']}
-        style={[styles.scrim, { height: height * 0.5 }]}
+        style={[styles.scrim, { height: height * 0.5, opacity: scrubbing ? 0 : 1 }]}
         pointerEvents="none"
       />
 
-      {/* Right action rail */}
-      <View style={[styles.rail, { bottom: bottomInset + 24 }]}>
+      {/* Right action rail — hidden while scrubbing so the video is clear. */}
+      <View style={[styles.rail, { bottom: bottomInset + 24, opacity: scrubbing ? 0 : 1 }]} pointerEvents={scrubbing ? 'none' : 'auto'}>
         {railBtn(
           liked ? 'heart' : 'heart-outline',
           formatCount(video.likes),
@@ -155,8 +159,8 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
         {railBtn('arrow-redo', 'Share', onShare)}
       </View>
 
-      {/* Bottom-left info */}
-      <View style={[styles.info, { bottom: bottomInset + 20 }]}>
+      {/* Bottom-left info — cleared while scrubbing. */}
+      <View style={[styles.info, { bottom: bottomInset + 20, opacity: scrubbing ? 0 : 1 }]} pointerEvents={scrubbing ? 'none' : 'auto'}>
         <Pressable style={styles.creatorRow} onPress={() => router.push(`/user/${video.creatorId}`)}>
           <Image source={{ uri: video.avatar }} style={styles.avatar} contentFit="cover" />
           <Text style={styles.creatorName}>{video.creatorName}</Text>
@@ -212,13 +216,16 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
       </View>
 
       {/* TikTok-style seek bar, flush to the bottom of the reel. */}
-      <VideoScrubber player={player} bottom={bottomInset} />
+      <VideoScrubber player={player} bottom={bottomInset} onScrubbingChange={setScrubbing} />
 
       <OrderProviderSheet
         visible={sheet}
         onClose={() => setSheet(false)}
         restaurantName={video.restaurantName}
+        restaurantLocation={platoRestaurant?.location}
         dishName={plates[plateIdx]?.dishName ?? video.dishName}
+        plates={plates}
+        priceLevel={platoRestaurant?.priceLevel}
         creatorHandle={video.creatorHandle}
         supportsCreator={video.compensationEligible}
       />

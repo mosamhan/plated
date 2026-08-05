@@ -51,10 +51,17 @@ export default function CreatePlato() {
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
 
-  const [dishName, setDishName] = useState('');
   const [caption, setCaption] = useState('');
-  const [rating, setRating] = useState(9);
+  // A Plato can cover several plates from one visit; the reel swipes between
+  // them. At least one is required. Each carries its own name + rating.
+  const [plates, setPlates] = useState<{ dishName: string; rating: number }[]>([{ dishName: '', rating: 9 }]);
   const [posting, setPosting] = useState(false);
+
+  const updatePlate = (i: number, patch: Partial<{ dishName: string; rating: number }>) =>
+    setPlates((p) => p.map((pl, idx) => (idx === i ? { ...pl, ...patch } : pl)));
+  const addPlate = () => setPlates((p) => [...p, { dishName: '', rating: 9 }]);
+  const removePlate = (i: number) => setPlates((p) => (p.length > 1 ? p.filter((_, idx) => idx !== i) : p));
+  const namedPlates = plates.filter((p) => p.dishName.trim());
 
   // Muted, looping preview of the picked clip.
   const player = useVideoPlayer(video?.uri ?? null, (p) => {
@@ -72,7 +79,7 @@ export default function CreatePlato() {
 
   const selectedRestaurant = restaurantId ? restaurantFor(restaurantId) : undefined;
   const restaurantName = selectedRestaurant?.name ?? place?.name;
-  const canPost = !!video && !!restaurantName && dishName.trim().length > 0 && !posting;
+  const canPost = !!video && !!restaurantName && namedPlates.length > 0 && namedPlates.length === plates.length && !posting;
 
   const runSearch = async () => {
     if (!query.trim()) return;
@@ -100,13 +107,17 @@ export default function CreatePlato() {
       if (url) videoUrl = url;
     }
 
+    // Headline mirrors the highest-rated plate; the full list rides on `plates`.
+    const trimmed = namedPlates.map((p) => ({ dishName: p.dishName.trim(), rating: p.rating }));
+    const headline = [...trimmed].sort((a, b) => b.rating - a.rating)[0];
     const plato = await addPlato({
       videoUrl,
-      dishName: dishName.trim(),
+      dishName: headline.dishName,
       restaurantName,
       restaurantId,
-      rating,
+      rating: headline.rating,
       caption: caption.trim(),
+      plates: trimmed,
     });
     // Invites need the post's id, so they go out once it exists. A failure here
     // isn't worth blocking the post — the Plato is already up.
@@ -226,23 +237,48 @@ export default function CreatePlato() {
           </View>
         )}
 
-        {/* Dish + caption */}
+        {/* Plates — one video, but it can cover several dishes. Each becomes a
+            page the reel swipes through, with its own name + rating. */}
+        <Text style={[typography.heading, { color: colors.text, marginTop: spacing.xl, marginBottom: 4 }]}>
+          What&apos;s in this Plato?
+        </Text>
+        <Text style={[styles.subhint, { color: colors.textMuted }]}>
+          Add every plate this video shows. Viewers swipe between them; the highest-rated one
+          headlines the reel.
+        </Text>
+        {plates.map((pl, i) => (
+          <View key={i} style={[styles.plateCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.plateHead}>
+              <Text style={[styles.plateNum, { color: colors.text }]}>Plate {i + 1}</Text>
+              {plates.length > 1 && (
+                <Pressable onPress={() => removePlate(i)} hitSlop={6}>
+                  <Ionicons name="trash-outline" size={18} color={colors.orderCta} />
+                </Pressable>
+              )}
+            </View>
+            <TextField
+              label="Dish or drink"
+              value={pl.dishName}
+              onChangeText={(t) => updatePlate(i, { dishName: t })}
+              placeholder="e.g. Pepperoni Pie"
+            />
+            <View style={{ marginTop: spacing.sm }}>
+              <RatingInput value={pl.rating} onChange={(r) => updatePlate(i, { rating: r })} />
+            </View>
+          </View>
+        ))}
+        <Button label="Add another plate" variant="secondary" icon="add" style={{ marginTop: spacing.md }} onPress={addPlate} />
+
+        {/* Caption */}
         <View style={{ marginTop: spacing.xl }}>
-          <TextField label="Dish name" value={dishName} onChangeText={setDishName} placeholder="e.g. Pepperoni Pie" />
           <TextField
             label="Caption"
             value={caption}
             onChangeText={setCaption}
-            placeholder="What makes this plate worth watching?"
+            placeholder="What makes this worth watching?"
             multiline
             style={{ minHeight: 70, textAlignVertical: 'top' }}
           />
-        </View>
-
-        {/* Rating */}
-        <Text style={[typography.heading, { color: colors.text, marginTop: spacing.md, marginBottom: spacing.md }]}>Your rating</Text>
-        <View style={[styles.ratingBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <RatingInput value={rating} onChange={setRating} />
         </View>
 
         {/* Collaborators */}
@@ -316,6 +352,15 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   ratingBox: { padding: spacing.lg, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth },
+  subhint: { fontSize: 13, fontWeight: '500', marginBottom: spacing.md },
+  plateCard: {
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.md,
+  },
+  plateHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  plateNum: { fontSize: 15, fontWeight: '800' },
   cta: {
     position: 'absolute',
     bottom: 0,

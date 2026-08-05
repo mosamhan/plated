@@ -15,6 +15,9 @@ export interface NewPlatoInput {
   restaurantId?: string;
   rating: number;
   caption: string;
+  /** The plates this video covers (name + rating each). Falls back to the
+   *  single dishName/rating when absent. */
+  plates?: { dishName: string; rating: number }[];
 }
 
 interface PlatosContextValue {
@@ -310,6 +313,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         restaurantId: input.restaurantId,
         rating: input.rating,
         caption: input.caption,
+        plates: input.plates?.length ? input.plates : undefined,
         likes: 0,
         comments: 0,
         views: 0,
@@ -340,6 +344,9 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
               dish_name: input.dishName,
               rating: input.rating,
               caption: input.caption,
+              plates: input.plates?.length
+                ? input.plates.map((pl) => ({ dish_name: pl.dishName, rating: pl.rating }))
+                : null,
             })
             .select(PLATO_SELECT)
             .single();
