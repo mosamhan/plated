@@ -178,7 +178,7 @@ export default function Home() {
             )
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: 110 }}
+          contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: 110 + insets.bottom }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

@@ -1,5 +1,7 @@
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { tick } from '@/lib/haptics';
 import { useTheme } from '@/theme/ThemeContext';
 import { radius, spacing } from '@/theme/palettes';
 
@@ -22,9 +24,14 @@ export function FilterChips({ options, value, onChange }: Props) {
       {options.map((opt) => {
         const active = opt === value;
         return (
-          <Pressable
+          <AnimatedPressable
             key={opt}
-            onPress={() => onChange(opt)}
+            pressScale={0.95}
+            hitSlop={{ top: 8, bottom: 8 }}
+            onPress={() => {
+              tick();
+              onChange(opt);
+            }}
             style={[
               styles.chip,
               {
@@ -39,7 +46,7 @@ export function FilterChips({ options, value, onChange }: Props) {
               ]}>
               {opt}
             </Text>
-          </Pressable>
+          </AnimatedPressable>
         );
       })}
     </ScrollView>

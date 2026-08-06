@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, ViewStyle } from 'react-native';
 
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { useTheme } from '@/theme/ThemeContext';
 import { radius } from '@/theme/palettes';
 
@@ -46,17 +47,17 @@ export function Button({
   const border = variant === 'secondary' ? colors.border : 'transparent';
 
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
       disabled={disabled || loading}
-      style={({ pressed }) => [
+      style={[
         styles.base,
         {
           backgroundColor: bg,
           borderColor: border,
           borderWidth: variant === 'secondary' ? StyleSheet.hairlineWidth : 0,
           paddingVertical: size === 'lg' ? 16 : 12,
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+          opacity: disabled ? 0.5 : 1,
         },
         style,
       ]}>
@@ -70,7 +71,7 @@ export function Button({
           </Text>
         </>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

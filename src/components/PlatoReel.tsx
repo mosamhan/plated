@@ -3,8 +3,9 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import Animated, { ZoomIn, ZoomOut } from 'react-native-reanimated';
 
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { PlatoCommentsSheet } from '@/components/PlatoCommentsSheet';
@@ -21,6 +22,8 @@ import { usePlatos } from '@/store/PlatosContext';
 import { displayFont } from '@/theme/fonts';
 import { spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
+
+const DOUBLE_TAP_MS = 220;
 
 interface Props {
   video: PlatoVideo;
@@ -58,6 +61,9 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
   // While scrubbing, clear the overlay chrome so the video is unobstructed —
   // like TikTok. The scrubber itself stays.
   const [scrubbing, setScrubbing] = useState(false);
+  const [burst, setBurst] = useState(false);
+  const lastTap = useRef(0);
+  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liked = isLiked(video.id);
   const platoSaved = isSaved({ type: 'plato', id: video.id });
   const { restaurantId } = video;
@@ -68,6 +74,31 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
           onRestaurantPress(restaurantId);
         }
       : undefined;
+
+  // Double-tap anywhere on the video likes the Plato (with a heart burst),
+  // like Instagram/TikTok; a single tap still play/pauses. The rail buttons
+  // stay single-tap. A short timer disambiguates the two.
+  const onTapVideo = () => {
+    const now = Date.now();
+    if (now - lastTap.current < DOUBLE_TAP_MS) {
+      if (singleTapTimer.current) {
+        clearTimeout(singleTapTimer.current);
+        singleTapTimer.current = null;
+      }
+      lastTap.current = 0;
+      if (!liked) toggleLike(video.id); // double-tap only ever likes, never un-likes
+      tapLight();
+      setBurst(true);
+      setTimeout(() => setBurst(false), 650);
+    } else {
+      lastTap.current = now;
+      singleTapTimer.current = setTimeout(() => {
+        singleTapTimer.current = null;
+        lastTap.current = 0;
+        setPaused((p) => !p);
+      }, DOUBLE_TAP_MS);
+    }
+  };
 
   // Only the active (visible) reel plays.
   useEffect(() => {
@@ -112,8 +143,8 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
         nativeControls={false}
       />
 
-      {/* Tap to play/pause */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)}>
+      {/* Single tap → play/pause; double tap → like (with heart burst). */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={onTapVideo}>
         {paused && (
           <View style={styles.pauseWrap} pointerEvents="none">
             <Ionicons name="play" size={64} color="rgba(255,255,255,0.85)" />
@@ -215,6 +246,15 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
         <Text style={styles.caption} numberOfLines={2}>{video.caption}</Text>
       </View>
 
+      {/* Double-tap like burst — above the video, below the rail's reach. */}
+      {burst && (
+        <View style={styles.burstWrap} pointerEvents="none">
+          <Animated.View entering={ZoomIn.springify().damping(10)} exiting={ZoomOut.duration(250)}>
+            <Ionicons name="heart" size={96} color="#fff" style={styles.burstHeart} />
+          </Animated.View>
+        </View>
+      )}
+
       {/* TikTok-style seek bar, flush to the bottom of the reel. */}
       <VideoScrubber player={player} bottom={bottomInset} onScrubbingChange={setScrubbing} />
 
@@ -241,6 +281,8 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
 
 const styles = StyleSheet.create({
   pauseWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  burstWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  burstHeart: { textShadowColor: 'rgba(0,0,0,0.35)', textShadowRadius: 12, textShadowOffset: { width: 0, height: 2 } },
   scrim: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   rail: { position: 'absolute', right: 12, alignItems: 'center', gap: 20 },
   railBtn: { alignItems: 'center', gap: 3 },

@@ -3,6 +3,8 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Animated, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { tapLight, tapMedium, tick } from '@/lib/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
@@ -121,6 +123,7 @@ export function RestaurantDetailSheet({
   // present two Modals at once, so dismiss this sheet first, then open it.
   const onSavePress = () => {
     if (!restaurantId) return;
+    tapLight();
     const id = restaurantId;
     onClose();
     setTimeout(() => openSaveSheet({ type: 'restaurant', id }), 320);
@@ -307,9 +310,12 @@ export function RestaurantDetailSheet({
                   {(['plate', 'place'] as const).map((seg) => {
                     const on = showing === seg;
                     return (
-                      <Pressable
+                      <AnimatedPressable
                         key={seg}
-                        onPress={() => onSideChange?.(seg)}
+                        onPress={() => {
+                          tick();
+                          onSideChange?.(seg);
+                        }}
                         style={[styles.switchSeg, on && { backgroundColor: colors.accent }]}>
                         <Ionicons
                           name={seg === 'plate' ? 'restaurant' : 'storefront'}
@@ -319,7 +325,7 @@ export function RestaurantDetailSheet({
                         <Text style={[styles.switchText, { color: on ? colors.accentText : colors.textMuted }]}>
                           {seg === 'plate' ? 'The plate' : 'The place'}
                         </Text>
-                      </Pressable>
+                      </AnimatedPressable>
                     );
                   })}
                 </View>
@@ -344,8 +350,9 @@ export function RestaurantDetailSheet({
 
               {/* Directions · Reserve · Save */}
               <View style={styles.actionRow}>
-                <Pressable
+                <AnimatedPressable
                   onPress={() => {
+                    tapLight();
                     // Prefer the in-app route (keeps the user in Plated); fall
                     // back to an external maps hand-off only where unwired.
                     if (onRoute && restaurantId) onRoute(restaurantId);
@@ -354,21 +361,24 @@ export function RestaurantDetailSheet({
                   style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Ionicons name="navigate" size={16} color={colors.accent} />
                   <Text style={[styles.actionText, { color: colors.text }]}>Directions</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => afterClose(() => openReservation('search', restaurant))}
+                </AnimatedPressable>
+                <AnimatedPressable
+                  onPress={() => {
+                    tapMedium();
+                    afterClose(() => openReservation('search', restaurant));
+                  }}
                   style={[styles.actionBtn, { backgroundColor: colors.accent, borderColor: colors.accent }]}>
                   <Ionicons name="calendar" size={16} color={colors.accentText} />
                   <Text style={[styles.actionText, { color: colors.accentText }]}>Reserve</Text>
-                </Pressable>
-                <Pressable
+                </AnimatedPressable>
+                <AnimatedPressable
                   onPress={onSavePress}
                   style={[
                     styles.saveBtn,
                     { backgroundColor: saved ? colors.accentSoft : colors.surface, borderColor: saved ? colors.accent : colors.border },
                   ]}>
                   <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color={colors.accent} />
-                </Pressable>
+                </AnimatedPressable>
               </View>
 
               <View style={styles.locLine}>

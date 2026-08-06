@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { tick } from '@/lib/haptics';
 import { useTheme } from '@/theme/ThemeContext';
 import { radius, ratingColor } from '@/theme/palettes';
 
@@ -41,6 +42,7 @@ export function RatingInput({ value, onChange }: Props) {
   // Set from a block tap or a stepper — keeps the text field in sync.
   const setVal = (n: number) => {
     const v = round1(clamp(n));
+    tick();
     onChange(v);
     setText(v.toFixed(1));
   };
@@ -81,6 +83,7 @@ export function RatingInput({ value, onChange }: Props) {
             <Pressable
               key={n}
               onPress={() => setVal(n)}
+              hitSlop={{ top: 10, bottom: 10 }}
               style={[styles.segment, { backgroundColor: filled ? color : colors.surface, borderColor: colors.border }]}
             />
           );

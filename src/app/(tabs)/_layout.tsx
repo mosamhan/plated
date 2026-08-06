@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '@/components/ActionSheet';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { tapMedium, tick } from '@/lib/haptics';
 import { useAuth } from '@/store/AuthContext';
 import { useLocation } from '@/store/LocationContext';
 import { useTheme } from '@/theme/ThemeContext';
@@ -42,11 +44,14 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
 
     const onPress = () => {
       const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-      if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
+      if (!focused && !event.defaultPrevented) {
+        tick();
+        navigation.navigate(route.name);
+      }
     };
 
     return (
-      <Pressable key={routeName} style={styles.tab} onPress={onPress} hitSlop={6}>
+      <AnimatedPressable key={routeName} style={styles.tab} onPress={onPress} hitSlop={6}>
         <Ionicons
           name={focused ? cfg.on : cfg.off}
           size={24}
@@ -55,7 +60,7 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
         <Text style={[styles.label, { color: focused ? colors.accent : colors.textMuted }]}>
           {cfg.label}
         </Text>
-      </Pressable>
+      </AnimatedPressable>
     );
   };
 
@@ -75,14 +80,15 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
 
         {/* Center create button — chooses between a rated plate and a Plato video */}
         <View style={styles.centerWrap}>
-          <Pressable
-            onPress={() => setChooser(true)}
-            style={({ pressed }) => [
-              styles.center,
-              { backgroundColor: colors.accent, shadowColor: colors.shadow, opacity: pressed ? 0.9 : 1 },
-            ]}>
+          <AnimatedPressable
+            onPress={() => {
+              tapMedium();
+              setChooser(true);
+            }}
+            pressScale={0.92}
+            style={[styles.center, { backgroundColor: colors.accent, shadowColor: colors.shadow }]}>
             <Ionicons name="add" size={32} color={colors.accentText} />
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
         {renderTab('leaderboard')}

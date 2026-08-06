@@ -12,8 +12,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { ActionSheet } from '@/components/ActionSheet';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { NameInputModal } from '@/components/NameInputModal';
@@ -24,7 +26,7 @@ import { SocialLinks } from '@/components/SocialLinks';
 import { formatCount, StatPill } from '@/components/StatPill';
 import { User } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
-import { tapLight } from '@/lib/haptics';
+import { success, tapLight, tick } from '@/lib/haptics';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
 import { Collection, useCollections } from '@/store/CollectionsContext';
 import { useCreatorCard } from '@/store/CreatorCardContext';
@@ -53,6 +55,10 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const { platos } = usePlatos();
   const { collections, createCollection, openSaveSheet, isSaved: isSavedInCollections } = useCollections();
   const [tab, setTab] = useState<'plates' | 'platos' | 'collections'>('plates');
+  const changeTab = (t: 'plates' | 'platos' | 'collections') => {
+    if (t !== tab) tick();
+    setTab(t);
+  };
   const [actionsOpen, setActionsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -185,7 +191,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           </Text>
         </View>
       ) : (
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 + insets.bottom }}>
         {/* Identity — the compact header above already covers avatar/name/handle
             for the current user; other profiles keep the original centered block. */}
         {isCurrent ? (
@@ -245,7 +251,10 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
               label={following ? 'Following' : 'Follow'}
               variant={following ? 'secondary' : 'primary'}
               icon={following ? 'checkmark' : 'person-add'}
-              onPress={() => toggleFollow(user.id)}
+              onPress={() => {
+                following ? tapLight() : success();
+                toggleFollow(user.id);
+              }}
             />
           )}
         </View>
@@ -272,7 +281,10 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
                     {reason}
                   </Text>
                   <Pressable
-                    onPress={() => toggleFollow(u.id)}
+                    onPress={() => {
+                      isFollowing(u.id) ? tapLight() : success();
+                      toggleFollow(u.id);
+                    }}
                     style={[styles.suggestBtn, { backgroundColor: isFollowing(u.id) ? colors.surface : colors.accent, borderColor: colors.border }]}>
                     <Text
                       style={[
@@ -296,17 +308,17 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
             bottom border. On another profile the Collections tab shows only the
             lists they've made public. */}
         <View style={[styles.tabRow, { borderColor: colors.border }]}>
-          <TabButton icon="grid" active={tab === 'plates'} onPress={() => setTab('plates')} />
-          <TabButton icon="play-circle" active={tab === 'platos'} onPress={() => setTab('platos')} />
+          <TabButton icon="grid" active={tab === 'plates'} onPress={() => changeTab('plates')} />
+          <TabButton icon="play-circle" active={tab === 'platos'} onPress={() => changeTab('platos')} />
           <TabButton
             icon="bookmark"
             active={tab === 'collections'}
-            onPress={() => setTab('collections')}
+            onPress={() => changeTab('collections')}
           />
         </View>
 
         {tab === 'plates' && (
-          <View style={styles.grid}>
+          <Animated.View key="plates" style={styles.grid} entering={FadeIn.duration(220)}>
             {/* Archived posts show on your own profile (badged) so you can find
                 and restore them; they're hidden from everyone else — RLS keeps
                 them out of others' loads, and this guards the belt-and-braces. */}
@@ -318,11 +330,11 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
             {orders.length === 0 && (
               <Text style={[styles.empty, { color: colors.textMuted }]}>No plates yet.</Text>
             )}
-          </View>
+          </Animated.View>
         )}
 
         {tab === 'platos' && (
-          <View style={styles.grid}>
+          <Animated.View key="platos" style={styles.grid} entering={FadeIn.duration(220)}>
             {userPlatos
               .filter((p) => isCurrent || !p.archived)
               .map((p) => (
@@ -340,7 +352,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
                 {isCurrent ? 'No Platos yet — tap + to post one.' : 'No Platos yet.'}
               </Text>
             )}
-          </View>
+          </Animated.View>
         )}
 
         {tab === 'collections' && (
@@ -459,7 +471,7 @@ function TabButton({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable style={styles.tabBtn} onPress={onPress}>
+    <AnimatedPressable style={styles.tabBtn} onPress={onPress}>
       <Ionicons
         name={active ? icon : (`${icon}-outline` as keyof typeof Ionicons.glyphMap)}
         size={24}
@@ -474,7 +486,7 @@ function TabButton({
           borderRadius: 2,
         }}
       />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

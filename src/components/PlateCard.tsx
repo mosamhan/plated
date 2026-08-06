@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, ZoomIn, ZoomOut } from 'react-native-reanimated';
 
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { PlateCarousel } from '@/components/PlateCarousel';
@@ -181,11 +182,13 @@ export function PlateCard({
             tapLight();
           }}
           hitSlop={8}>
-          <Ionicons
-            name={liked ? 'heart' : 'heart-outline'}
-            size={22}
-            color={liked ? colors.orderCta : colors.text}
-          />
+          <Animated.View key={liked ? 'liked' : 'unliked'} entering={ZoomIn.springify().damping(12)}>
+            <Ionicons
+              name={liked ? 'heart' : 'heart-outline'}
+              size={22}
+              color={liked ? colors.orderCta : colors.text}
+            />
+          </Animated.View>
           {/* Count hidden when the poster hid it (still shown to the poster). */}
           {!(order.hideLikeCount && order.userId !== currentUser.id) && (
             <Text style={[styles.actionText, { color: colors.textMuted }]}>
@@ -211,11 +214,13 @@ export function PlateCard({
             tapLight();
           }}
           hitSlop={8}>
-          <Ionicons
-            name={saved ? 'bookmark' : 'bookmark-outline'}
-            size={20}
-            color={saved ? colors.accent : colors.text}
-          />
+          <Animated.View key={saved ? 'saved' : 'unsaved'} entering={ZoomIn.springify().damping(12)}>
+            <Ionicons
+              name={saved ? 'bookmark' : 'bookmark-outline'}
+              size={20}
+              color={saved ? colors.accent : colors.text}
+            />
+          </Animated.View>
         </Pressable>
         <Pressable style={styles.action} onPress={sharePost} hitSlop={8}>
           <Ionicons name="share-outline" size={20} color={colors.text} />
@@ -223,15 +228,16 @@ export function PlateCard({
 
         <View style={{ flex: 1 }} />
 
-        <Pressable
+        <AnimatedPressable
           style={[styles.orderBtn, { backgroundColor: colors.orderCta }]}
+          pressScale={0.95}
           onPress={() => {
             tapMedium();
             setSheet(true);
           }}>
           <Ionicons name="bag-handle" size={16} color={colors.orderCtaText} />
           <Text style={[styles.orderText, { color: colors.orderCtaText }]}>Order</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <OrderProviderSheet

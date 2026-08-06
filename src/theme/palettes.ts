@@ -59,7 +59,7 @@ const saffron: Palette = {
   surface: '#FBF3E2',
   card: '#FFFFFF',
   text: '#251B10',
-  textMuted: '#8C7B61',
+  textMuted: '#79694F',
   border: '#EFE3CC',
   accent: '#B07207',
   accentSoft: '#FBEDCE',

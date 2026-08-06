@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import type MapView from 'react-native-maps';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExploreMap, type MapRestaurant } from '@/components/ExploreMap';
@@ -23,9 +24,11 @@ import { ActionSheet } from '@/components/ActionSheet';
 import { CategoriesSheet, CollectionsSheet, MapSettingsSheet } from '@/components/MapSheets';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
+import { Skeleton } from '@/components/Skeleton';
 import { RestaurantDetailSheet } from '@/components/RestaurantDetailSheet';
 import { RouteStepsSheet } from '@/components/RouteStepsSheet';
 import { fetchRoute, kmBetween, type RouteFailure, type RouteResult } from '@/lib/directions';
+import { tapLight, tick } from '@/lib/haptics';
 import type { PlaceResult } from '@/lib/places';
 import { LOVED_RATING, placeTypeFor, type PlaceStatus, type PlaceType } from '@/lib/placeType';
 import { openDirections } from '@/lib/external';
@@ -76,7 +79,7 @@ function ModeToggle({ mode, setMode, overlay }: { mode: Mode; setMode: (m: Mode)
     const on = mode === m;
     const inactive = overlay ? 'rgba(255,255,255,0.8)' : colors.textMuted;
     return (
-      <Pressable onPress={() => setMode(m)} style={[styles.segCompact, on && { backgroundColor: colors.accent }]}>
+      <Pressable onPress={() => { tick(); setMode(m); }} style={[styles.segCompact, on && { backgroundColor: colors.accent }]}>
         <Ionicons name={icon} size={15} color={on ? colors.accentText : inactive} />
         {on && <Text style={[styles.segText, { color: colors.accentText }]}>{label}</Text>}
       </Pressable>
@@ -94,6 +97,21 @@ function ModeToggle({ mode, setMode, overlay }: { mode: Mode; setMode: (m: Mode)
 // seeded restaurants live).
 const DEFAULT_REGION: Region = { latitude: 40.73, longitude: -73.98, latitudeDelta: 0.09, longitudeDelta: 0.09 };
 
+/** Two-column grid skeleton shown while the Discover grid settles under the map. */
+function ExploreGridSkeleton({ width }: { width: number }) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: PADDING, gap: GAP }}>
+      {[0, 1, 2, 3].map((i) => (
+        <View key={i} style={{ width, gap: 8 }}>
+          <Skeleton style={{ width, aspectRatio: 1, borderRadius: radius.lg }} />
+          <Skeleton style={{ width: width * 0.7, height: 12, marginLeft: 4 }} />
+          <Skeleton style={{ width: width * 0.5, height: 10, marginLeft: 4, marginBottom: 6 }} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function Explore() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -106,6 +124,13 @@ export default function Explore() {
   const mapRef = useRef<MapView>(null);
   const [filter, setFilter] = useState('Trending');
   const [mode, setMode] = useState<Mode>('discover');
+  // Brief settle so the grid fades in under the map rather than snapping in —
+  // mirrors the Home feed's boot skeleton.
+  const [booting, setBooting] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setBooting(false), 400);
+    return () => clearTimeout(t);
+  }, []);
 
   // Map state (design §1 + §"State").
   const [mapQuery, setMapQuery] = useState('');
@@ -455,6 +480,7 @@ export default function Explore() {
 
   /** A plate was tapped: pin its restaurant and open the sheet on the plate. */
   const openPlate = (orderId: string, restaurantId: string) => {
+    tapLight();
     setSelectedPlate(orderId);
     setSheetSide('plate');
     focusRestaurant(restaurantId);
@@ -467,6 +493,7 @@ export default function Explore() {
    * lists everything rated here rather than guessing which one was meant.
    */
   const openPin = (restaurantId: string) => {
+    tapLight();
     setSelectedPlate(null);
     setSheetSide('place');
     setHighlighted(restaurantId);
@@ -861,20 +888,22 @@ export default function Explore() {
       </View>
 
       <FlatList
-        data={data}
+        data={booting ? [] : data}
         key="grid"
         numColumns={2}
         keyExtractor={(o) => o.id}
         columnWrapperStyle={{ paddingHorizontal: PADDING, gap: GAP }}
-        contentContainerStyle={{ paddingBottom: 110, gap: GAP }}
+        contentContainerStyle={{ paddingBottom: 110 + insets.bottom, gap: GAP }}
         showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => (
-          <PlateTile
-            order={item}
-            width={tileWidth}
-            selected={item.id === selectedPlate}
-            onPress={() => openPlate(item.id, item.restaurantId)}
-          />
+        renderItem={({ item, index }) => (
+          <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 45).springify().damping(16)}>
+            <PlateTile
+              order={item}
+              width={tileWidth}
+              selected={item.id === selectedPlate}
+              onPress={() => openPlate(item.id, item.restaurantId)}
+            />
+          </Animated.View>
         )}
         ListHeaderComponent={
           <>
@@ -965,12 +994,15 @@ export default function Explore() {
               </Pressable>
             )}
           </View>
+          {booting && <ExploreGridSkeleton width={tileWidth} />}
           </>
         }
         ListEmptyComponent={
-          <Text style={[styles.empty, { color: colors.textMuted }]}>
-            {areaRegion ? 'No plates in this part of the map yet.' : 'No plates for this filter yet.'}
-          </Text>
+          booting ? null : (
+            <Text style={[styles.empty, { color: colors.textMuted }]}>
+              {areaRegion ? 'No plates in this part of the map yet.' : 'No plates for this filter yet.'}
+            </Text>
+          )
         }
       />
 
