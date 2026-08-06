@@ -22,6 +22,7 @@ import { NameInputModal } from '@/components/NameInputModal';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatoTile } from '@/components/PlatoTile';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { Skeleton } from '@/components/Skeleton';
 import { SocialLinks } from '@/components/SocialLinks';
 import { formatCount, StatPill } from '@/components/StatPill';
 import { User } from '@/data/types';
@@ -360,6 +361,16 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
             {shownCollections.map((c) => (
               <CollectionRow key={c.id} collection={c} showPrivacy={isCurrent} />
             ))}
+            {!isCurrent && publicLoading && shownCollections.length === 0 &&
+              [0, 1, 2].map((i) => (
+                <View key={`sk${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Skeleton style={{ width: 54, height: 54, borderRadius: 12 }} />
+                  <View style={{ gap: 6, flex: 1 }}>
+                    <Skeleton style={{ width: '55%', height: 13 }} />
+                    <Skeleton style={{ width: '35%', height: 10 }} />
+                  </View>
+                </View>
+              ))}
             {shownCollections.length === 0 && !publicLoading && (
               <Text style={[styles.empty, { color: colors.textMuted }]}>
                 {isCurrent

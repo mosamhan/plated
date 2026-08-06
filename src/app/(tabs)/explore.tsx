@@ -18,6 +18,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExploreMap, type MapRestaurant } from '@/components/ExploreMap';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { FilterChips } from '@/components/FilterChips';
 import { InlineSearch } from '@/components/InlineSearch';
 import { ActionSheet } from '@/components/ActionSheet';
@@ -79,10 +80,10 @@ function ModeToggle({ mode, setMode, overlay }: { mode: Mode; setMode: (m: Mode)
     const on = mode === m;
     const inactive = overlay ? 'rgba(255,255,255,0.8)' : colors.textMuted;
     return (
-      <Pressable onPress={() => { tick(); setMode(m); }} style={[styles.segCompact, on && { backgroundColor: colors.accent }]}>
+      <AnimatedPressable onPress={() => { tick(); setMode(m); }} style={[styles.segCompact, on && { backgroundColor: colors.accent }]}>
         <Ionicons name={icon} size={15} color={on ? colors.accentText : inactive} />
         {on && <Text style={[styles.segText, { color: colors.accentText }]}>{label}</Text>}
-      </Pressable>
+      </AnimatedPressable>
     );
   };
   return (
@@ -874,14 +875,14 @@ export default function Explore() {
         </View>
 
         <View style={styles.controlRow}>
-          <Pressable
+          <AnimatedPressable
             onPress={() => setActiveSheet('settings')}
             style={[styles.menuSquare, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Ionicons name="menu" size={20} color={colors.text} />
             <View style={[styles.menuBadge, { backgroundColor: colors.accent, borderColor: colors.surface }]}>
               <Ionicons name={myTableOnly ? 'bookmark' : 'earth'} size={9} color={colors.accentText} />
             </View>
-          </Pressable>
+          </AnimatedPressable>
           <InlineSearch onSelectRated={openPin} onSelectExternal={openPreview} />
         </View>
 
@@ -927,12 +928,12 @@ export default function Explore() {
           {/* The expand affordance steps aside while a route is up — the route
               summary below is itself the way into the full map. */}
           {!route && (
-            <Pressable
+            <AnimatedPressable
               onPress={() => setMapExpanded(true)}
               hitSlop={6}
               style={[styles.expandBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Ionicons name="expand" size={16} color={colors.text} />
-            </Pressable>
+            </AnimatedPressable>
           )}
           {!route && <View style={styles.areaWrapInline}>{searchThisArea}</View>}
 

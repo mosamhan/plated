@@ -387,12 +387,12 @@ export function RestaurantDetailSheet({
                   {restaurant.location}
                 </Text>
                 {onOpenMap && (
-                  <Pressable
+                  <AnimatedPressable
                     onPress={onOpenMap}
                     style={[styles.mapBtn, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
                     <Ionicons name="map" size={14} color={colors.accent} />
                     <Text style={[styles.mapBtnText, { color: colors.accent }]}>Map</Text>
-                  </Pressable>
+                  </AnimatedPressable>
                 )}
               </View>
 
@@ -404,7 +404,7 @@ export function RestaurantDetailSheet({
                 {/* Top 3 dishes, numbered — a podium, not an open-ended list. The
                     rest live behind the Menu button below. */}
                 {dishes.slice(0, 3).map((d, i) => (
-                  <Pressable
+                  <AnimatedPressable
                     key={d.dishName}
                     onPress={() => go(`/order/${d.orderId}`)}
                     style={[styles.plateRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -414,7 +414,7 @@ export function RestaurantDetailSheet({
                       {d.dishName}
                     </Text>
                     <RatingBadge score={d.rating} size="sm" />
-                  </Pressable>
+                  </AnimatedPressable>
                 ))}
                 {dishes.length === 0 && (
                   <Text style={{ color: colors.textMuted, fontSize: 13 }}>Be the first to rate a plate here.</Text>
@@ -427,13 +427,13 @@ export function RestaurantDetailSheet({
               {menu.length > 0 && (
                 <>
                   <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>MENU</Text>
-                  <Pressable
+                  <AnimatedPressable
                     onPress={() => setMenuOpen(true)}
                     style={[styles.menuButton, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                     <Ionicons name="restaurant-outline" size={18} color={colors.accent} />
                     <Text style={[styles.menuButtonLabel, { color: colors.text }]}>Open Menu</Text>
                     <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                  </Pressable>
+                  </AnimatedPressable>
                 </>
               )}
 
@@ -445,13 +445,13 @@ export function RestaurantDetailSheet({
                     {raters.map((o) => {
                       const u = userFor(o.userId);
                       return (
-                        <Pressable key={o.userId} onPress={() => go(`/user/${u.id}`)} style={{ alignItems: 'center', gap: 6, width: 64 }}>
+                        <AnimatedPressable key={o.userId} onPress={() => go(`/user/${u.id}`)} style={{ alignItems: 'center', gap: 6, width: 64 }}>
                           <Avatar uri={u.avatar} size={48} verified={u.verified} />
                           <Text style={[styles.raterName, { color: colors.text }]} numberOfLines={1}>
                             {u.name.split(' ')[0]}
                           </Text>
                           <RatingBadge score={o.rating} size="sm" />
-                        </Pressable>
+                        </AnimatedPressable>
                       );
                     })}
                   </ScrollView>
