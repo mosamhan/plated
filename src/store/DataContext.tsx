@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { CONTACTS } from '@/data/contacts';
 import { foodPhoto } from '@/data/images';
 import { plateRatings } from '@/lib/post';
+import { OFFERS } from '@/data/offers';
 import { makeOrderId, ORDERS, REORDER_SEEDS } from '@/data/orders';
 import { getRestaurant as getMockRestaurant, RESTAURANTS } from '@/data/restaurants';
 import { COMMENTS, NOTIFICATIONS } from '@/data/social';
@@ -16,13 +17,14 @@ import {
   ReportReason,
   ReportTarget,
   Restaurant,
+  RestaurantOffer,
   User,
 } from '@/data/types';
 import { CURRENT_USER_ID, getUser as getMockUser, USERS } from '@/data/users';
 import { PlaceResult } from '@/lib/places';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/AuthContext';
-import { mapAttributions, mapComment, mapNotification, mapOrder, mapProfile, mapRestaurant } from '@/store/mappers';
+import { mapAttributions, mapComment, mapNotification, mapOffer, mapOrder, mapProfile, mapRestaurant } from '@/store/mappers';
 
 export interface RestaurantWithRating extends Restaurant {
   platedRating: number;
@@ -127,6 +129,13 @@ interface DataContextValue {
   /** Re-read earnings after a payout — they aren't pushed to the client on their own. */
   refreshAttributions: () => void;
 
+  // restaurant offers
+  offersForRestaurant: (restaurantId: string) => RestaurantOffer[];
+  offerFor: (id: string) => RestaurantOffer | undefined;
+  isOfferRedeemed: (offerId: string) => boolean;
+  /** Records the one-time redemption (RLS + a unique index enforce "once"). */
+  redeemOffer: (offerId: string) => void;
+
   // trust & safety
   reportContent: (targetType: ReportTarget, targetId: string, reason: ReportReason, details?: string) => void;
   isBlocked: (userId: string) => boolean;
@@ -172,6 +181,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [attributions, setAttributions] = useState<PlateAttribution[]>([]);
+  const [offers, setOffers] = useState<RestaurantOffer[]>([]);
+  const [redeemedOfferIds, setRedeemedOfferIds] = useState<Set<string>>(new Set());
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [reordered, setReordered] = useState<Set<string>>(new Set());
@@ -191,6 +202,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // No real ledger in mock mode — creator.tsx shows PREVIEW_ATTRIBUTIONS
     // regardless, same as it always has.
     setAttributions([]);
+    setOffers(OFFERS);
+    setRedeemedOfferIds(new Set());
     setFollowing(new Set(['u1', 'u3']));
     // Mock followers: a couple of users "follow" you so the People tab isn't empty.
     setFollowers(new Set(['u2', 'u4', 'u5']));
@@ -201,7 +214,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Load everything from Supabase ──────────────────────────────────────────
   const loadFromSupabase = useCallback(async (uid: string) => {
     setLoading(true);
-    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes] =
+    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes, offersRes, redemptionsRes] =
       await Promise.all([
         supabase
           .from('profiles')
@@ -217,6 +230,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         supabase.from('blocks').select('blocked_id').eq('blocker_id', uid),
         supabase.from('notifications').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
         supabase.from('creator_earnings').select('order_id, amount_cents, status').eq('creator_id', uid),
+        supabase.from('restaurant_offers').select('*'),
+        supabase.from('offer_redemptions').select('offer_id').eq('user_id', uid),
       ]);
 
     setProfileMap(Object.fromEntries((profilesRes.data ?? []).map((r) => [r.id, mapProfile(r)])));
@@ -231,6 +246,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setBlocked(new Set((blocksRes.data ?? []).map((r) => r.blocked_id)));
     setNotifications((notifsRes.data ?? []).map(mapNotification));
     setAttributions(mapAttributions(earningsRes.data ?? []));
+    setOffers((offersRes.data ?? []).map(mapOffer));
+    setRedeemedOfferIds(new Set((redemptionsRes.data ?? []).map((r) => r.offer_id)));
     setCurrentUserId(uid);
     setLoading(false);
   }, []);
@@ -260,6 +277,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [restaurantMap, live],
   );
   const currentUser = userFor(currentUserId);
+
+  const offersForRestaurant = useCallback(
+    (restaurantId: string) => offers.filter((o) => o.restaurantId === restaurantId),
+    [offers],
+  );
+  const offerFor = useCallback((id: string) => offers.find((o) => o.id === id), [offers]);
+  const isOfferRedeemed = useCallback((offerId: string) => redeemedOfferIds.has(offerId), [redeemedOfferIds]);
 
   const ensureProfiles = useCallback(
     (ids: string[]) => {
@@ -454,6 +478,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (live && userId) supabase.from('reorders').insert({ order_id: id, user_id: userId }).then(() => {});
     },
     [reordered, live, userId],
+  );
+
+  const redeemOffer = useCallback(
+    (offerId: string) => {
+      if (redeemedOfferIds.has(offerId)) return;
+      setRedeemedOfferIds((p) => new Set(p).add(offerId));
+      if (live && userId) supabase.from('offer_redemptions').insert({ offer_id: offerId, user_id: userId }).then(() => {});
+    },
+    [redeemedOfferIds, live, userId],
   );
 
   const commentsFor = useCallback(
@@ -756,6 +789,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       refreshNotifications,
       attributions,
       refreshAttributions,
+      offersForRestaurant,
+      offerFor,
+      isOfferRedeemed,
+      redeemOffer,
       reportContent,
       isBlocked,
       blockUser,
@@ -768,7 +805,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       ensureRestaurant,
       updateProfile,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile],
+    [orders, restaurantMap, currentUser, loading, refresh, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

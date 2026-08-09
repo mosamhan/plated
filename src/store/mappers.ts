@@ -3,7 +3,7 @@ import { avatar, foodPhoto, restaurantPhoto } from '@/data/images';
 import { Conversation, Message, MessageKind, MessageReaction } from '@/data/messages';
 import { PlatoComment, PlatoVideo } from '@/data/platos';
 import { Story } from '@/data/stories';
-import { AppNotification, Collaborator, Comment, Order, PlateAttribution, Restaurant, User } from '@/data/types';
+import { AppNotification, Collaborator, Comment, Order, PlateAttribution, Restaurant, RestaurantOffer, User } from '@/data/types';
 
 function countOf(embedded: unknown): number {
   // Supabase returns embedded counts as [{ count: n }]
@@ -119,6 +119,19 @@ export function mapAttributions(rows: any[]): PlateAttribution[] {
     confirmed: Math.round(b.confirmedCents / 100),
     paid: Math.round(b.paidCents / 100),
   }));
+}
+
+export function mapOffer(row: any): RestaurantOffer {
+  return {
+    id: row.id,
+    restaurantId: row.restaurant_id,
+    offerType: row.offer_type,
+    title: row.title,
+    description: row.description ?? '',
+    promoCode: row.promo_code ?? undefined,
+    redeemWindowSeconds: row.redeem_window_seconds ?? 300,
+    expiresAt: row.expires_at ?? undefined,
+  };
 }
 
 export function mapComment(row: any): Comment {

@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
 import { MenuPanel } from '@/components/MenuPanel';
+import { OfferBannerList } from '@/components/OfferBanner';
 import { PlateList, PlatePanel } from '@/components/PlatePanel';
 import type { PlaceResult } from '@/lib/places';
 import { RatingBadge } from '@/components/RatingBadge';
@@ -74,7 +75,7 @@ export function RestaurantDetailSheet({
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { restaurantWithRating, ordersByRestaurant, userFor, restaurantMenu } = useData();
+  const { restaurantWithRating, ordersByRestaurant, userFor, restaurantMenu, offersForRestaurant } = useData();
   const { isSaved, openSaveSheet } = useCollections();
 
   const visible = restaurantId != null || preview != null;
@@ -395,6 +396,8 @@ export function RestaurantDetailSheet({
                   </AnimatedPressable>
                 )}
               </View>
+
+              <OfferBannerList offers={offersForRestaurant(restaurant.id)} />
 
               {/* Top-rated plates here — one row per *dish*, not per rating, so
                   three people rating the Flat White reads as one dish with an

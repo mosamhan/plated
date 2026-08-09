@@ -176,6 +176,24 @@ export interface PlateAttribution {
   paid: number;
 }
 
+/**
+ * A restaurant-funded coupon. `general` also works outside Plated (a code
+ * copied to the clipboard); `plated_exclusive` only redeems through the
+ * countdown screen at /offer/[id] — "show this to your server". See
+ * 0029_restaurant_offers.sql.
+ */
+export interface RestaurantOffer {
+  id: string;
+  restaurantId: string;
+  offerType: 'general' | 'plated_exclusive';
+  title: string;
+  description: string;
+  promoCode?: string;
+  /** How long the redeem screen's countdown runs once opened. */
+  redeemWindowSeconds: number;
+  expiresAt?: string;
+}
+
 export interface Contact {
   id: string;
   name: string;
