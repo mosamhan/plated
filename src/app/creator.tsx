@@ -1,14 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { formatCount } from '@/components/StatPill';
 import { foodPlaceholder } from '@/data/images';
 import { PREVIEW_ATTRIBUTIONS } from '@/data/social';
+import { openInApp } from '@/lib/external';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
+import { requestCashout, startStripeOnboarding } from '@/lib/monetization';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { useData } from '@/store/DataContext';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing, typography } from '@/theme/palettes';
@@ -29,12 +33,17 @@ const PAYOUT_MINIMUM = 25;
 export default function CreatorDashboard() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { currentUser, orders } = useData();
+  const { currentUser, orders, attributions: liveAttributions, refreshAttributions } = useData();
 
   const eligible = currentUser.compensationEligible;
   const progress = Math.min(currentUser.followers / ELIGIBILITY_FOLLOWERS, 1);
 
-  const attributions = PREVIEW_ATTRIBUTIONS;
+  // Real numbers once there's a live account and eligibility to back them —
+  // otherwise the same clearly-labeled preview this screen has always shown.
+  // (Not "real but empty": an eligible live account with zero earnings so far
+  // should see real zeros, not the preview's numbers.)
+  const live = isSupabaseConfigured;
+  const attributions = live && eligible ? liveAttributions : PREVIEW_ATTRIBUTIONS;
   const totals = attributions.reduce(
     (acc, a) => ({
       orders: acc.orders + a.attributedOrders,
@@ -44,6 +53,34 @@ export default function CreatorDashboard() {
     }),
     { orders: 0, estimated: 0, confirmed: 0, paid: 0 },
   );
+  // What's actually cash-out-able right now: confirmed minus what's already
+  // been swept into a payout (confirmed includes paid — see mapAttributions).
+  const availableToCashOut = totals.confirmed - totals.paid;
+
+  const [stripeLoading, setStripeLoading] = useState(false);
+  const [cashoutLoading, setCashoutLoading] = useState(false);
+
+  const handleStripeSetup = async () => {
+    if (stripeLoading) return;
+    setStripeLoading(true);
+    const url = await startStripeOnboarding();
+    setStripeLoading(false);
+    if (url) openInApp(url);
+    else Alert.alert('Could not start payout setup', 'Try again in a moment.');
+  };
+
+  const handleCashout = async () => {
+    if (cashoutLoading) return;
+    setCashoutLoading(true);
+    const result = await requestCashout();
+    setCashoutLoading(false);
+    if (result.ok) {
+      Alert.alert('Cashout requested', `$${(result.amountCents / 100).toFixed(2)} is on its way.`);
+      refreshAttributions();
+    } else {
+      Alert.alert('Could not request cashout', result.message);
+    }
+  };
 
   // Dashboard shares always carry the #ad disclosure — this is the screen
   // that promises "Shares include the required #ad disclosure automatically."
@@ -76,9 +113,19 @@ export default function CreatorDashboard() {
             <HeroState label="Paid out" value={`$${totals.paid}`} hint="all time" />
           </View>
           <Text style={[styles.heroNext, { color: colors.textMuted }]}>
-            Next payout: July 1 · ${PAYOUT_MINIMUM} minimum · earnings accrue on attributed orders
-            regardless of your ratings
+            ${PAYOUT_MINIMUM} minimum per payout · earnings accrue on attributed orders regardless
+            of your ratings
           </Text>
+          {eligible && availableToCashOut >= PAYOUT_MINIMUM && (
+            <Pressable
+              onPress={handleCashout}
+              disabled={cashoutLoading}
+              style={[styles.cashoutBtn, { backgroundColor: colors.accent, opacity: cashoutLoading ? 0.6 : 1 }]}>
+              <Text style={[styles.cashoutText, { color: colors.accentText }]}>
+                {cashoutLoading ? 'Requesting…' : `Request $${availableToCashOut} cashout`}
+              </Text>
+            </Pressable>
+          )}
         </Animated.View>
 
         {/* Eligibility progress (pre-eligibility users) */}
@@ -171,7 +218,13 @@ export default function CreatorDashboard() {
         <Animated.View
           entering={FadeInDown.delay(240).duration(300)}
           style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: spacing.lg }]}>
-          <HouseRow icon="card-outline" label="Payout method" value="Set up" />
+          <HouseRow
+            icon="card-outline"
+            label="Payout method"
+            value={stripeLoading ? 'Opening…' : 'Set up'}
+            onPress={handleStripeSetup}
+            disabled={stripeLoading}
+          />
           <HouseRow icon="document-text-outline" label="Tax info (W-9)" value="Required before first payout" />
           <HouseRow icon="school-outline" label="Program rules & FTC disclosure guide" value="" last />
         </Animated.View>
@@ -201,15 +254,21 @@ function HouseRow({
   label,
   value,
   last,
+  onPress,
+  disabled,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
   last?: boolean;
+  onPress?: () => void;
+  disabled?: boolean;
 }) {
   const { colors } = useTheme();
   return (
     <Pressable
+      onPress={onPress}
+      disabled={disabled || !onPress}
       style={[styles.houseRow, !last && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
       <Ionicons name={icon} size={20} color={colors.text} />
       <Text style={[styles.houseLabel, { color: colors.text }]}>{label}</Text>
@@ -239,6 +298,15 @@ const styles = StyleSheet.create({
   heroStateLabel: { fontSize: 12, fontWeight: '700', marginTop: 2 },
   heroStateHint: { fontSize: 10, fontWeight: '500', marginTop: 1 },
   heroNext: { fontSize: 11, fontWeight: '500', marginTop: spacing.lg, textAlign: 'center', lineHeight: 16 },
+  cashoutBtn: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: 12,
+    borderRadius: radius.pill,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+  },
+  cashoutText: { fontSize: 15, fontWeight: '800' },
   card: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,

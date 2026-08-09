@@ -1,7 +1,9 @@
 /** Maps Supabase rows (snake_case) to the app's domain types (camelCase). */
 import { avatar, foodPhoto, restaurantPhoto } from '@/data/images';
+import { Conversation, Message, MessageKind, MessageReaction } from '@/data/messages';
 import { PlatoComment, PlatoVideo } from '@/data/platos';
-import { AppNotification, Collaborator, Comment, Order, Restaurant, User } from '@/data/types';
+import { Story } from '@/data/stories';
+import { AppNotification, Collaborator, Comment, Order, PlateAttribution, Restaurant, User } from '@/data/types';
 
 function countOf(embedded: unknown): number {
   // Supabase returns embedded counts as [{ count: n }]
@@ -91,6 +93,34 @@ export function mapOrder(row: any): Order {
   };
 }
 
+/**
+ * Rows from `creator_earnings` (order_id, amount_cents, status), collapsed to
+ * one row per plate for the creator dashboard. `estimated` is every dollar
+ * ever recorded for the plate (any non-voided status); `confirmed` is the
+ * subset that's cleared the network's return window (confirmed + paid);
+ * `paid` is the subset actually swept into a payout — so estimated >=
+ * confirmed >= paid, matching the dashboard's "+$X pending" math.
+ */
+export function mapAttributions(rows: any[]): PlateAttribution[] {
+  const byPlate = new Map<string, { orders: number; estimatedCents: number; confirmedCents: number; paidCents: number }>();
+  for (const row of rows) {
+    if (!row.order_id || row.status === 'voided') continue;
+    const bucket = byPlate.get(row.order_id) ?? { orders: 0, estimatedCents: 0, confirmedCents: 0, paidCents: 0 };
+    bucket.orders += 1;
+    bucket.estimatedCents += row.amount_cents;
+    if (row.status === 'confirmed' || row.status === 'paid') bucket.confirmedCents += row.amount_cents;
+    if (row.status === 'paid') bucket.paidCents += row.amount_cents;
+    byPlate.set(row.order_id, bucket);
+  }
+  return Array.from(byPlate.entries()).map(([plateId, b]) => ({
+    plateId,
+    attributedOrders: b.orders,
+    estimated: Math.round(b.estimatedCents / 100),
+    confirmed: Math.round(b.confirmedCents / 100),
+    paid: Math.round(b.paidCents / 100),
+  }));
+}
+
 export function mapComment(row: any): Comment {
   return {
     id: row.id,
@@ -145,6 +175,59 @@ export function mapPlatoComment(row: any): PlatoComment {
     createdAt: row.created_at,
   };
 }
+
+export function mapConversation(row: any): Conversation {
+  return {
+    id: row.id,
+    isGroup: !!row.is_group,
+    title: row.title ?? undefined,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    lastMessageAt: row.last_message_at ?? row.created_at,
+    participants: (row.participants ?? row.conversation_participants ?? []).map((p: any) => ({
+      userId: p.user_id,
+      state: p.state === 'request' ? 'request' : 'accepted',
+      lastReadAt: p.last_read_at ?? EPOCH,
+      muted: !!p.muted,
+    })),
+  };
+}
+
+export function mapMessage(row: any): Message {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    senderId: row.sender_id,
+    kind: (row.kind as MessageKind) ?? 'text',
+    text: row.text ?? '',
+    attachmentId: row.attachment_id ?? undefined,
+    attachmentIndex: row.attachment_index ?? undefined,
+    durationMs: row.duration_ms ?? undefined,
+    replyTo: row.reply_to ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapReaction(row: any): MessageReaction {
+  return { messageId: row.message_id, userId: row.user_id, emoji: row.emoji };
+}
+
+export function mapStory(row: any): Story {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    mediaUrl: row.media_url,
+    mediaType: row.media_type === 'clip' ? 'clip' : 'image',
+    caption: row.caption ?? '',
+    restaurantId: row.restaurant_id ?? undefined,
+    orderId: row.order_id ?? undefined,
+    visibility: (row.visibility as Story['visibility']) ?? 'public',
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  };
+}
+
+const EPOCH = '1970-01-01T00:00:00.000Z';
 
 export function mapNotification(row: any): AppNotification {
   return {

@@ -13,9 +13,10 @@ const enc = encodeURIComponent;
 /**
  * Open a URL in an in-app browser (keeps the user in Plated) instead of
  * bouncing out to Safari/an external app. Falls back to Linking if the
- * in-app browser can't open it.
+ * in-app browser can't open it. Exported for anything that opens a hosted
+ * flow the same way a reservation search does — e.g. Stripe Connect onboarding.
  */
-async function openInApp(url: string) {
+export async function openInApp(url: string) {
   try {
     await WebBrowser.openBrowserAsync(url, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET });
   } catch {

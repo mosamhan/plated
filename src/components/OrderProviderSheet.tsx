@@ -7,6 +7,7 @@ import { RatingBadge } from '@/components/RatingBadge';
 import { Order } from '@/data/types';
 import { openReservation } from '@/lib/external';
 import { tapMedium } from '@/lib/haptics';
+import { OrderPlatform, trackAffiliateClick } from '@/lib/monetization';
 import { useData } from '@/store/DataContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -35,6 +36,18 @@ interface Props {
   creatorHandle?: string;
   /** Whether ordering this plate pays commission to the creator. */
   supportsCreator?: boolean;
+  /**
+   * Needed to record an affiliate click. Without it the hand-off still works
+   * — it just isn't tracked. Defaults to `order.restaurantId` when `order` is
+   * passed, so most call sites don't need to pass this explicitly.
+   */
+  restaurantId?: string;
+  /**
+   * Who gets credited for the click. Defaults to `order.userId` (the plate's
+   * author) when `order` is passed — only needs to be set explicitly for
+   * flows with no `order` in scope (Platos).
+   */
+  creatorId?: string;
 }
 
 interface Reservation {
@@ -54,7 +67,7 @@ const RESERVATIONS: Reservation[] = [
 ];
 
 interface Provider {
-  key: string;
+  key: OrderPlatform;
   label: string;
   sub: string;
   action: string;
@@ -104,6 +117,8 @@ export function OrderProviderSheet({
   priceLevel,
   creatorHandle,
   supportsCreator,
+  restaurantId,
+  creatorId,
 }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -132,12 +147,25 @@ export function OrderProviderSheet({
   const orderQuery = hasPlateList ? [restaurantName, ...selectedDishes].join(' ') : `${dishName} ${restaurantName}`;
   const canOrder = !hasPlateList || selected.size > 0;
 
-  const handlePick = (p: Provider) => {
+  // Falls back to `order.restaurantId`/`order.userId` so the common call sites
+  // (which already pass `order`) don't need to repeat what it already carries.
+  const effectiveRestaurantId = restaurantId ?? order?.restaurantId;
+  const effectiveCreatorId = creatorId ?? order?.userId;
+
+  const handlePick = async (p: Provider) => {
     tapMedium();
-    // Mock attribution: production appends subId1=creatorId, subId2=plateId,
-    // subId3=sessionId for affiliate-network tracking.
     if (order) markReordered(order.id);
-    Linking.openURL(p.url(encodeURIComponent(orderQuery))).catch(() => {});
+    const destinationUrl = p.url(encodeURIComponent(orderQuery));
+    const url = effectiveRestaurantId
+      ? await trackAffiliateClick({
+          restaurantId: effectiveRestaurantId,
+          orderId: order?.id,
+          creatorId: effectiveCreatorId,
+          platform: p.key,
+          destinationUrl,
+        })
+      : destinationUrl;
+    Linking.openURL(url).catch(() => {});
     onClose();
   };
 

@@ -4,18 +4,19 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { ZoomIn, ZoomOut } from 'react-native-reanimated';
 
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { PlatoCommentsSheet } from '@/components/PlatoCommentsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
+import { SendToSheet } from '@/components/SendToSheet';
 import { VideoScrubber } from '@/components/VideoScrubber';
 import { formatCount } from '@/components/StatPill';
 import { PlatoVideo } from '@/data/platos';
 import { collabLabel } from '@/lib/collabs';
 import { tapLight, tapMedium } from '@/lib/haptics';
-import { buildPlatoShareMessage } from '@/lib/invite';
+import { buildPlatoShareMessage, platoLink } from '@/lib/invite';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { usePlatos } from '@/store/PlatosContext';
@@ -53,6 +54,7 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
   const [paused, setPaused] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
   // The plates this one video covers. Swiping the label moves between them; the
   // video keeps playing. Falls back to the single dish for legacy Platos.
   const plates = video.plates?.length ? video.plates : [{ dishName: video.dishName, rating: video.rating }];
@@ -112,18 +114,19 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
     if (active) recordView(video.id);
   }, [active, video.id, recordView]);
 
+  // Send-to first — a Plato is the most "you have to watch this" thing in the
+  // app. The system share sheet is one tap inside it.
   const onShare = () => {
     tapLight();
-    Share.share({
-      message: buildPlatoShareMessage({
-        dishName: video.dishName,
-        restaurantName: video.restaurantName,
-        creatorHandle: video.creatorHandle,
-        rating: video.rating,
-        earns: video.compensationEligible,
-      }),
-    }).catch(() => {});
+    setSendOpen(true);
   };
+  const platoShareMessage = buildPlatoShareMessage({
+    dishName: video.dishName,
+    restaurantName: video.restaurantName,
+    creatorHandle: video.creatorHandle,
+    rating: video.rating,
+    earns: video.compensationEligible,
+  });
 
   const railBtn = (icon: keyof typeof Ionicons.glyphMap, label: string, onPress: () => void, tint?: string) => (
     <Pressable style={styles.railBtn} onPress={onPress} hitSlop={6}>
@@ -268,12 +271,26 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
         priceLevel={platoRestaurant?.priceLevel}
         creatorHandle={video.creatorHandle}
         supportsCreator={video.compensationEligible}
+        restaurantId={platoRestaurant?.id}
+        creatorId={video.creatorId}
       />
 
       <PlatoCommentsSheet
         platoId={video.id}
         visible={commentsOpen}
         onClose={() => setCommentsOpen(false)}
+      />
+
+      <SendToSheet
+        visible={sendOpen}
+        onClose={() => setSendOpen(false)}
+        payload={{
+          kind: 'plato',
+          attachmentId: video.id,
+          shareMessage: platoShareMessage,
+          link: platoLink(video.id),
+          label: `@${video.creatorHandle}’s Plato`,
+        }}
       />
     </View>
   );

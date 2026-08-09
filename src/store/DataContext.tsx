@@ -11,6 +11,7 @@ import {
   Comment,
   Contact,
   Order,
+  PlateAttribution,
   PostMedia,
   ReportReason,
   ReportTarget,
@@ -21,7 +22,7 @@ import { CURRENT_USER_ID, getUser as getMockUser, USERS } from '@/data/users';
 import { PlaceResult } from '@/lib/places';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/AuthContext';
-import { mapComment, mapNotification, mapOrder, mapProfile, mapRestaurant } from '@/store/mappers';
+import { mapAttributions, mapComment, mapNotification, mapOrder, mapProfile, mapRestaurant } from '@/store/mappers';
 
 export interface RestaurantWithRating extends Restaurant {
   platedRating: number;
@@ -65,6 +66,13 @@ interface DataContextValue {
 
   // lookups (route all user/restaurant resolution through these)
   userFor: (id: string) => User;
+  /**
+   * Pull profiles the initial load didn't include. Anyone who joined (or first
+   * interacted with you) after boot isn't in `profileMap`, and without this they
+   * render as the fallback "Plated Guest" — which is what a message from a new
+   * account looked like.
+   */
+  ensureProfiles: (ids: string[]) => void;
   restaurantFor: (id: string) => Restaurant | undefined;
 
   // selectors
@@ -105,6 +113,19 @@ interface DataContextValue {
   notifications: AppNotification[];
   unreadCount: number;
   markAllNotificationsRead: () => void;
+  /**
+   * Re-read just the notifications. They're written by database triggers
+   * (0011, 0025), so the client never learns about a new one from its own
+   * writes — without this the screen shows whatever existed at app launch.
+   */
+  refreshNotifications: () => void;
+
+  // creator earnings — one row per plate, real once compensation_eligible and
+  // an affiliate network is wired up; empty otherwise (creator.tsx falls back
+  // to a clearly-labeled preview for ineligible/mock accounts).
+  attributions: PlateAttribution[];
+  /** Re-read earnings after a payout — they aren't pushed to the client on their own. */
+  refreshAttributions: () => void;
 
   // trust & safety
   reportContent: (targetType: ReportTarget, targetId: string, reason: ReportReason, details?: string) => void;
@@ -150,6 +171,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [restaurantMap, setRestaurantMap] = useState<Record<string, Restaurant>>({});
   const [comments, setComments] = useState<Comment[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [attributions, setAttributions] = useState<PlateAttribution[]>([]);
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [reordered, setReordered] = useState<Set<string>>(new Set());
@@ -166,6 +188,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setRestaurantMap(Object.fromEntries(RESTAURANTS.map((r) => [r.id, r])));
     setComments(COMMENTS);
     setNotifications(NOTIFICATIONS);
+    // No real ledger in mock mode — creator.tsx shows PREVIEW_ATTRIBUTIONS
+    // regardless, same as it always has.
+    setAttributions([]);
     setFollowing(new Set(['u1', 'u3']));
     // Mock followers: a couple of users "follow" you so the People tab isn't empty.
     setFollowers(new Set(['u2', 'u4', 'u5']));
@@ -176,7 +201,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Load everything from Supabase ──────────────────────────────────────────
   const loadFromSupabase = useCallback(async (uid: string) => {
     setLoading(true);
-    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes] =
+    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes] =
       await Promise.all([
         supabase
           .from('profiles')
@@ -191,6 +216,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         supabase.from('follows').select('follower_id').eq('following_id', uid),
         supabase.from('blocks').select('blocked_id').eq('blocker_id', uid),
         supabase.from('notifications').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
+        supabase.from('creator_earnings').select('order_id, amount_cents, status').eq('creator_id', uid),
       ]);
 
     setProfileMap(Object.fromEntries((profilesRes.data ?? []).map((r) => [r.id, mapProfile(r)])));
@@ -204,6 +230,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setFollowers(new Set((followersRes.data ?? []).map((r) => r.follower_id)));
     setBlocked(new Set((blocksRes.data ?? []).map((r) => r.blocked_id)));
     setNotifications((notifsRes.data ?? []).map(mapNotification));
+    setAttributions(mapAttributions(earningsRes.data ?? []));
     setCurrentUserId(uid);
     setLoading(false);
   }, []);
@@ -233,6 +260,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [restaurantMap, live],
   );
   const currentUser = userFor(currentUserId);
+
+  const ensureProfiles = useCallback(
+    (ids: string[]) => {
+      if (!live) return;
+      const missing = [...new Set(ids)].filter((id) => id && !profileMap[id]);
+      if (missing.length === 0) return;
+      supabase
+        .from('profiles')
+        .select('*, followers:follows!follows_following_id_fkey(count), following:follows!follows_follower_id_fkey(count)')
+        .in('id', missing)
+        .then(({ data }) => {
+          if (!data?.length) return;
+          setProfileMap((m) => ({
+            ...m,
+            ...Object.fromEntries(data.map((r) => [r.id, mapProfile(r)])),
+          }));
+        });
+    },
+    [live, profileMap],
+  );
 
   // ── Visible orders (filter blocked authors) ─────────────────────────────────
   // Feeds, rankings and restaurant aggregations run off this: blocked authors
@@ -432,6 +479,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const markAllNotificationsRead = useCallback(() => {
     setNotifications((p) => p.map((n) => ({ ...n, read: true })));
     if (live && userId) supabase.from('notifications').update({ read: true }).eq('user_id', userId).eq('read', false).then(() => {});
+  }, [live, userId]);
+
+  const refreshNotifications = useCallback(() => {
+    if (!live || !userId) return;
+    supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (data) setNotifications(data.map(mapNotification));
+      });
+  }, [live, userId]);
+
+  const refreshAttributions = useCallback(() => {
+    if (!live || !userId) return;
+    supabase
+      .from('creator_earnings')
+      .select('order_id, amount_cents, status')
+      .eq('creator_id', userId)
+      .then(({ data }) => {
+        if (data) setAttributions(mapAttributions(data));
+      });
   }, [live, userId]);
 
   const reportContent = useCallback(
@@ -652,6 +722,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       loading,
       refresh,
       userFor,
+      ensureProfiles,
       restaurantFor,
       feedOrders,
       verifiedCreatorOrders,
@@ -682,6 +753,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       notifications,
       unreadCount,
       markAllNotificationsRead,
+      refreshNotifications,
+      attributions,
+      refreshAttributions,
       reportContent,
       isBlocked,
       blockUser,
@@ -694,7 +768,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       ensureRestaurant,
       updateProfile,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile],
+    [orders, restaurantMap, currentUser, loading, refresh, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
