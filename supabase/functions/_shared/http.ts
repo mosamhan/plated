@@ -1,11 +1,11 @@
 /**
- * Shared plumbing for Plated's key-proxy functions.
+ * Shared plumbing for Plated's Edge Functions.
  *
- * Both `places` and `directions` exist for the same reason: they front a
- * billable third-party key that must not ship in the app bundle. They therefore
- * need identical CORS, JSON, and "is this a real user?" behaviour, and that
- * behaviour is security-relevant enough that it should have exactly one
- * definition rather than two copies drifting apart.
+ * `places` and `directions` front a billable third-party key that must not
+ * ship in the app bundle; the monetization functions (affiliate-click,
+ * stripe-*, revenuecat-webhook) front money instead of a key. Different
+ * reason, same shape of problem — one signed-in-user check and one
+ * bypass-RLS client, defined once rather than drifting across N copies.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -41,6 +41,18 @@ export async function requireUser(req: Request): Promise<{ id: string } | null> 
   );
   const { data: { user }, error } = await auth.auth.getUser(jwt);
   return error || !user ? null : { id: user.id };
+}
+
+/**
+ * A client authenticated as service_role — bypasses RLS. Only for writes the
+ * client has no policy to make itself (money ledgers, webhook-driven state);
+ * never constructed from anything a request sent, never returned to the client.
+ */
+export function serviceClient() {
+  return createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  );
 }
 
 /** A finite latitude/longitude pair, or null if the client sent junk. */
