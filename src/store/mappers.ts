@@ -3,7 +3,7 @@ import { avatar, foodPhoto, restaurantPhoto } from '@/data/images';
 import { Conversation, Message, MessageKind, MessageReaction } from '@/data/messages';
 import { PlatoComment, PlatoVideo } from '@/data/platos';
 import { Story } from '@/data/stories';
-import { AppNotification, Collaborator, Comment, Order, PlateAttribution, Restaurant, RestaurantOffer, User } from '@/data/types';
+import { AppNotification, Collaborator, Comment, FeedBump, Order, PlateAttribution, Restaurant, RestaurantOffer, SponsoredPlacement, User } from '@/data/types';
 
 function countOf(embedded: unknown): number {
   // Supabase returns embedded counts as [{ count: n }]
@@ -131,6 +131,21 @@ export function mapOffer(row: any): RestaurantOffer {
     promoCode: row.promo_code ?? undefined,
     redeemWindowSeconds: row.redeem_window_seconds ?? 300,
     expiresAt: row.expires_at ?? undefined,
+  };
+}
+
+export function mapFeedBump(row: any): FeedBump {
+  return { orderId: row.order_id, expiresAt: row.expires_at };
+}
+
+export function mapSponsoredPlacement(row: any): SponsoredPlacement {
+  return {
+    id: row.id,
+    restaurantId: row.restaurant_id,
+    placementType: row.placement_type,
+    mediaUrl: row.media_url ?? undefined,
+    headline: row.headline ?? undefined,
+    ctaUrl: row.cta_url ?? undefined,
   };
 }
 

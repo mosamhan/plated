@@ -32,12 +32,15 @@ export function PlateCard({
   order,
   onSave,
   savedOverride,
+  promoted,
 }: {
   order: Order;
   /** When set, the bookmark opens the Save-to picker instead of the quick save. */
   onSave?: () => void;
   /** Drives the bookmark's filled state when saving is collection-backed. */
   savedOverride?: boolean;
+  /** The restaurant paid to pin this plate to the top of the feed — a feed bump. */
+  promoted?: boolean;
 }) {
   const { colors } = useTheme();
   const router = useRouter();
@@ -143,6 +146,15 @@ export function PlateCard({
             </Pressable>
           </View>
         </Pressable>
+        {/* A feed bump, not a badge the poster earns — reads as an ad
+            disclosure (neutral, muted) rather than the accent-colored
+            commission tag above, which is about the creator, not the restaurant. */}
+        {promoted && (
+          <View style={[styles.promotedTag, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Ionicons name="megaphone-outline" size={11} color={colors.textMuted} />
+            <Text style={[styles.promotedTagText, { color: colors.textMuted }]}>Promoted</Text>
+          </View>
+        )}
         <Pressable hitSlop={8} onPress={() => setOptionsOpen(true)}>
           <Ionicons name="ellipsis-horizontal" size={20} color={colors.textMuted} />
         </Pressable>
@@ -291,6 +303,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   commissionTagText: { fontSize: 10, fontWeight: '800' },
+  promotedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginRight: 8,
+  },
+  promotedTagText: { fontSize: 10, fontWeight: '700' },
   sub: { fontSize: 13, fontWeight: '500', marginTop: 1 },
   photo: { width: '100%', aspectRatio: 0.92 },
   scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%' },

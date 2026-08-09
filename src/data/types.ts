@@ -194,6 +194,33 @@ export interface RestaurantOffer {
   expiresAt?: string;
 }
 
+/**
+ * A restaurant's plate temporarily pinned to the top of nearby feeds — one of
+ * a subscribed restaurant's monthly allotment (see restaurant_subscriptions).
+ * A pointer, not new content: the plate itself is a plain Order.
+ */
+export interface FeedBump {
+  orderId: string;
+  expiresAt: string;
+}
+
+/**
+ * A paid restaurant placement. Three independent surfaces share one table
+ * (see 0028_restaurant_subscriptions.sql) because they're the same product —
+ * a restaurant paying for visibility — just rendered differently:
+ *   reel_ad        — a sponsored card interspersed in the Platos feed
+ *   map_pin        — a distinguished pin in Explore's map
+ *   local_favorite — a rail on Explore, the flat-fee "Local Favorites" tier
+ */
+export interface SponsoredPlacement {
+  id: string;
+  restaurantId: string;
+  placementType: 'reel_ad' | 'map_pin' | 'local_favorite';
+  mediaUrl?: string;
+  headline?: string;
+  ctaUrl?: string;
+}
+
 export interface Contact {
   id: string;
   name: string;

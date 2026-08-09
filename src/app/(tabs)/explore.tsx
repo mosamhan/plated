@@ -22,6 +22,7 @@ import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { FilterChips } from '@/components/FilterChips';
 import { InlineSearch } from '@/components/InlineSearch';
 import { ActionSheet } from '@/components/ActionSheet';
+import { LocalFavoritesRail } from '@/components/LocalFavoritesRail';
 import { CategoriesSheet, CollectionsSheet, MapSettingsSheet } from '@/components/MapSheets';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatosFeed } from '@/components/PlatosFeed';
@@ -119,7 +120,7 @@ export default function Explore() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const tileWidth = (windowWidth - PADDING * 2 - GAP) / 2;
-  const { exploreOrders, topRestaurants, ordersByRestaurant, restaurantFor, ensureRestaurant, currentUser } = useData();
+  const { exploreOrders, topRestaurants, ordersByRestaurant, restaurantFor, ensureRestaurant, currentUser, placementsFor } = useData();
   const { location } = useLocation();
   const { isSaved, openSaveSheet } = useCollections();
   const mapRef = useRef<MapView>(null);
@@ -404,6 +405,11 @@ export default function Explore() {
     });
   }, [exploreOrders, filter, areaRegion, restaurantFor, activeTypes]);
 
+  const sponsoredPinIds = useMemo(
+    () => new Set(placementsFor('map_pin').map((p) => p.restaurantId)),
+    [placementsFor],
+  );
+
   // Restaurants that have coordinates, tagged with their per-user category.
   const mapRestaurants = useMemo<MapRestaurant[]>(() => {
     return topRestaurants()
@@ -425,10 +431,11 @@ export default function Explore() {
           saved,
           type: placeTypeFor(r.cuisine),
           statuses,
+          sponsored: sponsoredPinIds.has(r.id),
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topRestaurants, ordersByRestaurant, isSaved, currentUser.id]);
+  }, [topRestaurants, ordersByRestaurant, isSaved, currentUser.id, sponsoredPinIds]);
 
   const visiblePins = useMemo(() => {
     const q = mapQuery.trim().toLowerCase();
@@ -981,6 +988,7 @@ export default function Explore() {
           )}
         </View>
 
+        <LocalFavoritesRail onPress={openPin} />
 
         <FilterChips options={FILTERS} value={filter} onChange={setFilter} />
 

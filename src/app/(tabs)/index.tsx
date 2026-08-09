@@ -35,6 +35,7 @@ const SUGGEST_SUBTITLES = [
 
 type FeedItem =
   | { type: 'plate'; order: Order }
+  | { type: 'bump'; order: Order }
   | { type: 'suggest'; key: string; contacts: Contact[]; subtitle: string };
 
 function FeedSkeleton() {
@@ -76,7 +77,7 @@ export default function Home() {
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { feedOrders, contacts, unreadCount } = useData();
+  const { feedOrders, contacts, unreadCount, bumpedOrderIds } = useData();
   const { openSaveSheet, isSaved: isSavedInCollections } = useCollections();
   const { current: streak } = useStreak();
   const [booting, setBooting] = useState(true);
@@ -103,7 +104,14 @@ export default function Home() {
       block += 1;
       since = 0;
     };
+    // A restaurant's paid bump leads the feed, ahead of anything organic —
+    // that's the placement it paid for. Pulled out of the normal ordering
+    // rather than left in both spots, so it isn't shown twice.
+    orders
+      .filter((o) => bumpedOrderIds.has(o.id))
+      .forEach((o) => out.push({ type: 'bump', order: o }));
     orders.forEach((o, idx) => {
+      if (bumpedOrderIds.has(o.id)) return;
       out.push({ type: 'plate', order: o });
       since += 1;
       if (contacts.length && since >= GAPS[block % GAPS.length] && idx < orders.length - 1) {
@@ -114,7 +122,7 @@ export default function Home() {
     if (block === 0 && contacts.length) pushSuggest();
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderKey, contacts]);
+  }, [orderKey, contacts, bumpedOrderIds]);
 
   useEffect(() => {
     const t = setTimeout(() => setBooting(false), 450);
@@ -165,11 +173,14 @@ export default function Home() {
       ) : (
         <FlatList
           data={items}
-          keyExtractor={(item) => (item.type === 'plate' ? item.order.id : item.key)}
+          keyExtractor={(item) =>
+            item.type === 'suggest' ? item.key : item.type === 'bump' ? `bump-${item.order.id}` : item.order.id
+          }
           renderItem={({ item }) =>
-            item.type === 'plate' ? (
+            item.type === 'plate' || item.type === 'bump' ? (
               <PlateCard
                 order={item.order}
+                promoted={item.type === 'bump'}
                 onSave={() => openSaveSheet({ type: 'plate', id: item.order.id })}
                 savedOverride={isSavedInCollections({ type: 'plate', id: item.order.id })}
               />

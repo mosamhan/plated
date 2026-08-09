@@ -73,6 +73,8 @@ export interface MapRestaurant extends RestaurantWithRating {
   type: PlaceType;
   statuses: PlaceStatus[];
   saved: boolean;
+  /** Restaurant paid for a `map_pin` sponsored placement — see 0028_restaurant_subscriptions.sql. */
+  sponsored?: boolean;
 }
 
 interface Props {
@@ -199,10 +201,10 @@ export const ExploreMap = forwardRef<MapView, Props>(function ExploreMap(
             // The key carries the highlight so the marker view is rebuilt when
             // it changes: tracksViewChanges is off for scroll performance, which
             // would otherwise freeze the pin at its first appearance.
-            key={`${r.id}:${highlighted ? 'on' : 'off'}:${detail}`}
+            key={`${r.id}:${highlighted ? 'on' : 'off'}:${detail}:${r.sponsored ? 'ad' : 'x'}`}
             coordinate={{ latitude: r.lat, longitude: r.lng }}
             anchor={{ x: 0.5, y: 1 }}
-            zIndex={highlighted ? 10 : 1}
+            zIndex={highlighted ? 10 : r.sponsored ? 8 : 1}
             tracksViewChanges={false}
             onPress={() => onSelect(r)}>
             <Pin
@@ -213,6 +215,7 @@ export const ExploreMap = forwardRef<MapView, Props>(function ExploreMap(
               highlighted={highlighted}
               detail={detail}
               name={r.name}
+              sponsored={r.sponsored}
             />
           </Marker>
         );
@@ -261,6 +264,7 @@ function Pin({
   highlighted,
   detail = 'mid',
   name,
+  sponsored,
 }: {
   type: PlaceType;
   statuses: PlaceStatus[];
@@ -269,6 +273,7 @@ function Pin({
   highlighted?: boolean;
   detail?: PinDetail;
   name?: string;
+  sponsored?: boolean;
 }) {
   const glyph = PLACE_TYPE_META[type].icon;
   const tint = pinColorFor(statuses);
@@ -298,6 +303,14 @@ function Pin({
       </View>
       <Text style={[styles.score, highlighted && styles.scoreLg]}>{score > 0 ? score.toFixed(1) : '—'}</Text>
       {saved && <Ionicons name="star" size={highlighted ? 13 : 11} color="#B07207" style={{ marginLeft: -1 }} />}
+      {/* A paid placement, not a relationship the pin already encodes (saved/
+          loved/been) — a separate corner badge rather than recoloring the pin,
+          so it never gets mistaken for one of those. */}
+      {sponsored && (
+        <View style={styles.adBadge}>
+          <Text style={styles.adBadgeText}>Ad</Text>
+        </View>
+      )}
     </View>
       {/* Close in, the score alone stops being the useful bit — you want to know
           which place it is. */}
@@ -447,4 +460,16 @@ const styles = StyleSheet.create({
   },
   dot: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   score: { color: '#1A1413', fontSize: 13, fontWeight: '800' },
+  adBadge: {
+    position: 'absolute',
+    top: -7,
+    right: -7,
+    backgroundColor: '#4A4A4A',
+    borderRadius: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  adBadgeText: { color: '#fff', fontSize: 8, fontWeight: '800' },
 });
