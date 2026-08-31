@@ -146,6 +146,25 @@ export default function CreatePlate() {
       .slice(0, 6);
   })();
 
+  // The crowd average for whatever's currently typed/selected as the draft
+  // dish, when it matches something already on this restaurant's menu.
+  const draftMatch = (() => {
+    const trimmed = draftName.trim().toLowerCase();
+    if (!trimmed) return null;
+    return menuEntries.find((e) => e.count > 0 && e.name.toLowerCase() === trimmed) ?? null;
+  })();
+
+  // Default the rating to that average once the dish is identified — typed to
+  // an exact match or picked from a suggestion chip — rather than a flat 8
+  // for everything. Only sets it on the name→match transition (keyed on
+  // draftName, not draftMatch, which is recomputed every render); a rating
+  // the user has since adjusted for a still-matching name is never stomped,
+  // since the effect only re-fires when the name itself changes again.
+  useEffect(() => {
+    if (draftMatch) setDraftRating(draftMatch.rating);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftName, restaurantId]);
+
   const addItem = (name: string, ratingVal: number) => {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -382,6 +401,12 @@ export default function CreatePlate() {
         {/* Draft item: name + rating + add */}
         <View style={{ marginTop: spacing.md }}>
           <TextField label="Dish name" value={draftName} onChangeText={setDraftName} placeholder="e.g. Truffle Smash Burger" />
+          {draftMatch && (
+            <Text style={[styles.fieldLabel, { color: colors.textMuted, marginTop: spacing.sm }]}>
+              Starting at the crowd average ({draftMatch.rating.toFixed(1)}, {draftMatch.count}{' '}
+              {draftMatch.count === 1 ? 'rating' : 'ratings'}) — rate it however you actually feel.
+            </Text>
+          )}
           <View style={[styles.ratingBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <RatingInput value={draftRating} onChange={setDraftRating} />
           </View>
