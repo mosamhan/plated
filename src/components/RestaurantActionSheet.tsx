@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Animated, ImageSourcePropType, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RatingBadge } from '@/components/RatingBadge';
 import { useSheetDismiss } from '@/components/useSheetDismiss';
-import { openDirections, openReservation } from '@/lib/external';
+import { openDirections, openReservation, resolveMapsProvider } from '@/lib/external';
 import { tapMedium } from '@/lib/haptics';
+import { useSettings } from '@/store/SettingsContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -46,6 +48,7 @@ export function RestaurantActionSheet({
   onDirections,
 }: Props) {
   const { colors } = useTheme();
+  const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const drag = useSheetDismiss(onClose, visible);
   const place = { name, location, lat, lng };
@@ -53,12 +56,15 @@ export function RestaurantActionSheet({
   const Action = ({
     icon,
     color,
+    logo,
     label,
     sub,
     onPress,
   }: {
     icon: keyof typeof Ionicons.glyphMap;
     color: string;
+    /** A real brand mark, shown on a white chip instead of the Ionicon when set. */
+    logo?: ImageSourcePropType;
     label: string;
     sub: string;
     onPress: () => void;
@@ -69,9 +75,15 @@ export function RestaurantActionSheet({
         styles.action,
         { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.85 : 1 },
       ]}>
-      <View style={[styles.iconWrap, { backgroundColor: color }]}>
-        <Ionicons name={icon} size={20} color="#fff" />
-      </View>
+      {logo ? (
+        <View style={styles.logoChip}>
+          <Image source={logo} style={styles.logoImg} contentFit="contain" />
+        </View>
+      ) : (
+        <View style={[styles.iconWrap, { backgroundColor: color }]}>
+          <Ionicons name={icon} size={20} color="#fff" />
+        </View>
+      )}
       <View style={{ flex: 1 }}>
         <Text style={[styles.aLabel, { color: colors.text }]}>{label}</Text>
         <Text style={[styles.aSub, { color: colors.textMuted }]}>{sub}</Text>
@@ -126,7 +138,7 @@ export function RestaurantActionSheet({
                   onClose();
                   setTimeout(onDirections, 120);
                 } else {
-                  openDirections('google', place);
+                  openDirections(resolveMapsProvider(settings.preferredMapsApp), place);
                 }
               }}
             />
@@ -134,7 +146,14 @@ export function RestaurantActionSheet({
 
           <Text style={[styles.group, { color: colors.textMuted }]}>RESERVE A TABLE</Text>
           <View style={{ gap: 8 }}>
-            <Action icon="restaurant" color="#DA3743" label="OpenTable" sub="Find a reservation" onPress={() => openReservation('opentable', place)} />
+            <Action
+              icon="restaurant"
+              color="#DA3743"
+              logo={require('../../assets/images/providers/opentable.png')}
+              label="OpenTable"
+              sub="Find a reservation"
+              onPress={() => openReservation('opentable', place)}
+            />
             <Action icon="search" color="#6B7280" label="Search reservations" sub="Resy, Tock & more" onPress={() => openReservation('search', place)} />
           </View>
         </Pressable>
@@ -171,6 +190,16 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   iconWrap: { width: 40, height: 40, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  logoChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 11,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 5,
+  },
+  logoImg: { width: '100%', height: '100%' },
   aLabel: { fontSize: 15, fontWeight: '700' },
   aSub: { fontSize: 12, fontWeight: '500', marginTop: 1 },
 });

@@ -38,6 +38,13 @@ export interface PlatoVideo {
   archived?: boolean;
   /** Co-creators. Only `accepted` entries are visible to anyone but the two parties. */
   collaborators?: Collaborator[];
+  /**
+   * Whether this specific Plato earns the creator commission — computed once
+   * at creation time (see 0038_post_monetization_flags.sql), not derived from
+   * `compensationEligible`. Drives the FTC "#ad" disclosure on this Plato's
+   * share copy.
+   */
+  monetizable?: boolean;
 }
 
 export interface PlatoComment {

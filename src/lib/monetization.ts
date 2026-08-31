@@ -87,3 +87,51 @@ export async function requestCashout(): Promise<CashoutResult> {
   if (result.error) return { ok: false, message: result.error };
   return { ok: true, amountCents: result.amountCents ?? 0 };
 }
+
+interface CreatorEligibilityResponse {
+  eligible?: boolean;
+  error?: string;
+}
+
+/**
+ * Asks check-creator-eligibility to re-verify the signed-in user's counts
+ * server-side and flip `compensation_eligible` if all five thresholds are
+ * genuinely met. Safe to call speculatively — it's a no-op read when the
+ * user isn't eligible yet, and idempotent once they are.
+ */
+export async function checkCreatorEligibility(): Promise<boolean> {
+  const result = await call<CreatorEligibilityResponse>('check-creator-eligibility', {});
+  return result?.eligible ?? false;
+}
+
+export type RestaurantTier = 'starter' | 'growth';
+
+interface RestaurantCheckoutResponse {
+  url?: string;
+  error?: string;
+}
+
+export type RestaurantCheckoutResult = { ok: true; url: string } | { ok: false; message: string };
+
+/**
+ * Starts a web-based Stripe Checkout session for a restaurant's self-serve
+ * subscription tier — open the returned url with `Linking.openURL`, never a
+ * native purchase flow (this is B2B spend, not consumer digital content).
+ * `commissionPercent` is set once here; a restaurant that already has a
+ * locked rate gets back an error directing them to the rate-change-request
+ * path instead.
+ */
+export async function startRestaurantCheckout(
+  restaurantId: string,
+  tier: RestaurantTier,
+  commissionPercent: number,
+): Promise<RestaurantCheckoutResult> {
+  const result = await call<RestaurantCheckoutResponse>('stripe-restaurant-checkout', {
+    restaurantId,
+    tier,
+    commissionPercent,
+  });
+  if (!result) return { ok: false, message: 'Something went wrong — try again.' };
+  if (result.error || !result.url) return { ok: false, message: result.error ?? 'Something went wrong — try again.' };
+  return { ok: true, url: result.url };
+}

@@ -1,5 +1,5 @@
 /** Maps Supabase rows (snake_case) to the app's domain types (camelCase). */
-import { avatar, foodPhoto, restaurantPhoto } from '@/data/images';
+import { defaultAvatar, foodPhoto, restaurantPhoto } from '@/data/images';
 import { Conversation, Message, MessageKind, MessageReaction } from '@/data/messages';
 import { PlatoComment, PlatoVideo } from '@/data/platos';
 import { Story } from '@/data/stories';
@@ -24,7 +24,7 @@ export function mapProfile(row: any): User {
     id: row.id,
     name: row.name ?? 'Guest',
     handle: row.handle ?? 'guest',
-    avatar: row.avatar_url || avatar(hashToInt(row.id)),
+    avatar: row.avatar_url || defaultAvatar(),
     bio: row.bio ?? '',
     verified: !!row.verified,
     followers: countOf(row.followers),
@@ -33,14 +33,17 @@ export function mapProfile(row: any): User {
     socials: row.socials ?? {},
     compensationEligible: !!row.compensation_eligible,
     estimatedEarnings: 0,
+    needsOnboarding: !!row.needs_onboarding,
+    dateOfBirth: row.date_of_birth ?? undefined,
   };
 }
 
 export function mapRestaurant(row: any): Restaurant {
+  const photos: string[] = row.custom_photos ?? [];
   return {
     id: row.id,
-    name: row.name,
-    image: row.image_url || restaurantPhoto(hashToInt(row.id)),
+    name: row.custom_name || row.name,
+    image: photos[0] || row.image_url || restaurantPhoto(hashToInt(row.id)),
     cuisine: row.cuisine ?? 'Restaurant',
     location: row.location ?? '',
     distance: '',
@@ -48,6 +51,18 @@ export function mapRestaurant(row: any): Restaurant {
     lng: row.lng ?? undefined,
     priceLevel: (row.price_level as Restaurant['priceLevel']) ?? '$$',
     fsqId: row.fsq_id ?? undefined,
+    verified: row.verified ?? false,
+    photos,
+    orderMode: (row.order_mode as Restaurant['orderMode']) ?? undefined,
+    reservationPlatform: (row.reservation_platform as Restaurant['reservationPlatform']) ?? undefined,
+    reservationUrl: row.reservation_url ?? undefined,
+    externalOrderUrl: row.external_order_url ?? undefined,
+    doordashStoreUrl: row.doordash_store_url ?? undefined,
+    ubereatsStoreUrl: row.ubereats_store_url ?? undefined,
+    googlePlaceId: row.google_place_id ?? undefined,
+    googleRating: row.google_rating != null ? Number(row.google_rating) : undefined,
+    googleRatingCount: row.google_rating_count ?? undefined,
+    googleRatingFetchedAt: row.google_rating_fetched_at ?? undefined,
   };
 }
 
@@ -90,6 +105,7 @@ export function mapOrder(row: any): Order {
     hideLikeCount: !!row.hide_like_count,
     visibility: (row.visibility as Order['visibility']) ?? 'public',
     archived: !!row.archived,
+    monetizable: !!row.monetizable,
   };
 }
 
@@ -131,6 +147,7 @@ export function mapOffer(row: any): RestaurantOffer {
     promoCode: row.promo_code ?? undefined,
     redeemWindowSeconds: row.redeem_window_seconds ?? 300,
     expiresAt: row.expires_at ?? undefined,
+    active: row.active ?? true,
   };
 }
 
@@ -146,6 +163,7 @@ export function mapSponsoredPlacement(row: any): SponsoredPlacement {
     mediaUrl: row.media_url ?? undefined,
     headline: row.headline ?? undefined,
     ctaUrl: row.cta_url ?? undefined,
+    targetZipCodes: row.target_zip_codes ?? [],
   };
 }
 
@@ -168,7 +186,7 @@ export function mapPlato(row: any): PlatoVideo {
     creatorId: row.user_id,
     creatorName: creator.name ?? 'Creator',
     creatorHandle: creator.handle ?? 'creator',
-    avatar: creator.avatar_url || avatar(hashToInt(row.user_id)),
+    avatar: creator.avatar_url || defaultAvatar(),
     verified: !!creator.verified,
     compensationEligible: !!creator.compensation_eligible,
     dishName: row.dish_name,
@@ -185,6 +203,7 @@ export function mapPlato(row: any): PlatoVideo {
       : undefined,
     visibility: (row.visibility as PlatoVideo['visibility']) ?? 'public',
     archived: !!row.archived,
+    monetizable: !!row.monetizable,
   };
 }
 
@@ -197,7 +216,7 @@ export function mapPlatoComment(row: any): PlatoComment {
     parentId: row.parent_id ?? undefined,
     name: author.name ?? 'Guest',
     handle: author.handle ?? 'guest',
-    avatar: author.avatar_url || avatar(hashToInt(row.user_id)),
+    avatar: author.avatar_url || defaultAvatar(),
     text: row.text,
     likes: countOf(row.likes),
     createdAt: row.created_at,
@@ -212,11 +231,14 @@ export function mapConversation(row: any): Conversation {
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastMessageAt: row.last_message_at ?? row.created_at,
+    avatarUrl: row.avatar_url ?? undefined,
     participants: (row.participants ?? row.conversation_participants ?? []).map((p: any) => ({
       userId: p.user_id,
       state: p.state === 'request' ? 'request' : 'accepted',
       lastReadAt: p.last_read_at ?? EPOCH,
       muted: !!p.muted,
+      pinned: !!p.pinned,
+      forcedUnread: !!p.forced_unread,
     })),
   };
 }

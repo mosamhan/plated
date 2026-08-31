@@ -1,19 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeInDown, ZoomIn, ZoomOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
@@ -22,10 +21,12 @@ import { RatingBadge } from '@/components/RatingBadge';
 import { PlateCarousel } from '@/components/PlateCarousel';
 import { PostOptionsSheet } from '@/components/PostOptionsSheet';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { SendToSheet } from '@/components/SendToSheet';
 import { formatCount } from '@/components/StatPill';
 import { collabLabel } from '@/lib/collabs';
-import { buildPlateShareMessage } from '@/lib/invite';
-import { postAverageRating, postMedia, postShareArgs } from '@/lib/post';
+import { formatAbsoluteDate } from '@/lib/dates';
+import { buildPlateShareMessage, plateLink } from '@/lib/invite';
+import { postAverageRating, postMedia } from '@/lib/post';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
@@ -67,6 +68,12 @@ export default function OrderDetail() {
   const { openSaveSheet } = useCollections();
   const [sheet, setSheet] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  // Which plate of the carousel is on screen — what the header Share acts on.
+  const [plateIndex, setPlateIndex] = useState(0);
+  const [burst, setBurst] = useState(false);
+  const lastHeroTap = useRef(0);
+  const burstTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [draft, setDraft] = useState('');
 
   const order = orders.find((o) => o.id === id);
@@ -104,29 +111,32 @@ export default function OrderDetail() {
       return next;
     });
 
-  const sharePlateAt = (dishName: string, rating: number) => {
+  // Each plate row shares that plate through the same Send-to sheet the header
+  // uses — people first, system share inside it. Setting the index is what makes
+  // the recipient's card show the plate that was picked.
+  const sharePlateAt = (index: number) => {
     tapLight();
-    Share.share({
-      message: buildPlateShareMessage({
-        dishName,
-        restaurantName: restaurant?.name,
-        rating,
-        handle: user.handle,
-      }),
-    }).catch(() => {});
+    setPlateIndex(index);
+    setSendOpen(true);
   };
 
-  // Header share = the whole post (all plates), distinct from a per-plate share.
+  // Header share = the plate you're looking at, matching the feed card. Opens
+  // Send-to (people first, system share inside it); the per-plate rows below
+  // stay a direct system share, since picking a row off the list is already an
+  // explicit "this one, out of the app".
+  const currentPlate = media[Math.min(plateIndex, media.length - 1)] ?? media[0];
   const sharePost = () => {
     tapLight();
-    Share.share({
-      message: buildPlateShareMessage({
-        ...postShareArgs(order),
-        restaurantName: restaurant?.name,
-        handle: user.handle,
-      }),
-    }).catch(() => {});
+    setSendOpen(true);
   };
+  const postShareMessage = buildPlateShareMessage({
+    orderId: order.id,
+    dishName: currentPlate.dishName || order.dishName,
+    rating: currentPlate.rating || order.rating,
+    restaurantName: restaurant?.name,
+    handle: user.handle,
+    earns: order.monetizable,
+  });
 
   // Save the compiled order to a collection. The unit saved is the post (saved
   // items are keyed by post id), so this bookmarks the spot+order to revisit;
@@ -141,6 +151,23 @@ export default function OrderDetail() {
   const following = isFollowing(user.id);
   const reordered = hasReordered(order.id);
   const comments = commentsFor(order.id);
+
+  // Double-tap the hero to like, same as the feed card and the Plato reel.
+  // A single tap on the detail hero has nothing to navigate to, so there's no
+  // timer to disambiguate against — the second tap is the whole gesture.
+  const onHeroPress = () => {
+    const now = Date.now();
+    if (now - lastHeroTap.current < 260) {
+      lastHeroTap.current = 0;
+      if (!liked) toggleLike(order.id);
+      tapLight();
+      setBurst(true);
+      if (burstTimer.current) clearTimeout(burstTimer.current);
+      burstTimer.current = setTimeout(() => setBurst(false), 700);
+      return;
+    }
+    lastHeroTap.current = now;
+  };
 
   const submitComment = () => {
     const text = draft.trim();
@@ -157,7 +184,7 @@ export default function OrderDetail() {
       <View style={styles.headerOverlay}>
         <ScreenHeader
           transparent
-          // Share sits left of save — shares the whole post (every plate).
+          // Share sits left of save — shares the plate currently on screen.
           secondaryIcon="share-outline"
           onSecondary={sharePost}
           rightIcon={saved ? 'bookmark' : 'bookmark-outline'}
@@ -170,24 +197,44 @@ export default function OrderDetail() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
         {/* Same swipeable carousel as the feed, so the detail matches the post. */}
+        <View>
         <PlateCarousel
           media={media}
-          onPress={() => {}}
+          onPress={onHeroPress}
           reorders={order.reorders ?? 0}
           colorSurface={colors.surface}
+          onIndexChange={setPlateIndex}
+          // Clear of the transparent header, which sits over the top of the
+          // carousel and would otherwise cover the counter.
+          topInset={insets.top + 44}
         />
+        {burst && (
+          <View style={styles.burstWrap} pointerEvents="none">
+            <Animated.View entering={ZoomIn.springify().damping(10)} exiting={ZoomOut.duration(250)}>
+              <Ionicons name="heart" size={92} color="#FFFFFF" style={styles.burstHeart} />
+            </Animated.View>
+          </View>
+        )}
+        </View>
 
         <View style={styles.body}>
           <Animated.View entering={FadeInDown.duration(300)} style={styles.titleRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={[styles.dishTitle, { color: colors.text, fontFamily: displayFont }]}>
-                {multiPlate ? `${media.length} plates` : order.dishName}
-              </Text>
+              {/* The headline is the place, not a count. On a multi-plate post
+                  the dish name belongs to whichever plate you've swiped to —
+                  the carousel already says it — so "3 plates" was a label for
+                  something nobody was looking at. The restaurant is the one
+                  thing every plate on the post has in common. */}
               <Pressable onPress={() => restaurant && router.push(`/restaurant/${restaurant.id}`)}>
-                <Text style={[styles.restaurant, { color: colors.accent }]}>
-                  {restaurant?.name} · {restaurant?.location}
+                <Text style={[styles.dishTitle, { color: colors.text, fontFamily: displayFont }]}>
+                  {restaurant?.name ?? order.dishName}
                 </Text>
               </Pressable>
+              <Text style={[styles.restaurant, { color: colors.accent }]}>
+                {[restaurant?.location, multiPlate ? `${media.length} plates` : currentPlate.dishName]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
               {collabs && (
                 <Text style={[styles.collab, { color: colors.textMuted }]} numberOfLines={1}>
                   <Ionicons name="people" size={13} color={colors.textMuted} /> with {collabs}
@@ -284,7 +331,7 @@ export default function OrderDetail() {
                       {m.dishName || 'Plate'}
                     </Text>
                     <RatingBadge score={m.rating} size="sm" />
-                    <Pressable onPress={() => sharePlateAt(m.dishName, m.rating)} hitSlop={6} style={{ marginLeft: 8 }}>
+                    <Pressable onPress={() => sharePlateAt(i)} hitSlop={6} style={{ marginLeft: 8 }}>
                       <Ionicons name="share-outline" size={18} color={colors.textMuted} />
                     </Pressable>
                   </View>
@@ -405,6 +452,8 @@ export default function OrderDetail() {
             </>
             )}
           </Animated.View>
+
+          <Text style={[styles.postDate, { color: colors.textMuted }]}>{formatAbsoluteDate(order.createdAt)}</Text>
         </View>
       </ScrollView>
 
@@ -456,13 +505,34 @@ export default function OrderDetail() {
         onClose={() => setSheet(false)}
         order={order}
         restaurantName={restaurant?.name ?? ''}
+        restaurantLocation={restaurant?.location}
         dishName={
           selectedMedia.length
             ? selectedMedia.map((m) => m.dishName).filter(Boolean).join(', ')
             : order.dishName
         }
+        priceLevel={restaurant?.priceLevel}
+        orderMode={restaurant?.orderMode}
+        reservationPlatform={restaurant?.reservationPlatform}
+        reservationUrl={restaurant?.reservationUrl}
+        externalOrderUrl={restaurant?.externalOrderUrl}
+        doordashStoreUrl={restaurant?.doordashStoreUrl}
+        ubereatsStoreUrl={restaurant?.ubereatsStoreUrl}
         creatorHandle={user.handle}
         supportsCreator={user.compensationEligible}
+      />
+
+      <SendToSheet
+        visible={sendOpen}
+        onClose={() => setSendOpen(false)}
+        payload={{
+          kind: 'plate',
+          attachmentId: order.id,
+          attachmentIndex: plateIndex,
+          shareMessage: postShareMessage,
+          link: plateLink(order.id),
+          label: `the ${currentPlate.dishName || order.dishName}`,
+        }}
       />
     </KeyboardAvoidingView>
   );
@@ -470,6 +540,12 @@ export default function OrderDetail() {
 
 const styles = StyleSheet.create({
   headerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
+  burstWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  burstHeart: {
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 12,
+  },
   hero: { width: '100%', aspectRatio: 1 },
   body: { padding: spacing.lg },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
@@ -523,6 +599,7 @@ const styles = StyleSheet.create({
   commentName: { fontSize: 13, fontWeight: '800' },
   commentTime: { fontSize: 12, fontWeight: '500' },
   commentText: { fontSize: 14, fontWeight: '500', lineHeight: 19 },
+  postDate: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: spacing.xl },
   commentInputRow: {
     flexDirection: 'row',
     alignItems: 'center',

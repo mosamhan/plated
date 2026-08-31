@@ -1,24 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { formatCount } from '@/components/StatPill';
+import { creatorEligibilityCounts, evaluateCreatorEligibility } from '@/lib/creatorEligibility';
 import { foodPlaceholder } from '@/data/images';
 import { PREVIEW_ATTRIBUTIONS } from '@/data/social';
 import { openInApp } from '@/lib/external';
 import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
-import { requestCashout, startStripeOnboarding } from '@/lib/monetization';
+import { checkCreatorEligibility, requestCashout, startStripeOnboarding } from '@/lib/monetization';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useData } from '@/store/DataContext';
+import { usePlatos } from '@/store/PlatosContext';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-const ELIGIBILITY_FOLLOWERS = 10_000;
 const PAYOUT_MINIMUM = 25;
 
 /**
@@ -33,10 +34,27 @@ const PAYOUT_MINIMUM = 25;
 export default function CreatorDashboard() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { currentUser, orders, attributions: liveAttributions, refreshAttributions } = useData();
+  const { currentUser, orders, ordersByUser, attributions: liveAttributions, refreshAttributions, refresh } = useData();
+  const { platos } = usePlatos();
 
   const eligible = currentUser.compensationEligible;
-  const progress = Math.min(currentUser.followers / ELIGIBILITY_FOLLOWERS, 1);
+  const myPlates = ordersByUser(currentUser.id);
+  const myPlatos = useMemo(() => platos.filter((p) => p.creatorId === currentUser.id), [platos, currentUser.id]);
+  const counts = creatorEligibilityCounts({ followers: currentUser.followers, plates: myPlates, platos: myPlatos });
+  const { criteria, meetsAll } = evaluateCreatorEligibility(counts);
+
+  // Once the client sees all five thresholds met, ask the server to
+  // re-verify and flip compensation_eligible for real — the client's own
+  // math is never trusted for the actual write. Guarded so it only fires
+  // once per mount even if this re-renders before the refresh lands.
+  const checkedRef = useRef(false);
+  useEffect(() => {
+    if (eligible || !meetsAll || checkedRef.current) return;
+    checkedRef.current = true;
+    checkCreatorEligibility().then((flipped) => {
+      if (flipped) refresh();
+    });
+  }, [eligible, meetsAll, refresh]);
 
   // Real numbers once there's a live account and eligibility to back them —
   // otherwise the same clearly-labeled preview this screen has always shown.
@@ -99,7 +117,7 @@ export default function CreatorDashboard() {
             <View style={[styles.previewPill, { backgroundColor: colors.accent }]}>
               <Ionicons name="eye-outline" size={12} color={colors.accentText} />
               <Text style={[styles.previewPillText, { color: colors.accentText }]}>
-                PREVIEW — unlocks at {formatCount(ELIGIBILITY_FOLLOWERS)} followers
+                PREVIEW — become a Plated Creator to unlock
               </Text>
             </View>
           )}
@@ -133,19 +151,32 @@ export default function CreatorDashboard() {
           <Animated.View
             entering={FadeInDown.delay(60).duration(300)}
             style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[typography.heading, { color: colors.text }]}>Path to payouts</Text>
-            <View style={styles.progressRow}>
-              <Text style={[styles.progressLabel, { color: colors.textMuted }]}>
-                {formatCount(currentUser.followers)} / {formatCount(ELIGIBILITY_FOLLOWERS)} followers
-              </Text>
-              <Text style={[styles.progressPct, { color: colors.accent }]}>
-                {Math.round(progress * 100)}%
-              </Text>
+            <Text style={[typography.heading, { color: colors.text }]}>Become a Plated Creator</Text>
+            <Text style={[styles.tip, { color: colors.textMuted, marginTop: 2 }]}>
+              Meet all five to unlock payouts — this keeps the program for people actually making
+              quality content, not just accounts with a lot of followers.
+            </Text>
+            <View style={{ marginTop: spacing.md, gap: spacing.md }}>
+              {criteria.map((c) => (
+                <View key={c.key}>
+                  <View style={styles.progressRow}>
+                    <Text style={[styles.progressLabel, { color: colors.textMuted }]}>
+                      {c.label} · {formatCount(c.value)} / {formatCount(c.threshold)}
+                    </Text>
+                    {c.met && <Ionicons name="checkmark-circle" size={16} color={colors.accent} />}
+                  </View>
+                  <View style={[styles.track, { backgroundColor: colors.surface }]}>
+                    <View
+                      style={[
+                        styles.fill,
+                        { width: `${c.progress * 100}%`, backgroundColor: colors.accent },
+                      ]}
+                    />
+                  </View>
+                </View>
+              ))}
             </View>
-            <View style={[styles.track, { backgroundColor: colors.surface }]}>
-              <View style={[styles.fill, { width: `${progress * 100}%`, backgroundColor: colors.accent }]} />
-            </View>
-            <Text style={[styles.tip, { color: colors.textMuted }]}>
+            <Text style={[styles.tip, { color: colors.textMuted, marginTop: spacing.md }]}>
               Grow faster: drop your invite link on Instagram, TikTok &amp; YouTube. Every plate you
               post is a storefront.
             </Text>
@@ -313,9 +344,8 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     marginTop: spacing.lg,
   },
-  progressRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md },
+  progressRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md },
   progressLabel: { fontSize: 13, fontWeight: '600' },
-  progressPct: { fontSize: 13, fontWeight: '800' },
   track: { height: 8, borderRadius: 4, marginTop: 8, overflow: 'hidden' },
   fill: { height: 8, borderRadius: 4 },
   tip: { fontSize: 12, fontWeight: '500', marginTop: spacing.md, lineHeight: 17 },

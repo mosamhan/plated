@@ -10,6 +10,8 @@ export interface PlatedLocation {
   label: string; // e.g. "New York, NY"
   lat?: number;
   lng?: number;
+  /** US postal code, when reverse geocoding returns one — drives sponsored-placement zip targeting. */
+  zip?: string;
   source: 'device' | 'manual' | 'default';
 }
 
@@ -69,16 +71,18 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       const { latitude, longitude } = pos.coords;
       // Reverse geocode to a friendly label (best-effort).
       let label = `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+      let zip: string | undefined;
       try {
         const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
         if (place) {
           const city = place.city || place.subregion || place.district;
           label = city && place.region ? `${city}, ${place.region}` : city || place.region || label;
+          zip = place.postalCode ?? undefined;
         }
       } catch {
         /* keep coord label */
       }
-      persist({ label, lat: latitude, lng: longitude, source: 'device' });
+      persist({ label, lat: latitude, lng: longitude, zip, source: 'device' });
       return true;
     } catch {
       setError('Could not get your location. Try again or set a city manually.');

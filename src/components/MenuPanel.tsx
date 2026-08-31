@@ -7,6 +7,7 @@ import { Avatar } from '@/components/Avatar';
 import { RatingBadge } from '@/components/RatingBadge';
 import { dishKey, mergeMenu, summarizeDishes, type MenuRow } from '@/lib/dishes';
 import { fetchMenuItems } from '@/lib/places';
+import { supabase } from '@/lib/supabase';
 import { useData } from '@/store/DataContext';
 import { radius } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -57,8 +58,26 @@ export function MenuPanel({
     };
   }, [restaurant?.fsqId]);
 
+  // An owner's own added dishes (0042) — unrated like the FSQ menu, just a
+  // second source of names rather than a new row shape.
+  const [ownerMenu, setOwnerMenu] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    supabase
+      .from('restaurant_menu_items')
+      .select('name')
+      .eq('restaurant_id', restaurantId)
+      .order('position')
+      .then(({ data }) => {
+        if (alive) setOwnerMenu((data ?? []).map((r) => r.name));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [restaurantId]);
+
   // Foursquare menu first, crowd ratings overlaid — see mergeMenu.
-  const rows: MenuRow[] = useMemo(() => mergeMenu(crowd, apiMenu), [crowd, apiMenu]);
+  const rows: MenuRow[] = useMemo(() => mergeMenu(crowd, [...ownerMenu, ...apiMenu]), [crowd, ownerMenu, apiMenu]);
 
   const [open, setOpen] = useState<Set<string>>(new Set());
   const toggle = (name: string) =>

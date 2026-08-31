@@ -217,3 +217,32 @@ export async function searchPlaces(
   scored.sort((a, b) => a.rank - b.rank || a.i - b.i);
   return scored.map((s) => s.r);
 }
+
+interface GoogleRatingResponse {
+  googlePlaceId: string | null;
+  googleRating: number | null;
+  googleRatingCount: number | null;
+}
+
+/**
+ * Google's public rating for a restaurant, resolved and cached server-side
+ * (see google-restaurant-rating). Not routed through `callPlaces` — different
+ * Edge Function, different upstream. Null on any failure, same as the rest
+ * of this file; the UI just doesn't show a Google badge when this misses.
+ */
+export async function fetchGoogleRating(restaurantId: string): Promise<GoogleRatingResponse | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase.functions.invoke<GoogleRatingResponse>('google-restaurant-rating', {
+      body: { restaurantId },
+    });
+    if (error) {
+      if (__DEV__) console.warn('[Plated] google-restaurant-rating failed', error.message);
+      return null;
+    }
+    return data ?? null;
+  } catch (e) {
+    if (__DEV__) console.warn('[Plated] google-restaurant-rating request error', e);
+    return null;
+  }
+}

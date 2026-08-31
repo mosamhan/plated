@@ -24,16 +24,19 @@ export const SPONSORED_PLACEMENTS: SponsoredPlacement[] = [
     mediaUrl: restaurantPhoto(3),
     headline: 'Al pastor, made fresh daily',
     ctaUrl: 'https://www.google.com/search?q=Taqueria+El+Sol',
+    targetZipCodes: [],
   },
   {
     id: 'sp2',
     restaurantId: 'r6',
     placementType: 'map_pin',
+    targetZipCodes: [],
   },
   {
     id: 'sp3',
     restaurantId: 'r7',
     placementType: 'local_favorite',
     headline: 'This week: 20% off smoked brisket',
+    targetZipCodes: [],
   },
 ];

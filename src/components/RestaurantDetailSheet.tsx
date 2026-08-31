@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { tapLight, tapMedium, tick } from '@/lib/haptics';
@@ -11,17 +11,21 @@ import { Avatar } from '@/components/Avatar';
 import { MenuPanel } from '@/components/MenuPanel';
 import { OfferBannerList } from '@/components/OfferBanner';
 import { PlateList, PlatePanel } from '@/components/PlatePanel';
-import type { PlaceResult } from '@/lib/places';
+import { fetchGoogleRating, type PlaceResult } from '@/lib/places';
 import { RatingBadge } from '@/components/RatingBadge';
 import { useSheetDismiss } from '@/components/useSheetDismiss';
-import { openDirections, openReservation } from '@/lib/external';
+import { openDirections, openReservation, resolveMapsProvider } from '@/lib/external';
 import { summarizeDishes } from '@/lib/dishes';
 import { buildPlateShareMessage, buildRestaurantShareMessage } from '@/lib/invite';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
+import { useSettings } from '@/store/SettingsContext';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
+
+/** Re-check Google's cached rating (0045) after this long. */
+const GOOGLE_RATING_STALE_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Restaurant detail as a bottom-sheet overlay over the live map (design §2):
@@ -73,21 +77,84 @@ export function RestaurantDetailSheet({
   onOpenMap?: () => void;
 }) {
   const { colors } = useTheme();
+  const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { restaurantWithRating, ordersByRestaurant, userFor, restaurantMenu, offersForRestaurant } = useData();
+  const { restaurantWithRating, ordersByRestaurant, userFor, restaurantMenu, offersForRestaurant, ownedRestaurantIds } = useData();
   const { isSaved, openSaveSheet } = useCollections();
 
-  const visible = restaurantId != null || preview != null;
+  const wantsVisible = restaurantId != null || preview != null;
+  /**
+   * iOS's native Modal doesn't reliably re-present if `visible` flips back to
+   * true while its own close animation is still running — tapping X, then
+   * immediately re-tapping the same tile (a fast re-tap, since the finger
+   * barely has to move) toggles `wantsVisible` false→true quickly enough to
+   * land in exactly that window, and the sheet silently fails to reopen.
+   * `modalVisible` only flips true once the previous dismiss animation has
+   * actually finished. That's timed off a fixed delay matching the slide
+   * animation's duration rather than the Modal's `onDismiss` callback —
+   * `onDismiss` is iOS-only and, on the New Architecture, doesn't fire
+   * reliably for a transparent/slide modal, which left the lock below stuck
+   * on forever after the first close.
+   */
+  const [modalVisible, setModalVisible] = useState(wantsVisible);
+  const dismissingRef = useRef(false);
+  const pendingShowRef = useRef(false);
+  useEffect(() => {
+    if (wantsVisible) {
+      if (dismissingRef.current) {
+        pendingShowRef.current = true;
+      } else {
+        setModalVisible(true);
+      }
+      return;
+    }
+    dismissingRef.current = true;
+    // Synchronizing with the Modal's dismiss animation timing, not derivable
+    // during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setModalVisible(false);
+    const t = setTimeout(() => {
+      dismissingRef.current = false;
+      if (pendingShowRef.current) {
+        pendingShowRef.current = false;
+        setModalVisible(true);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [wantsVisible]);
   // Drag the grey bar at the top of the card down to dismiss. Scoped to the bar
   // rather than the whole hero: a responder over the hero would also intercept
-  // taps that drift a few points, which is most real taps on the X.
-  const drag = useSheetDismiss(onClose, visible);
+  // taps that drift a few points, which is most real taps on the X. Tracks the
+  // actual (gated) presentation state, not the raw request, so it doesn't
+  // reset mid-dismiss.
+  const drag = useSheetDismiss(onClose, modalVisible);
   const restaurant = restaurantId ? restaurantWithRating(restaurantId) : undefined;
   const orders = restaurantId ? ordersByRestaurant(restaurantId) : [];
   const menu = restaurantId ? restaurantMenu(restaurantId) : [];
   /** One entry per dish, ratings averaged — see lib/dishes. */
   const dishes = useMemo(() => summarizeDishes(orders), [orders]);
+
+  // Google's rating (out of 5) — lazily fetched and cached (0045); only
+  // re-fetched when the cache is missing or stale. Local state so the badge
+  // updates the instant a fetch resolves, without waiting on a full refresh().
+  const [googleRating, setGoogleRating] = useState<{ rating: number | null; count: number | null } | null>(null);
+  useEffect(() => {
+    if (!restaurantId || !restaurant) return;
+    const fetchedAt = restaurant.googleRatingFetchedAt ? new Date(restaurant.googleRatingFetchedAt).getTime() : 0;
+    const stale = Date.now() - fetchedAt > GOOGLE_RATING_STALE_MS;
+    if (!stale && restaurant.googleRatingFetchedAt) {
+      setGoogleRating({ rating: restaurant.googleRating ?? null, count: restaurant.googleRatingCount ?? null });
+      return;
+    }
+    let alive = true;
+    fetchGoogleRating(restaurantId).then((res) => {
+      if (alive && res) setGoogleRating({ rating: res.googleRating, count: res.googleRatingCount });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [restaurantId, restaurant, restaurant?.googleRatingFetchedAt, restaurant?.googleRating, restaurant?.googleRatingCount]);
 
   /**
    * The menu is a second page of *this* sheet, not a pushed route: a route
@@ -97,8 +164,8 @@ export function RestaurantDetailSheet({
    */
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
-    if (!visible) setMenuOpen(false);
-  }, [visible, restaurantId]);
+    if (!wantsVisible) setMenuOpen(false);
+  }, [wantsVisible, restaurantId]);
 
   // Top raters — the distinct authors who rated a plate here, best score first.
   const raters = restaurantId
@@ -145,27 +212,39 @@ export function RestaurantDetailSheet({
    * `plate` is the dish they tapped; with the switch on 'plate' but no specific
    * dish chosen, the best-rated one here stands in for "the plate to try".
    */
-  const shareCurrent = (r: { name: string; cuisine?: string; location?: string; platedRating?: number }) => {
+  const shareCurrent = (r: { id: string; name: string; cuisine?: string; location?: string; platedRating?: number }) => {
     const dish = plate ?? [...orders].sort((a, b) => b.rating - a.rating)[0];
     const message =
       showing === 'plate' && dish
         ? buildPlateShareMessage({
+            orderId: dish.id,
             dishName: dish.dishName,
             restaurantName: r.name,
             rating: dish.rating,
             handle: userFor(dish.userId).handle,
+            earns: dish.monetizable,
           })
         : buildRestaurantShareMessage({
+            restaurantId: r.id,
             name: r.name,
             cuisine: r.cuisine,
             location: r.location,
             rating: r.platedRating,
           });
+    // No separate `url` field — on iOS, passing both `message` and `url` to
+    // Share.share makes Messages fetch and attach the page as a raw file
+    // instead of generating a link preview. The message text already embeds
+    // the real link (see lib/invite), which is enough for Messages/etc. to
+    // auto-detect and preview on their own.
     Share.share({ message }).catch(() => {});
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={modalVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}>
       {/* Transparent backdrop — the map shows through, tap to dismiss. */}
       <Pressable style={styles.backdrop} onPress={onClose}>
         {preview && !restaurant && (
@@ -225,7 +304,7 @@ export function RestaurantDetailSheet({
                     // In-app route like every other Directions in Plated; the
                     // maps hand-off lives only in the steps sheet's Navigate.
                     if (onRoutePreview) afterClose(() => onRoutePreview(dest));
-                    else openDirections('google', dest as never);
+                    else openDirections(resolveMapsProvider(settings.preferredMapsApp), dest as never);
                   }}
                   style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Ionicons name="navigate" size={16} color={colors.accent} />
@@ -287,9 +366,20 @@ export function RestaurantDetailSheet({
               </Pressable>
               <View style={styles.heroFooter}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.heroName, { fontFamily: displayFont }]} numberOfLines={1}>
-                    {restaurant.name}
-                  </Text>
+                  <View style={styles.heroNameRow}>
+                    <Text style={[styles.heroName, { fontFamily: displayFont }]} numberOfLines={1}>
+                      {restaurant.name}
+                    </Text>
+                    {/* A Plated-verified restaurant — an approved claim with an
+                        active subscription (0036). Same badge shape as Avatar's
+                        verified check, just standalone since restaurants don't
+                        render through that component. */}
+                    {restaurant.verified && (
+                      <View style={[styles.verifiedBadge, { backgroundColor: colors.accent, borderColor: '#fff' }]}>
+                        <Ionicons name="checkmark" size={11} color={colors.accentText} />
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.heroMeta} numberOfLines={1}>
                     {restaurant.cuisine} · {restaurant.location}
                   </Text>
@@ -298,6 +388,16 @@ export function RestaurantDetailSheet({
                   <View style={{ alignItems: 'center' }}>
                     <RatingBadge score={restaurant.platedRating} size="lg" />
                     <Text style={styles.heroRatingLabel}>Plated&apos;s Rating</Text>
+                    {googleRating?.rating != null && (
+                      <View style={styles.googleRatingRow}>
+                        <Image
+                          source={require('../../assets/images/providers/google.png')}
+                          style={styles.googleLogo}
+                          contentFit="contain"
+                        />
+                        <Text style={styles.googleRatingText}>{googleRating.rating.toFixed(1)}/5</Text>
+                      </View>
+                    )}
                   </View>
                 )}
               </View>
@@ -357,7 +457,7 @@ export function RestaurantDetailSheet({
                     // Prefer the in-app route (keeps the user in Plated); fall
                     // back to an external maps hand-off only where unwired.
                     if (onRoute && restaurantId) onRoute(restaurantId);
-                    else openDirections('google', restaurant);
+                    else openDirections(resolveMapsProvider(settings.preferredMapsApp), restaurant);
                   }}
                   style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Ionicons name="navigate" size={16} color={colors.accent} />
@@ -460,6 +560,18 @@ export function RestaurantDetailSheet({
                   </ScrollView>
                 </>
               )}
+
+              {/* Low-key on purpose — this is Yelp's "claim this business" link,
+                  not a call to action the ordinary browsing user should notice. */}
+              <Pressable
+                onPress={() =>
+                  go(ownedRestaurantIds.has(restaurant.id) ? `/business/${restaurant.id}` : `/claim-restaurant/${restaurant.id}`)
+                }
+                style={styles.claimLink}>
+                <Text style={[styles.claimLinkText, { color: colors.textMuted }]}>
+                  {ownedRestaurantIds.has(restaurant.id) ? 'Manage this restaurant' : 'Is this your restaurant? Claim it'}
+                </Text>
+              </Pressable>
                 </>
               )}
             </ScrollView>
@@ -542,7 +654,10 @@ const styles = StyleSheet.create({
   // is the grey bar and nothing else, so it can't swallow taps meant for the
   // share button (top-left) or the close button (top-right) beside it.
   grabberWrap: { position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center' },
-  grabberHit: { paddingTop: 10, paddingBottom: 16, paddingHorizontal: 44 },
+  // Widened well past the visible bar — it was too small a target to reliably
+  // grab — while still staying clear of the share/close buttons in the
+  // corners (34px wide + 8 hitSlop, starting 12px from each edge).
+  grabberHit: { paddingTop: 14, paddingBottom: 26, paddingHorizontal: 90 },
   grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.7)' },
   // Mirrors closeBtn across the hero: share top-left, close top-right, grey bar
   // centred between them.
@@ -569,9 +684,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   heroFooter: { position: 'absolute', left: 16, right: 16, bottom: 14, flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
-  heroName: { fontSize: 24, fontWeight: '600', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 },
+  heroNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  heroName: { fontSize: 24, fontWeight: '600', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6, flexShrink: 1 },
+  verifiedBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   heroMeta: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.9)', marginTop: 2 },
   heroRatingLabel: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', marginTop: 4 },
+  googleRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  googleLogo: { width: 12, height: 12 },
+  googleRatingText: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.9)' },
   avgLine: { fontSize: 12, fontWeight: '500' },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
   actionBtn: {
@@ -634,4 +761,6 @@ const styles = StyleSheet.create({
   plateRank: { width: 18, textAlign: 'center', fontSize: 15, fontWeight: '900' },
   menuMeta: { fontSize: 12, fontWeight: '500', marginTop: 1 },
   raterName: { fontSize: 12, fontWeight: '700' },
+  claimLink: { alignItems: 'center', marginTop: spacing.xl, padding: spacing.sm },
+  claimLinkText: { fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },
 });

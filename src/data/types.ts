@@ -19,6 +19,18 @@ export interface User {
   compensationEligible: boolean;
   /** Mock estimated monthly earnings, only meaningful when eligible. */
   estimatedEarnings: number;
+  /** True only for a brand-new OAuth (Google/Apple) signup that hasn't picked a username/photo yet. Optional — absent (falsy) for mock/offline data. */
+  needsOnboarding?: boolean;
+  /** ISO date (YYYY-MM-DD). Optional — collected during onboarding for birthday specials/recommendations, never required. */
+  dateOfBirth?: string;
+}
+
+export interface RestaurantRequestInput {
+  businessName: string;
+  location: string;
+  contactEmail: string;
+  contactPhone?: string;
+  notes?: string;
 }
 
 export interface Restaurant {
@@ -35,6 +47,37 @@ export interface Restaurant {
   priceLevel: '$' | '$$' | '$$$';
   /** Foursquare place id — lets the menu pull FSQ's structured dish list. */
   fsqId?: string;
+  /**
+   * A Plated-verified restaurant — an approved claim with an active paid
+   * subscription (see 0036_restaurant_verified_flag.sql). Kept in sync by a
+   * DB trigger, never asserted by the client; a lapsed payment revokes it
+   * automatically.
+   */
+  verified?: boolean;
+  /** Owner-uploaded photos (0042) — image already prefers the first of these when present. */
+  photos?: string[];
+  /**
+   * How OrderProviderSheet hands this restaurant off. Set by a verified
+   * owner (0042); when absent, the sheet falls back to its price-level
+   * heuristic ('$$$' → reservation-first, else delivery-first).
+   */
+  orderMode?: 'delivery' | 'reservation';
+  reservationPlatform?: 'opentable' | 'resy' | 'other';
+  reservationUrl?: string;
+  /** The restaurant's own order page — preferred over a DoorDash/UberEats search when set. */
+  externalOrderUrl?: string;
+  doordashStoreUrl?: string;
+  ubereatsStoreUrl?: string;
+  /**
+   * Google's public rating (out of 5), cached from a Places API lookup
+   * (0045_google_rating_cache.sql) — never fetched live on every view.
+   * `undefined` means never looked up yet; `null` means looked up and Google
+   * has no match/rating for this place.
+   */
+  googlePlaceId?: string | null;
+  googleRating?: number | null;
+  googleRatingCount?: number | null;
+  googleRatingFetchedAt?: string | null;
 }
 
 /**
@@ -113,6 +156,13 @@ export interface Order {
   visibility?: 'public' | 'friends' | 'private';
   /** Hidden from everyone but the author, who can restore it. */
   archived?: boolean;
+  /**
+   * Whether this specific plate earns the poster commission — computed once
+   * at creation time (see 0038_post_monetization_flags.sql), not derived from
+   * the poster's current `compensationEligible` status. Drives the FTC "#ad"
+   * disclosure on share copy for this plate.
+   */
+  monetizable?: boolean;
 }
 
 export interface Comment {
@@ -131,7 +181,10 @@ export type NotificationKind =
   | 'earnings'
   | 'milestone'
   /** Invited onto someone's post as a co-creator, or an invite of yours accepted. */
-  | 'collab';
+  | 'collab'
+  /** A direct message, or a reaction to one of yours (0025 triggers). */
+  | 'message'
+  | 'reaction';
 
 export interface AppNotification {
   id: string;
@@ -192,6 +245,7 @@ export interface RestaurantOffer {
   /** How long the redeem screen's countdown runs once opened. */
   redeemWindowSeconds: number;
   expiresAt?: string;
+  active: boolean;
 }
 
 /**
@@ -219,6 +273,39 @@ export interface SponsoredPlacement {
   mediaUrl?: string;
   headline?: string;
   ctaUrl?: string;
+  /** Empty = untargeted, shown everywhere. Non-empty = only to viewers whose zip is in this list. */
+  targetZipCodes: string[];
+}
+
+/**
+ * A request to manage a restaurant's Plated listing. Filing one doesn't grant
+ * anything — see 0032_restaurant_claims.sql: an admin reviews it manually and,
+ * once approved, creates the `restaurant_owners` row that's the actual grant.
+ */
+export interface RestaurantClaimInput {
+  restaurantId: string;
+  businessName: string;
+  role: string;
+  contactEmail: string;
+  contactPhone?: string;
+  notes?: string;
+  /** Storage paths in the private `restaurant-verification` bucket — see 0034. */
+  idDocumentPath?: string;
+  authorizationDocumentPath?: string;
+  storefrontPhotoPath?: string;
+}
+
+/**
+ * A restaurant's own view of what it's paying and what's running — the
+ * "minimal status screen" a claimed restaurant sees at /business/[id].
+ * `monthlyRateCents` is a custom, admin-negotiated number, not a tier —
+ * see 0032_restaurant_claims.sql for why.
+ */
+export interface RestaurantBillingStatus {
+  status: 'incomplete' | 'active' | 'past_due' | 'canceled';
+  monthlyRateCents: number | null;
+  billingNote: string | null;
+  feedBumpsRemaining: number;
 }
 
 export interface Contact {

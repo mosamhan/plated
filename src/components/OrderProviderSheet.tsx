@@ -1,14 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ImageSourcePropType, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RatingBadge } from '@/components/RatingBadge';
-import { Order } from '@/data/types';
-import { openReservation } from '@/lib/external';
+import { Order, Restaurant } from '@/data/types';
+import { openInApp, openReservation } from '@/lib/external';
 import { tapMedium } from '@/lib/haptics';
 import { OrderPlatform, trackAffiliateClick } from '@/lib/monetization';
 import { useData } from '@/store/DataContext';
+import { useSettings } from '@/store/SettingsContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -27,11 +29,23 @@ interface Props {
    */
   plates?: { dishName: string; rating: number }[];
   /**
-   * Drives the order-vs-reserve heuristic: `$$$` (fine dining) leads with
-   * Reserve and recommends a service; `$` / `$$` lead with delivery/pickup.
-   * Both sections still show, so it's never a dead end.
+   * Drives the order-vs-reserve heuristic when the restaurant hasn't set an
+   * explicit `orderMode`: `$$$` (fine dining) leads with Reserve and
+   * recommends a service; `$` / `$$` lead with delivery/pickup. Both
+   * sections still show, so it's never a dead end.
    */
   priceLevel?: '$' | '$$' | '$$$';
+  /**
+   * A verified owner's explicit preference (0042) — takes priority over the
+   * price-level heuristic above when set.
+   */
+  orderMode?: Restaurant['orderMode'];
+  reservationPlatform?: Restaurant['reservationPlatform'];
+  reservationUrl?: string;
+  /** The restaurant's own order page — shown ahead of DoorDash/UberEats search when set. */
+  externalOrderUrl?: string;
+  doordashStoreUrl?: string;
+  ubereatsStoreUrl?: string;
   /** Handle of the person whose plate this is. */
   creatorHandle?: string;
   /** Whether ordering this plate pays commission to the creator. */
@@ -54,16 +68,24 @@ interface Reservation {
   key: 'opentable' | 'resy' | 'search';
   label: string;
   sub: string;
+  /** Real brand mark (assets/images/providers) — absent only for the generic "search" fallback. */
+  logo?: ImageSourcePropType;
   icon: keyof typeof Ionicons.glyphMap;
-  color: string;
   recommended?: boolean;
 }
 
 // OpenTable leads as the broadest default; Resy and a general search follow.
 const RESERVATIONS: Reservation[] = [
-  { key: 'opentable', label: 'OpenTable', sub: 'Recommended · book a table', icon: 'restaurant', color: '#DA3743', recommended: true },
-  { key: 'resy', label: 'Resy', sub: 'Book on Resy', icon: 'wine', color: '#C6362E' },
-  { key: 'search', label: 'Find a reservation', sub: 'Resy, Tock & more', icon: 'search', color: '#6B7280' },
+  {
+    key: 'opentable',
+    label: 'OpenTable',
+    sub: 'Recommended · book a table',
+    logo: require('../../assets/images/providers/opentable.png'),
+    icon: 'restaurant',
+    recommended: true,
+  },
+  { key: 'resy', label: 'Resy', sub: 'Book on Resy', logo: require('../../assets/images/providers/resy.png'), icon: 'wine' },
+  { key: 'search', label: 'Find a reservation', sub: 'Resy, Tock & more', icon: 'search' },
 ];
 
 interface Provider {
@@ -71,8 +93,9 @@ interface Provider {
   label: string;
   sub: string;
   action: string;
+  /** Real brand mark — absent for generic "Pickup", which isn't one specific company. */
+  logo?: ImageSourcePropType;
   icon: keyof typeof Ionicons.glyphMap;
-  color: string;
   url: (q: string) => string;
 }
 
@@ -82,8 +105,8 @@ const PROVIDERS: Provider[] = [
     label: 'DoorDash',
     sub: 'Delivery • ~25–40 min',
     action: 'Opens DoorDash',
+    logo: require('../../assets/images/providers/doordash.png'),
     icon: 'bicycle',
-    color: '#FF3008',
     url: (q) => `https://www.doordash.com/search/store/${q}`,
   },
   {
@@ -91,8 +114,8 @@ const PROVIDERS: Provider[] = [
     label: 'Uber Eats',
     sub: 'Delivery • ~20–35 min',
     action: 'Opens Uber Eats',
+    logo: require('../../assets/images/providers/ubereats.png'),
     icon: 'car',
-    color: '#06C167',
     url: (q) => `https://www.ubereats.com/search?q=${q}`,
   },
   {
@@ -101,10 +124,41 @@ const PROVIDERS: Provider[] = [
     sub: 'Order ahead & grab it',
     action: 'Opens in browser',
     icon: 'bag-handle',
-    color: '#3B82F6',
     url: (q) => `https://www.google.com/search?q=${q}+order+pickup`,
   },
 ];
+
+/**
+ * The little square to the left of each row. A real brand mark renders on a
+ * plain white chip — several of these logos (Apple in particular) are
+ * single-color and would vanish against Plated's dark theme without one, and
+ * a uniform white backing keeps every provider row the same size regardless
+ * of whether its actual logo is a square icon or a wide wordmark. Falls back
+ * to a generic Ionicon on a tinted chip only for entries with no real logo
+ * (Pickup, the generic "Find a reservation" search).
+ */
+function ProviderIcon({
+  logo,
+  icon,
+  fallbackColor,
+}: {
+  logo?: ImageSourcePropType;
+  icon: keyof typeof Ionicons.glyphMap;
+  fallbackColor: string;
+}) {
+  if (logo) {
+    return (
+      <View style={styles.logoChip}>
+        <Image source={logo} style={styles.logoImg} contentFit="contain" />
+      </View>
+    );
+  }
+  return (
+    <View style={[styles.iconWrap, { backgroundColor: fallbackColor }]}>
+      <Ionicons name={icon} size={22} color="#fff" />
+    </View>
+  );
+}
 
 export function OrderProviderSheet({
   visible,
@@ -115,6 +169,12 @@ export function OrderProviderSheet({
   restaurantLocation,
   plates,
   priceLevel,
+  orderMode,
+  reservationPlatform,
+  reservationUrl,
+  externalOrderUrl,
+  doordashStoreUrl,
+  ubereatsStoreUrl,
   creatorHandle,
   supportsCreator,
   restaurantId,
@@ -123,6 +183,7 @@ export function OrderProviderSheet({
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { markReordered } = useData();
+  const { settings, update } = useSettings();
 
   // Plate selection (when a plate list is supplied). All ticked by default —
   // ordering the whole spread is the common case, same as the plate-post flow.
@@ -139,8 +200,30 @@ export function OrderProviderSheet({
     });
   const selectedDishes = plates?.filter((_, i) => selected.has(i)).map((p) => p.dishName) ?? [];
 
-  // Fine dining leads with Reserve; everywhere else leads with delivery/pickup.
-  const reserveFirst = priceLevel === '$$$';
+  // A verified owner's explicit order_mode wins; otherwise fine dining ($$$)
+  // leads with Reserve and everywhere else leads with delivery/pickup.
+  const reserveFirst = orderMode ? orderMode === 'reservation' : priceLevel === '$$$';
+
+  // A restaurant with its own reservation link skips the generic
+  // OpenTable/Resy/search list entirely — there's no ambiguity to offer
+  // alternatives for once we already know exactly where to send them.
+  const reservations: Reservation[] = reservationUrl
+    ? [
+        {
+          key: reservationPlatform === 'resy' ? 'resy' : 'opentable',
+          label: reservationPlatform === 'resy' ? 'Resy' : reservationPlatform === 'opentable' ? 'OpenTable' : 'Reserve now',
+          sub: 'Book directly with this restaurant',
+          logo:
+            reservationPlatform === 'resy'
+              ? require('../../assets/images/providers/resy.png')
+              : reservationPlatform === 'opentable'
+                ? require('../../assets/images/providers/opentable.png')
+                : undefined,
+          icon: 'restaurant',
+          recommended: true,
+        },
+      ]
+    : RESERVATIONS;
 
   // Query the provider searches for: the selected dishes narrow it when we have
   // a plate list, else the passed dishName.
@@ -155,7 +238,18 @@ export function OrderProviderSheet({
   const handlePick = async (p: Provider) => {
     tapMedium();
     if (order) markReordered(order.id);
-    const destinationUrl = p.url(encodeURIComponent(orderQuery));
+    // First real choice between DoorDash/Uber Eats becomes sticky — next
+    // time this skips straight past the chooser (see the auto-hand-off
+    // effect below). Pickup/direct-order taps don't set it: those aren't
+    // valid values for the remembered preference, and leaving 'ask' alone
+    // means the chooser still comes up next time either way.
+    if ((p.key === 'doordash' || p.key === 'ubereats') && settings.preferredOrderProvider === 'ask') {
+      update('preferredOrderProvider', p.key);
+    }
+    // A restaurant-provided storefront link replaces the search query when
+    // set (0042) — still tracked as this provider's platform either way.
+    const storeUrl = p.key === 'doordash' ? doordashStoreUrl : p.key === 'ubereats' ? ubereatsStoreUrl : undefined;
+    const destinationUrl = storeUrl || p.url(encodeURIComponent(orderQuery));
     const url = effectiveRestaurantId
       ? await trackAffiliateClick({
           restaurantId: effectiveRestaurantId,
@@ -169,14 +263,42 @@ export function OrderProviderSheet({
     onClose();
   };
 
+  // Once a provider is remembered, skip the chooser entirely for the common
+  // case — a single dish, delivery-mode restaurant. A plate list still needs
+  // an explicit pick of which plates to order, and a reservation hand-off
+  // should never happen invisibly, so both keep showing the sheet.
+  const remembered = settings.preferredOrderProvider;
+  const autoHandoff = !hasPlateList && !reserveFirst && remembered !== 'ask';
+  useEffect(() => {
+    if (!visible || !autoHandoff) return;
+    const provider = PROVIDERS.find((p) => p.key === remembered);
+    if (provider) handlePick(provider);
+    else onClose();
+    // Only the visibility edge should re-trigger this — handlePick/onClose
+    // are stable enough in practice and re-running mid-open would re-fire
+    // the hand-off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, autoHandoff, remembered]);
+
+  // The restaurant's own order page (0042) — no affiliate network sits
+  // between us and it, so there's nothing to track, unlike the marketplace
+  // providers above.
+  const handleOrderDirect = () => {
+    tapMedium();
+    if (order) markReordered(order.id);
+    Linking.openURL(externalOrderUrl!).catch(() => {});
+    onClose();
+  };
+
   const handleReserve = (r: Reservation) => {
     tapMedium();
-    openReservation(r.key, { name: restaurantName, location: restaurantLocation });
+    if (reservationUrl) openInApp(reservationUrl);
+    else openReservation(r.key, { name: restaurantName, location: restaurantLocation });
     onClose();
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible && !autoHandoff} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
           <View style={[styles.grabber, { backgroundColor: colors.border }]} />
@@ -235,7 +357,7 @@ export function OrderProviderSheet({
             <>
               <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>RESERVE A TABLE</Text>
               <View style={{ gap: 10 }}>
-                {RESERVATIONS.map((r) => (
+                {reservations.map((r) => (
                   <Pressable
                     key={r.key}
                     onPress={() => handleReserve(r)}
@@ -247,9 +369,7 @@ export function OrderProviderSheet({
                         opacity: pressed ? 0.85 : 1,
                       },
                     ]}>
-                    <View style={[styles.iconWrap, { backgroundColor: r.color }]}>
-                      <Ionicons name={r.icon} size={22} color="#fff" />
-                    </View>
+                    <ProviderIcon logo={r.logo} icon={r.icon} fallbackColor="#6B7280" />
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.pLabel, { color: colors.text }]}>{r.label}</Text>
                       <Text style={[styles.pSub, { color: colors.textMuted }]}>{r.sub}</Text>
@@ -266,6 +386,24 @@ export function OrderProviderSheet({
             {reserveFirst ? 'OR ORDER DELIVERY' : 'DELIVERY & PICKUP'}
           </Text>
           <View style={{ gap: 10, opacity: canOrder ? 1 : 0.4 }}>
+            {!!externalOrderUrl && (
+              <Pressable
+                disabled={!canOrder}
+                onPress={handleOrderDirect}
+                style={({ pressed }) => [
+                  styles.provider,
+                  { backgroundColor: colors.accentSoft, borderColor: colors.accent, opacity: pressed ? 0.85 : 1 },
+                ]}>
+                <View style={[styles.iconWrap, { backgroundColor: colors.accent }]}>
+                  <Ionicons name="restaurant" size={22} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pLabel, { color: colors.text }]}>Order on {restaurantName}&apos;s site</Text>
+                  <Text style={[styles.pSub, { color: colors.textMuted }]}>Recommended · straight to the restaurant</Text>
+                </View>
+                <Ionicons name="open-outline" size={18} color={colors.textMuted} />
+              </Pressable>
+            )}
             {PROVIDERS.map((p) => (
               <Pressable
                 key={p.key}
@@ -275,9 +413,7 @@ export function OrderProviderSheet({
                   styles.provider,
                   { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.85 : 1 },
                 ]}>
-                <View style={[styles.iconWrap, { backgroundColor: p.color }]}>
-                  <Ionicons name={p.icon} size={22} color="#fff" />
-                </View>
+                <ProviderIcon logo={p.logo} icon={p.icon} fallbackColor="#3B82F6" />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.pLabel, { color: colors.text }]}>{p.label}</Text>
                   <Text style={[styles.pSub, { color: colors.textMuted }]}>{p.sub}</Text>
@@ -336,6 +472,16 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   iconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  logoChip: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    padding: 6,
+  },
+  logoImg: { width: '100%', height: '100%' },
   pLabel: { fontSize: 16, fontWeight: '700' },
   pSub: { fontSize: 13, fontWeight: '500', marginTop: 1 },
   actionCol: { alignItems: 'center', gap: 2 },

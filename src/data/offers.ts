@@ -15,6 +15,7 @@ export const OFFERS: RestaurantOffer[] = [
     description: 'Applies at checkout on DoorDash & Uber Eats',
     promoCode: 'GOLDENCHAR10',
     redeemWindowSeconds: 300,
+    active: true,
   },
   {
     id: 'off2',
@@ -23,5 +24,6 @@ export const OFFERS: RestaurantOffer[] = [
     title: 'Free tiramisu with any entrée',
     description: 'Show this screen to your server',
     redeemWindowSeconds: 300,
+    active: true,
   },
 ];

@@ -8,10 +8,12 @@
  * to the same URL and the two `if` branches don't interact.
  *
  * Restaurant Checkout Sessions must be created with
- * `metadata: { restaurant_id }` and `mode: 'subscription'` — that's how a
- * `checkout.session.completed` event here finds its way back to a row in
- * `restaurants`. (There's no restaurant-owner login yet, so Checkout Sessions
- * are created by admin tooling, not by the app.)
+ * `metadata: { restaurant_id, tier, commission_percent }` and
+ * `mode: 'subscription'` — that's how a `checkout.session.completed` event
+ * here finds its way back to a row in `restaurants`, and how the
+ * restaurant's once-only commission rate (0035_restaurant_subscription_tiers.sql)
+ * gets locked in. Self-serve tiers (starter, growth) go through
+ * stripe-restaurant-checkout; the `custom` tier is still admin-created.
  *
  * Deploy:  supabase functions deploy stripe-webhook --no-verify-jwt
  * Secrets:
@@ -83,6 +85,11 @@ Deno.serve(async (req) => {
       const restaurantId = session.metadata?.restaurant_id;
       if (session.mode !== 'subscription' || !restaurantId || !session.subscription) break;
 
+      const tier = session.metadata?.tier;
+      const commissionPercent = session.metadata?.commission_percent
+        ? Number(session.metadata.commission_percent)
+        : null;
+
       const { error } = await db.from('restaurant_subscriptions').upsert(
         {
           restaurant_id: restaurantId,
@@ -91,6 +98,12 @@ Deno.serve(async (req) => {
           stripe_subscription_id: String(session.subscription),
           feed_bumps_remaining: feedBumpAllotment(),
           updated_at: new Date().toISOString(),
+          ...(tier ? { tier } : {}),
+          // Locked once, here, on first successful payment — never overwritten
+          // on renewal (invoice.paid below doesn't touch these two columns).
+          ...(commissionPercent != null
+            ? { commission_percent: commissionPercent, commission_locked_at: new Date().toISOString() }
+            : {}),
         },
         { onConflict: 'stripe_subscription_id' },
       );
