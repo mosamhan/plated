@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { tick } from '@/lib/haptics';
@@ -22,6 +22,13 @@ export function RatingInput({ value, onChange }: Props) {
   const { colors } = useTheme();
   const color = ratingColor(colors, value);
   const [text, setText] = useState(value.toFixed(1));
+  // Stay in sync when `value` changes from outside (e.g. a caller defaulting
+  // this to a dish's crowd average once one's identified) — every internal
+  // handler below already calls setText itself, so this only ever does
+  // anything on an external change, never fighting the user mid-interaction.
+  useEffect(() => {
+    setText(value.toFixed(1));
+  }, [value]);
 
   // Type an exact value — accept partial input like "8." while editing.
   const onType = (raw: string) => {

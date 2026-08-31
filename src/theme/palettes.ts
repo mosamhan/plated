@@ -6,6 +6,8 @@
  * `useTheme()` (see ThemeContext), so switching restyles the whole app instantly.
  */
 
+import { displayFont } from '@/theme/fonts';
+
 export type ThemeName = 'saffron' | 'noir';
 
 export interface Palette {
@@ -129,10 +131,20 @@ export const radius = {
   pill: 999,
 } as const;
 
+/**
+ * Headings carry the display serif — the same Fraunces cut as the wordmark —
+ * so every header and large title in the app reads as the logo's typography.
+ * Body-sized tokens stay on the system sans, which is more legible at small
+ * sizes and keeps the serif feeling deliberate rather than decorative.
+ *
+ * The display tokens carry no `fontWeight`: with a custom family, React Native
+ * picks the face from the family name (Fraunces_600SemiBold), so a numeric
+ * weight is inert on iOS and can trigger synthetic bolding on Android.
+ */
 export const typography = {
-  hero: { fontSize: 30, fontWeight: '800' as const, letterSpacing: -0.5 },
-  title: { fontSize: 22, fontWeight: '800' as const, letterSpacing: -0.3 },
-  heading: { fontSize: 18, fontWeight: '700' as const, letterSpacing: -0.2 },
+  hero: { fontSize: 30, fontFamily: displayFont, letterSpacing: -0.5 },
+  title: { fontSize: 22, fontFamily: displayFont, letterSpacing: -0.3 },
+  heading: { fontSize: 18, fontFamily: displayFont, letterSpacing: -0.2 },
   body: { fontSize: 15, fontWeight: '500' as const },
   bodyStrong: { fontSize: 15, fontWeight: '700' as const },
   label: { fontSize: 13, fontWeight: '600' as const },

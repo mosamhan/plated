@@ -7,12 +7,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { Button } from '@/components/Button';
-import { FilterChips } from '@/components/FilterChips';
 import { NameInputModal } from '@/components/NameInputModal';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatoTile } from '@/components/PlatoTile';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { SectionHeader } from '@/components/SectionHeader';
+import { UnderlineTabs } from '@/components/UnderlineTabs';
 import { Restaurant } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
 import { tapLight } from '@/lib/haptics';
@@ -208,11 +208,12 @@ export default function CollectionScreen() {
         </Text>
       ) : (
         <>
-          {/* The list below is tall enough to squeeze this row flat once a fourth
-              chip makes it scrollable — pin it so the labels can't get clipped. */}
+          {/* Content tabs, not filters: these switch which list you're looking
+              at, so they get the app's underline tab treatment. Pinned flat
+              because the list below is tall enough to squeeze the row. */}
           {options.length > 1 && (
             <View style={{ flexShrink: 0 }}>
-              <FilterChips options={options} value={active} onChange={setFilter} />
+              <UnderlineTabs tabs={options} value={active} onChange={setFilter} />
             </View>
           )}
 

@@ -21,9 +21,13 @@ interface Props {
   rightLabel?: string;
   onRight?: () => void;
   closeMode?: boolean;
+  /** For screens reached without anything to go back to (e.g. the Profile tab's own header) — leaves the same width so the title still centers correctly. */
+  hideBack?: boolean;
+  /** Makes the title tappable (a trailing caret is drawn to signal it) — the profile tab's account switcher uses this. */
+  onTitlePress?: () => void;
 }
 
-export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRight, closeMode, secondaryIcon, onSecondary }: Props) {
+export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRight, closeMode, secondaryIcon, onSecondary, hideBack, onTitlePress }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -39,20 +43,33 @@ export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRigh
           borderBottomWidth: transparent ? 0 : StyleSheet.hairlineWidth,
         },
       ]}>
-      <Pressable
-        onPress={() => router.back()}
-        hitSlop={10}
-        style={[styles.iconBtn, transparent && { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
-        <Ionicons
-          name={closeMode ? 'close' : 'chevron-back'}
-          size={24}
-          color={transparent ? '#fff' : colors.text}
-        />
-      </Pressable>
+      {hideBack ? (
+        <View style={styles.iconBtn} />
+      ) : (
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={10}
+          style={[styles.iconBtn, transparent && { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+          <Ionicons
+            name={closeMode ? 'close' : 'chevron-back'}
+            size={24}
+            color={transparent ? '#fff' : colors.text}
+          />
+        </Pressable>
+      )}
       {title ? (
-        <Text style={[styles.title, { color: colors.text, fontFamily: displayFont }]} numberOfLines={1}>
-          {title}
-        </Text>
+        onTitlePress ? (
+          <Pressable onPress={onTitlePress} style={styles.titleRow} hitSlop={6}>
+            <Text style={[styles.title, styles.titleInRow, { color: colors.text, fontFamily: displayFont }]} numberOfLines={1}>
+              {title}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+          </Pressable>
+        ) : (
+          <Text style={[styles.title, { color: colors.text, fontFamily: displayFont }]} numberOfLines={1}>
+            {title}
+          </Text>
+        )
       ) : (
         <View style={{ flex: 1 }} />
       )}
@@ -102,4 +119,6 @@ const styles = StyleSheet.create({
   labelBtn: { height: 38, minWidth: 38, paddingHorizontal: 6, justifyContent: 'center', alignItems: 'flex-end' },
   labelText: { fontSize: 15, fontWeight: '800' },
   title: { flex: 1, textAlign: 'center', fontSize: 18, letterSpacing: -0.3 },
+  titleRow: { flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4 },
+  titleInRow: { flex: 0 },
 });

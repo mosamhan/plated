@@ -4,7 +4,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { showAlert } from '@/lib/dialog';
 import { supabase } from '@/lib/supabase';
 
-export type Bucket = 'plates' | 'avatars' | 'platos';
+export type Bucket = 'plates' | 'avatars' | 'platos' | 'stories' | 'voice' | 'chat-media';
+/** Buckets that are NOT public-read — see 0034_restaurant_verification_docs.sql. */
+export type PrivateBucket = 'restaurant-verification';
 
 function alertPermissionDenied(camera: boolean) {
   showAlert(
@@ -94,17 +96,23 @@ export async function pickVideo(opts: { camera?: boolean; maxSeconds?: number } 
 }
 
 /**
- * Upload a picked video to the public `platos` bucket under the user's folder.
- * Streams the file via fetch → ArrayBuffer (videos are too large for base64).
- * Returns the public URL, or null on failure (caller can fall back to the local uri).
+ * Upload a picked video to a public bucket under the user's folder (`platos`
+ * by default; story clips go to `stories`, which has its own 24h-content
+ * lifecycle). Streams the file via fetch → ArrayBuffer (videos are too large
+ * for base64). Returns the public URL, or null on failure (caller can fall
+ * back to the local uri).
  */
-export async function uploadVideo(userId: string, asset: ImagePicker.ImagePickerAsset): Promise<string | null> {
+export async function uploadVideo(
+  userId: string,
+  asset: ImagePicker.ImagePickerAsset,
+  bucket: Bucket = 'platos',
+): Promise<string | null> {
   try {
     const mime = asset.mimeType ?? 'video/mp4';
     const ext = (mime.split('/')[1] ?? 'mp4').split(';')[0];
     const path = `${userId}/${Date.now()}.${ext}`;
     const body = await fetch(asset.uri).then((r) => r.arrayBuffer());
-    const { error } = await supabase.storage.from('platos').upload(path, body, {
+    const { error } = await supabase.storage.from(bucket).upload(path, body, {
       contentType: mime,
       upsert: false,
     });
@@ -112,9 +120,35 @@ export async function uploadVideo(userId: string, asset: ImagePicker.ImagePicker
       if (__DEV__) console.warn('[Plated] video upload failed', error);
       return null;
     }
-    return supabase.storage.from('platos').getPublicUrl(path).data.publicUrl;
+    return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
   } catch (e) {
     if (__DEV__) console.warn('[Plated] video upload threw', e);
+    return null;
+  }
+}
+
+/**
+ * Upload a recorded voice note to the public `voice` bucket. Takes a local file
+ * uri (from expo-audio) rather than an ImagePicker asset, so it can't reuse
+ * uploadVideo's signature. Returns the public URL, or null on failure — the
+ * caller falls back to the local uri so the note still plays on this device.
+ */
+export async function uploadVoiceNote(userId: string, uri: string): Promise<string | null> {
+  try {
+    const ext = (uri.split('.').pop() ?? 'm4a').split('?')[0];
+    const path = `${userId}/${Date.now()}.${ext}`;
+    const body = await fetch(uri).then((r) => r.arrayBuffer());
+    const { error } = await supabase.storage.from('voice').upload(path, body, {
+      contentType: ext === 'caf' ? 'audio/x-caf' : 'audio/m4a',
+      upsert: false,
+    });
+    if (error) {
+      if (__DEV__) console.warn('[Plated] voice upload failed', error);
+      return null;
+    }
+    return supabase.storage.from('voice').getPublicUrl(path).data.publicUrl;
+  } catch (e) {
+    if (__DEV__) console.warn('[Plated] voice upload threw', e);
     return null;
   }
 }
@@ -136,4 +170,30 @@ export async function uploadAsset(bucket: Bucket, userId: string, asset: ImagePi
     return null;
   }
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
+/**
+ * Upload to a *private* bucket (no public-read policy — see the bucket's own
+ * migration for why). Returns the raw storage path, not a URL: calling
+ * `getPublicUrl` on a private bucket returns a URL that will 403, so there's
+ * nothing useful to hand back except the path a signed URL can later be
+ * generated from (by whoever reviews it — the admin, via service_role).
+ */
+export async function uploadPrivateAsset(
+  bucket: PrivateBucket,
+  userId: string,
+  asset: ImagePicker.ImagePickerAsset,
+): Promise<string | null> {
+  if (!asset.base64) return null;
+  const ext = (asset.mimeType?.split('/')[1] ?? 'jpg').replace('jpeg', 'jpg');
+  const path = `${userId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from(bucket).upload(path, decode(asset.base64), {
+    contentType: asset.mimeType ?? 'image/jpeg',
+    upsert: false,
+  });
+  if (error) {
+    if (__DEV__) console.warn('[Plated] private upload failed', error);
+    return null;
+  }
+  return path;
 }

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 
 import { useTheme } from '@/theme/ThemeContext';
 import { radius } from '@/theme/palettes';
@@ -10,8 +11,14 @@ interface Props extends TextInputProps {
   prefix?: string;
 }
 
-export function TextField({ label, icon, prefix, style, ...rest }: Props) {
+export function TextField({ label, icon, prefix, style, secureTextEntry, ...rest }: Props) {
   const { colors } = useTheme();
+  // Only meaningful when the field actually asked to be masked — a plain
+  // field never grows an eye button. Defaults to masked (matching plain
+  // `secureTextEntry`'s own default behavior) whenever the caller passes it.
+  const [revealed, setRevealed] = useState(false);
+  const isPassword = secureTextEntry !== undefined;
+
   return (
     <View style={styles.wrap}>
       {label && <Text style={[styles.label, { color: colors.textMuted }]}>{label}</Text>}
@@ -23,10 +30,21 @@ export function TextField({ label, icon, prefix, style, ...rest }: Props) {
         {icon && <Ionicons name={icon} size={18} color={colors.textMuted} style={{ marginRight: 8 }} />}
         {prefix && <Text style={[styles.prefix, { color: colors.textMuted }]}>{prefix}</Text>}
         <TextInput
+          // iOS's UITextField bakes bullet-masking into already-typed
+          // characters — flipping `secureTextEntry` alone doesn't redraw them.
+          // Remounting on toggle forces a fresh native field that renders the
+          // (controlled, so not lost) value under the new mode from scratch.
+          key={isPassword ? String(revealed) : undefined}
           placeholderTextColor={colors.textMuted}
           style={[styles.input, { color: colors.text }, style]}
+          secureTextEntry={isPassword ? secureTextEntry && !revealed : secureTextEntry}
           {...rest}
         />
+        {isPassword && (
+          <Pressable onPress={() => setRevealed((v) => !v)} hitSlop={8} style={{ marginLeft: 8 }}>
+            <Ionicons name={revealed ? 'eye-off-outline' : 'eye-outline'} size={19} color={colors.textMuted} />
+          </Pressable>
+        )}
       </View>
     </View>
   );

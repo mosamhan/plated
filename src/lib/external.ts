@@ -35,6 +35,17 @@ export function openDirections(provider: 'apple' | 'google', place: MapPlace, op
   Linking.openURL(url).catch(() => {});
 }
 
+/**
+ * Resolves a `settings.preferredMapsApp` value ('apple' | 'google' | 'ask')
+ * to an actual provider — silent fallbacks (a directions tap with no in-app
+ * route to hand off to) shouldn't hardcode Google when the user has already
+ * told Plated they prefer Apple; 'ask' falls back to the platform default,
+ * same as `openMap` always has.
+ */
+export function resolveMapsProvider(preferred: 'apple' | 'google' | 'ask'): 'apple' | 'google' {
+  return preferred === 'ask' ? (Platform.OS === 'android' ? 'google' : 'apple') : preferred;
+}
+
 /** Open the device's default maps app showing the place. */
 export function openMap(place: MapPlace) {
   openDirections(Platform.OS === 'android' ? 'google' : 'apple', place);

@@ -45,3 +45,12 @@ export function exploreRouteHref(dest: RouteTarget) {
     },
   };
 }
+
+/**
+ * Land on Discover already switched to a given mode (Platos/Discover/Ranks) —
+ * used by the section-to-section swipe nav and the Plates-page Platos button,
+ * where jumping to the tab isn't enough on its own.
+ */
+export function exploreModeHref(mode: 'platos' | 'discover' | 'ranks') {
+  return { pathname: '/(tabs)/explore' as const, params: { mode } };
+}

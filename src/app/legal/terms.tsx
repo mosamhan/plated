@@ -11,7 +11,7 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: '2. Child safety',
-    body: 'Plated strictly prohibits child sexual abuse and exploitation (CSAE) in any form. Such content is removed immediately, accounts are terminated, and reports are escalated to the National Center for Missing & Exploited Children (NCMEC) and law enforcement. Report concerns to safety@plated.app. Plated is for users 13 and older.',
+    body: 'Plated strictly prohibits child sexual abuse and exploitation (CSAE) in any form. Such content is removed immediately, accounts are terminated, and reports are escalated to the National Center for Missing & Exploited Children (NCMEC) and law enforcement. Report concerns to safety@joinplated.app. Plated is for users 13 and older.',
   },
   {
     title: '3. Your content',
@@ -27,7 +27,7 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: '6. Moderation & enforcement',
-    body: 'You can report any content or block any user from inside the app. Reports are reviewed within 24 hours. We may remove content or suspend accounts that violate these terms, with appeal available at support@plated.app.',
+    body: 'You can report any content or block any user from inside the app. Reports are reviewed within 24 hours. We may remove content or suspend accounts that violate these terms, with appeal available at support@joinplated.app.',
   },
 ];
 

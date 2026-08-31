@@ -38,3 +38,9 @@ enable_signup = true
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
+
+# Every other function assumes a signed-in caller (see supabase/functions/_shared/http.ts);
+# share-preview is the one exception, since link-unfurling crawlers and a
+# human's browser never carry a session. See its own header comment.
+[functions.share-preview]
+verify_jwt = false

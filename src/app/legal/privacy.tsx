@@ -11,7 +11,7 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: 'How we use it',
-    body: 'To run the feed, leaderboards, and recommendations; to attribute orders to creators (order hand-offs carry an anonymous session ID, never your identity); and to keep the community safe. We do not sell personal data.',
+    body: 'To run the feed, leaderboards, and recommendations; to attribute orders to creators (order hand-offs carry an anonymous session ID, never your identity); and to keep the community safe. Food/cuisine-related searches (e.g. searching "ramen") are stored against your account and used to personalize what you see — a random typo or a person\'s name is never stored this way. We do not sell personal data.',
   },
   {
     title: 'Ordering hand-offs',
@@ -19,7 +19,7 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: 'Your controls',
-    body: 'Edit or delete any of your content. Block users and report content from anywhere in the app. Delete your account (Settings → Account → Delete account) and all associated data is removed within 30 days. Data export available on request: privacy@plated.app.',
+    body: 'Edit or delete any of your content. Block users and report content from anywhere in the app. Delete your account (Settings → Account → Delete account) and all associated data is removed within 30 days. Data export available on request: privacy@joinplated.app.',
   },
   {
     title: 'Children',

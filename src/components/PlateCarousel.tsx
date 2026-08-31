@@ -6,6 +6,7 @@ import { Animated, FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable,
 
 import { RatingBadge } from '@/components/RatingBadge';
 import { formatCount } from '@/components/StatPill';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { foodPlaceholder } from '@/data/images';
 import type { PostMedia } from '@/data/types';
 import { displayFont } from '@/theme/fonts';
@@ -23,6 +24,8 @@ export function PlateCarousel({
   onPress,
   reorders = 0,
   colorSurface,
+  onIndexChange,
+  topInset = 0,
 }: {
   media: PostMedia[];
   /** Tap on a page — same handler for every page (open post / double-tap like). */
@@ -30,6 +33,18 @@ export function PlateCarousel({
   /** Post-level reorder count, shown under the dish name when > 0. */
   reorders?: number;
   colorSurface: string;
+  /**
+   * Which plate is on screen. Lifted out so the post's actions can act on the
+   * plate you're looking at — sharing a five-plate post shares the one you
+   * swiped to, not an average nobody chose.
+   */
+  onIndexChange?: (index: number) => void;
+  /**
+   * Pushes the page dots and the `2/3` counter down. The post screen draws a
+   * transparent header over the top of the carousel, which otherwise sits
+   * exactly on top of the counter and hides it.
+   */
+  topInset?: number;
 }) {
   // Page width is measured rather than derived from feed padding, so the
   // carousel is correct wherever it's dropped in.
@@ -48,6 +63,12 @@ export function PlateCarousel({
     Animated.timing(flash, { toValue: 1, duration: 240, useNativeDriver: true }).start();
   }, [clamped, flash]);
 
+  // Reported from `clamped` rather than the raw index so a caller never sees a
+  // page number that's out of range for a post whose media shrank.
+  useEffect(() => {
+    onIndexChange?.(clamped);
+  }, [clamped, onIndexChange]);
+
   const onEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (width > 0) setIndex(Math.round(e.nativeEvent.contentOffset.x / width));
   };
@@ -64,8 +85,8 @@ export function PlateCarousel({
           onMomentumScrollEnd={onEnd}
           renderItem={({ item }) => (
             <Pressable onPress={onPress}>
-              <Image
-                source={{ uri: item.uri }}
+              <ZoomableImage
+                uri={item.uri}
                 placeholder={foodPlaceholder(item.uri)}
                 placeholderContentFit="cover"
                 transition={{ duration: 250, effect: 'cross-dissolve', timing: 'ease-out' }}
@@ -117,6 +138,7 @@ export function PlateCarousel({
           style={[
             styles.counter,
             {
+              top: 10 + topInset,
               opacity: flash.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] }),
               transform: [{ scale: flash.interpolate({ inputRange: [0, 1], outputRange: [1.25, 1] }) }],
             },
@@ -128,7 +150,7 @@ export function PlateCarousel({
       )}
 
       {multi && (
-        <View style={styles.dots} pointerEvents="none">
+        <View style={[styles.dots, { top: 14 + topInset }]} pointerEvents="none">
           {media.map((_, i) => (
             <View key={i} style={[styles.dot, { opacity: i === clamped ? 1 : 0.4 }]} />
           ))}

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { ImageSourcePropType, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { radius, spacing } from '@/theme/palettes';
@@ -8,6 +9,8 @@ import { useTheme } from '@/theme/ThemeContext';
 export interface SheetAction {
   label: string;
   icon?: keyof typeof Ionicons.glyphMap;
+  /** A real brand mark, rendered on a small white chip instead of `icon` when set. */
+  logo?: ImageSourcePropType;
   destructive?: boolean;
   onPress: () => void;
 }
@@ -52,8 +55,12 @@ export function ActionSheet({ visible, onClose, title, actions }: Props) {
                   styles.action,
                   { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
                 ]}>
-                {a.icon && (
-                  <Ionicons name={a.icon} size={20} color={a.destructive ? colors.ratingLow : colors.text} />
+                {a.logo ? (
+                  <View style={styles.logoChip}>
+                    <Image source={a.logo} style={styles.logoImg} contentFit="contain" />
+                  </View>
+                ) : (
+                  a.icon && <Ionicons name={a.icon} size={20} color={a.destructive ? colors.ratingLow : colors.text} />
                 )}
                 <Text style={[styles.actionText, { color: a.destructive ? colors.ratingLow : colors.text }]}>
                   {a.label}
@@ -92,4 +99,14 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   actionText: { fontSize: 15, fontWeight: '700' },
+  logoChip: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+  },
+  logoImg: { width: '100%', height: '100%' },
 });

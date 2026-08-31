@@ -3,9 +3,9 @@
  *
  * `places` and `directions` front a billable third-party key that must not
  * ship in the app bundle; the monetization functions (affiliate-click,
- * stripe-*, revenuecat-webhook) front money instead of a key. Different
- * reason, same shape of problem — one signed-in-user check and one
- * bypass-RLS client, defined once rather than drifting across N copies.
+ * stripe-*) front money instead of a key. Different reason, same shape of
+ * problem — one signed-in-user check and one bypass-RLS client, defined once
+ * rather than drifting across N copies.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
