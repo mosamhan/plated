@@ -20,12 +20,19 @@ const KIND_ICON: Record<NotificationKind, keyof typeof Ionicons.glyphMap> = {
   earnings: 'cash',
   milestone: 'trophy',
   collab: 'people-circle',
+  message: 'chatbubble-ellipses',
+  reaction: 'happy',
 };
 
 /**
  * Sections replace what used to be filter chips: every category is on screen at
  * once with its own count, so nothing is hidden behind a tap and the shape
  * matches the People screen. Empty categories drop out entirely.
+ *
+ * Messages and reactions are deliberately absent — they already have a home
+ * (the Messages tab's inbox, with its own unread state), and a heavy DM
+ * habit would otherwise fill this screen with one row per message, crowding
+ * out everything else here.
  */
 const SECTIONS: { title: string; kinds: NotificationKind[] }[] = [
   { title: 'Likes', kinds: ['like'] },
@@ -50,7 +57,7 @@ function timeAgo(iso: string): string {
 export default function Notifications() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { notifications, markAllNotificationsRead } = useData();
+  const { notifications, markAllNotificationsRead, refreshNotifications } = useData();
   const { pending } = useCollabs();
 
   // Marked read on the way *out*, not on arrival. Clearing on arrival meant
@@ -60,9 +67,20 @@ export default function Notifications() {
   // while they're being read and still clears the badge as soon as you leave.
   useEffect(() => () => markAllNotificationsRead(), [markAllNotificationsRead]);
 
+  // Triggers write these rows server-side, so arriving here is the moment to
+  // ask what's actually there rather than trusting the boot-time snapshot.
+  useEffect(() => {
+    refreshNotifications();
+  }, [refreshNotifications]);
+
   // Unread goes up top regardless of kind — that's what you came to read. The
-  // categories below hold only the rest, so nothing appears twice.
-  const fresh = useMemo(() => notifications.filter((n) => !n.read).sort(byDate), [notifications]);
+  // categories below hold only the rest, so nothing appears twice. Messages
+  // and reactions are excluded here too, for the same reason they have no
+  // section of their own below.
+  const fresh = useMemo(
+    () => notifications.filter((n) => !n.read && n.kind !== 'message' && n.kind !== 'reaction').sort(byDate),
+    [notifications],
+  );
 
   const grouped = useMemo(
     () =>
