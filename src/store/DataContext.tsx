@@ -2,9 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { CONTACTS } from '@/data/contacts';
 import { foodPhoto } from '@/data/images';
+import { updateSavedAccountProfile } from '@/lib/accountStore';
 import { plateRatings } from '@/lib/post';
 import { OFFERS } from '@/data/offers';
 import { makeOrderId, ORDERS, REORDER_SEEDS } from '@/data/orders';
+import { placeTypeFor, type PlaceType } from '@/lib/placeType';
+import { rankWithDistance, scoreTextMatch } from '@/lib/search';
 import { getRestaurant as getMockRestaurant, RESTAURANTS } from '@/data/restaurants';
 import { COMMENTS, NOTIFICATIONS } from '@/data/social';
 import { FEED_BUMPS, SPONSORED_PLACEMENTS } from '@/data/sponsored';
@@ -19,7 +22,9 @@ import {
   ReportReason,
   ReportTarget,
   Restaurant,
+  RestaurantClaimInput,
   RestaurantOffer,
+  RestaurantRequestInput,
   SponsoredPlacement,
   User,
 } from '@/data/types';
@@ -27,6 +32,7 @@ import { CURRENT_USER_ID, getUser as getMockUser, USERS } from '@/data/users';
 import { PlaceResult } from '@/lib/places';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/AuthContext';
+import { useLocation } from '@/store/LocationContext';
 import { mapAttributions, mapComment, mapFeedBump, mapNotification, mapOffer, mapOrder, mapProfile, mapRestaurant, mapSponsoredPlacement } from '@/store/mappers';
 
 export interface RestaurantWithRating extends Restaurant {
@@ -89,10 +95,16 @@ interface DataContextValue {
   restaurantWithRating: (restaurantId: string) => RestaurantWithRating | undefined;
   topRestaurants: () => RestaurantWithRating[];
   topPlates: () => Order[];
+  /** Every restaurant the current user has personally rated, ranked by their own average there. */
+  myRestaurantRankings: () => RestaurantWithRating[];
+  /** Every plate the current user has personally rated, best first. */
+  myPlateRankings: () => Order[];
   topCreators: () => User[];
   followingUsers: () => User[];
   followerUsers: () => User[];
   suggestedUsers: () => User[];
+  /** Mutual follows — you follow them and they follow you back. */
+  friendUsers: () => User[];
   exploreOrders: (filter: string) => Order[];
   searchRestaurants: (query: string) => Restaurant[];
   /** Crowd-sourced menu: distinct dish names posted at a restaurant. */
@@ -138,12 +150,28 @@ interface DataContextValue {
   isOfferRedeemed: (offerId: string) => boolean;
   /** Records the one-time redemption (RLS + a unique index enforce "once"). */
   redeemOffer: (offerId: string) => void;
+  /** Live, unexpired offers — nearby-first when location is known. For the Discover "Exclusive Deals" rail. */
+  activeOffers: () => RestaurantOffer[];
+  /** Most recent ratings across the app, pure recency (not personalization-ranked). For the Discover "Activity" rail. */
+  recentActivity: (limit?: number) => Order[];
+  /** Every plate/dish whose name matches `query`, ranked nearby-first. For the multi-entity search screen. */
+  searchPlates: (query: string) => Order[];
+  /** Users whose name or handle matches `query`. For the multi-entity search screen. */
+  searchUsers: (query: string) => User[];
 
   // restaurant subscriptions — feed bumps and paid placements
   /** Orders currently pinned to the top of nearby feeds, not yet expired. */
   bumpedOrderIds: Set<string>;
   /** Live placements for one surface — reel ads, sponsored map pins, or the Local Favorites rail. */
   placementsFor: (type: SponsoredPlacement['placementType']) => SponsoredPlacement[];
+
+  // restaurant claiming — see 0032_restaurant_claims.sql
+  /** Restaurants the signed-in user is an approved owner/manager of. */
+  ownedRestaurantIds: Set<string>;
+  /** Files a claim request; an admin reviews and approves it manually. */
+  submitRestaurantClaim: (input: RestaurantClaimInput) => Promise<boolean>;
+  /** "We couldn't find it" from onboarding's find-restaurant detour — no restaurant_id yet, unlike a claim. */
+  submitRestaurantRequest: (input: RestaurantRequestInput) => Promise<boolean>;
 
   // trust & safety
   reportContent: (targetType: ReportTarget, targetId: string, reason: ReportReason, details?: string) => void;
@@ -163,6 +191,25 @@ interface DataContextValue {
   /** Upsert a searched Foursquare place → its restaurant id (for the detail sheet). */
   ensureRestaurant: (place: PlaceResult) => Promise<string | undefined>;
   updateProfile: (patch: Partial<User>) => void;
+  /** Owner-only edits to a restaurant's own page — see 0042. Resolves false if the write was rejected. */
+  updateRestaurantPage: (restaurantId: string, patch: RestaurantPagePatch) => Promise<boolean>;
+}
+
+/**
+ * The subset of a restaurant an owner may edit. Mirrors exactly the columns
+ * 0042_restaurant_page_customization.sql grants column-level UPDATE on —
+ * anything outside this set is Plated's or the community's to set, not the
+ * restaurant's.
+ */
+export interface RestaurantPagePatch {
+  /** Display name override. Empty string clears it back to the imported name. */
+  customName?: string;
+  /** Owner-uploaded photos; the first is the listing's hero image. */
+  photos?: string[];
+  orderMode?: Restaurant['orderMode'];
+  reservationPlatform?: Restaurant['reservationPlatform'];
+  reservationUrl?: string;
+  externalOrderUrl?: string;
 }
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -181,7 +228,9 @@ function platedRatingFor(orders: Order[], restaurantId: string) {
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const { userId } = useAuth();
+  const { userId, refreshAccounts } = useAuth();
+  const { location } = useLocation();
+  const locationZip = location.zip;
   const live = isSupabaseConfigured;
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -194,6 +243,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [redeemedOfferIds, setRedeemedOfferIds] = useState<Set<string>>(new Set());
   const [feedBumps, setFeedBumps] = useState<FeedBump[]>([]);
   const [sponsoredPlacements, setSponsoredPlacements] = useState<SponsoredPlacement[]>([]);
+  const [ownedRestaurantIds, setOwnedRestaurantIds] = useState<Set<string>>(new Set());
+  const [recentSearchPlaceTypes, setRecentSearchPlaceTypes] = useState<Set<PlaceType>>(new Set());
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [reordered, setReordered] = useState<Set<string>>(new Set());
@@ -217,6 +268,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setRedeemedOfferIds(new Set());
     setFeedBumps(FEED_BUMPS);
     setSponsoredPlacements(SPONSORED_PLACEMENTS);
+    // No restaurant-owner concept in mock mode — nobody has claimed anything.
+    setOwnedRestaurantIds(new Set());
     setFollowing(new Set(['u1', 'u3']));
     // Mock followers: a couple of users "follow" you so the People tab isn't empty.
     setFollowers(new Set(['u2', 'u4', 'u5']));
@@ -227,7 +280,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Load everything from Supabase ──────────────────────────────────────────
   const loadFromSupabase = useCallback(async (uid: string) => {
     setLoading(true);
-    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes, offersRes, redemptionsRes, feedBumpsRes, placementsRes] =
+    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes, offersRes, redemptionsRes, feedBumpsRes, placementsRes, ownersRes, searchQueriesRes] =
       await Promise.all([
         supabase
           .from('profiles')
@@ -250,6 +303,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         // policy to have done it.
         supabase.from('restaurant_feed_bumps').select('order_id, expires_at').gt('expires_at', new Date().toISOString()),
         supabase.from('sponsored_placements').select('*'),
+        supabase.from('restaurant_owners').select('restaurant_id').eq('user_id', uid),
+        // Recent search-intent signal for feed personalization (0044/D3) — the
+        // last 30 is plenty to derive "what cuisines has this person been
+        // looking for lately" without needing a time-window query.
+        supabase
+          .from('search_queries')
+          .select('matched_place_type')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false })
+          .limit(30),
       ]);
 
     setProfileMap(Object.fromEntries((profilesRes.data ?? []).map((r) => [r.id, mapProfile(r)])));
@@ -276,6 +339,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         .filter((r) => (!r.starts_at || r.starts_at <= nowIso) && (!r.ends_at || r.ends_at >= nowIso))
         .map(mapSponsoredPlacement),
     );
+    setOwnedRestaurantIds(new Set((ownersRes.data ?? []).map((r) => r.restaurant_id)));
+    setRecentSearchPlaceTypes(new Set((searchQueriesRes.data ?? []).map((r) => r.matched_place_type as PlaceType)));
     setCurrentUserId(uid);
     setLoading(false);
   }, []);
@@ -306,6 +371,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
   const currentUser = userFor(currentUserId);
 
+  // Keeps the Account Center's rows showing a real name/handle/avatar instead
+  // of just an email — reuses the profile data already loaded above rather
+  // than a new query, and stays correct if the user edits their profile later.
+  useEffect(() => {
+    if (!live || !currentUserId) return;
+    updateSavedAccountProfile(currentUserId, {
+      name: currentUser.name,
+      handle: currentUser.handle,
+      avatar: currentUser.avatar,
+    })
+      .then(refreshAccounts)
+      .catch(() => {});
+  }, [live, currentUserId, currentUser.name, currentUser.handle, currentUser.avatar, refreshAccounts]);
+
   const offersForRestaurant = useCallback(
     (restaurantId: string) => offers.filter((o) => o.restaurantId === restaurantId),
     [offers],
@@ -313,12 +392,54 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const offerFor = useCallback((id: string) => offers.find((o) => o.id === id), [offers]);
   const isOfferRedeemed = useCallback((offerId: string) => redeemedOfferIds.has(offerId), [redeemedOfferIds]);
 
+  const locationOrigin = location.lat != null && location.lng != null ? { lat: location.lat, lng: location.lng } : null;
+  const restaurantCoords = useCallback(
+    (restaurantId: string) => {
+      const r = restaurantMap[restaurantId];
+      return r?.lat != null && r?.lng != null ? { lat: r.lat, lng: r.lng } : undefined;
+    },
+    [restaurantMap],
+  );
+
+  // Live, unexpired offers, nearby-first — the Discover "Exclusive Deals" rail.
+  const activeOffers = useCallback(() => {
+    const nowIso = new Date().toISOString();
+    const live = offers.filter((o) => o.active && (!o.expiresAt || o.expiresAt > nowIso));
+    return rankWithDistance(live, {
+      score: () => 0,
+      coords: (o) => restaurantCoords(o.restaurantId),
+      origin: locationOrigin,
+    });
+  }, [offers, restaurantCoords, locationOrigin]);
+
+  // Name/handle match — search screen's People tab.
+  const searchUsers = useCallback(
+    (query: string) => {
+      const q = query.trim();
+      if (!q) return [];
+      return rankWithDistance(
+        Object.values(profileMap).filter((u) => u.id !== currentUserId && !blocked.has(u.id)),
+        { score: (u) => scoreTextMatch(u.name, q, u.handle), rating: (u) => u.followers },
+      );
+    },
+    [profileMap, currentUserId, blocked],
+  );
+
   // A Set, not the raw list: every caller only ever asks "is this order
   // bumped?" (home feed) — never "which restaurant bumped it or when".
   const bumpedOrderIds = useMemo(() => new Set(feedBumps.map((b) => b.orderId)), [feedBumps]);
+  // Untargeted (targetZipCodes: []) placements show everywhere — that's every
+  // placement created before geo-targeting existed, and stays the default.
+  // A zip-targeted one only shows once we actually know the viewer's zip;
+  // an unknown zip means "don't show", not "show anyway".
   const placementsFor = useCallback(
-    (type: SponsoredPlacement['placementType']) => sponsoredPlacements.filter((p) => p.placementType === type),
-    [sponsoredPlacements],
+    (type: SponsoredPlacement['placementType']) =>
+      sponsoredPlacements.filter(
+        (p) =>
+          p.placementType === type &&
+          (p.targetZipCodes.length === 0 || (!!locationZip && p.targetZipCodes.includes(locationZip))),
+      ),
+    [sponsoredPlacements, locationZip],
   );
 
   const ensureProfiles = useCallback(
@@ -353,9 +474,70 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [orders, blocked],
   );
 
-  const feedOrders = useCallback(
-    () => [...visibleOrders].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+  // Pure recency, not personalization-ranked — the Discover "Activity" rail
+  // is meant to read as "what's happening right now," not a re-rank of the feed.
+  const recentActivity = useCallback(
+    (limit = 10) => [...visibleOrders].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, limit),
     [visibleOrders],
+  );
+
+  // Every plate whose dish name matches, ranked nearby-first — search screen.
+  // Scores the best-matching dish on the post (headline or any other plate in
+  // a multi-dish post), not just the headline — a match buried in a post's
+  // third plate still ranks by how good *that* match is, not as a non-match.
+  const searchPlates = useCallback(
+    (query: string) => {
+      const q = query.trim();
+      if (!q) return [];
+      // Also scored against the restaurant's own name — searching "3 Arts
+      // Club" should surface what's been rated there, not just plates whose
+      // dish name happens to contain the term.
+      const bestScore = (o: Order) => {
+        const r = restaurantFor(o.restaurantId);
+        const scores = [
+          scoreTextMatch(o.dishName, q),
+          ...plateRatings(o).map((p) => scoreTextMatch(p.dishName, q)),
+          ...(r ? [scoreTextMatch(r.name, q)] : []),
+        ].filter((s) => s >= 0);
+        return scores.length ? Math.min(...scores) : -1;
+      };
+      return rankWithDistance(visibleOrders, {
+        score: bestScore,
+        coords: (o) => restaurantCoords(o.restaurantId),
+        rating: (o) => o.rating,
+        origin: locationOrigin,
+      });
+    },
+    [visibleOrders, restaurantFor, restaurantCoords, locationOrigin],
+  );
+
+  // Feed personalization v1 (D3) — a re-rank layer, not a replacement: still
+  // chronological by default, just nudged by three real signals. A user with
+  // none of them (no follows posting, no search history, nothing rated yet)
+  // gets a score of 0 on every post, so the tie-break falls straight through
+  // to the original recency sort — the graceful fallback the plan calls for.
+  const visitedRestaurantIds = useMemo(
+    () => new Set(orders.filter((o) => o.userId === currentUserId).map((o) => o.restaurantId)),
+    [orders, currentUserId],
+  );
+  const personalizationScore = useCallback(
+    (o: Order) => {
+      let score = 0;
+      if (following.has(o.userId)) score += 3;
+      const r = restaurantMap[o.restaurantId];
+      if (r && recentSearchPlaceTypes.has(placeTypeFor(r.cuisine))) score += 2;
+      if (visitedRestaurantIds.has(o.restaurantId)) score += 1;
+      return score;
+    },
+    [following, restaurantMap, recentSearchPlaceTypes, visitedRestaurantIds],
+  );
+  const feedOrders = useCallback(
+    () =>
+      [...visibleOrders].sort((a, b) => {
+        const scoreDiff = personalizationScore(b) - personalizationScore(a);
+        return scoreDiff !== 0 ? scoreDiff : +new Date(b.createdAt) - +new Date(a.createdAt);
+      }),
+    [visibleOrders, personalizationScore],
   );
   const verifiedCreatorOrders = useCallback(
     () => feedOrders().filter((o) => userFor(o.userId).verified),
@@ -392,6 +574,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [restaurantMap, orders],
   );
   const topPlates = useCallback(() => [...visibleOrders].sort((a, b) => b.rating - a.rating).slice(0, 10), [visibleOrders]);
+  // "Visited places" — same shape as topRestaurants, scoped to only the
+  // orders the current user has personally rated rather than every order at
+  // that restaurant. A restaurant they've never rated at just doesn't appear;
+  // there's no separate check-in concept, rating a plate there is the visit.
+  const myRestaurantRankings = useCallback(() => {
+    const own = ordersByUser(currentUserId);
+    const seen = new Set(own.map((o) => o.restaurantId));
+    return Array.from(seen)
+      .map((rid) => {
+        const r = restaurantFor(rid);
+        if (!r) return null;
+        const { rating, count } = platedRatingFor(own, rid);
+        return count > 0 ? { ...r, platedRating: rating, orderCount: count } : null;
+      })
+      .filter((r): r is RestaurantWithRating => r != null)
+      .sort((a, b) => b.platedRating - a.platedRating);
+  }, [ordersByUser, currentUserId, restaurantFor]);
+  const myPlateRankings = useCallback(
+    () => [...ordersByUser(currentUserId)].sort((a, b) => b.rating - a.rating),
+    [ordersByUser, currentUserId],
+  );
   const topCreators = useCallback(
     () => Object.values(profileMap).filter((u) => u.id !== currentUserId && !blocked.has(u.id)).sort((a, b) => b.followers - a.followers),
     [profileMap, currentUserId, blocked],
@@ -410,9 +613,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     () => topCreators().filter((u) => !following.has(u.id)),
     [topCreators, following],
   );
+  // Friends = mutual follow — you follow them and they follow you back.
+  const friendUsers = useCallback(
+    () => followingUsers().filter((u) => followers.has(u.id)),
+    [followingUsers, followers],
+  );
   const exploreOrders = useCallback(
     (filter: string) => {
       const base = feedOrders();
+      // Real signals, not a hand-picked editorial tag: a plate only counts as
+      // "Trending" once it's both genuinely good (rating above 8) and getting
+      // real engagement, ranked by that engagement rather than just listed.
+      if (filter === 'Trending') {
+        return [...base].filter((o) => o.rating > 8).sort((a, b) => b.likes + b.comments - (a.likes + a.comments));
+      }
       if (filter === 'Top Rated') return [...base].sort((a, b) => b.rating - a.rating);
       if (filter === 'Most Reordered') return [...base].sort((a, b) => (b.reorders ?? 0) - (a.reorders ?? 0));
       if (filter === 'All') return base;
@@ -577,6 +791,44 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     (targetType: ReportTarget, targetId: string, reason: ReportReason, details?: string) => {
       if (live && userId)
         supabase.from('reports').insert({ reporter_id: userId, target_type: targetType, target_id: targetId, reason, details }).then(() => {});
+    },
+    [live, userId],
+  );
+
+  const submitRestaurantClaim = useCallback(
+    async (input: RestaurantClaimInput): Promise<boolean> => {
+      if (!live || !userId) return true;
+      const { error } = await supabase.from('restaurant_claims').insert({
+        restaurant_id: input.restaurantId,
+        claimant_id: userId,
+        business_name: input.businessName,
+        role: input.role,
+        contact_email: input.contactEmail,
+        contact_phone: input.contactPhone,
+        notes: input.notes,
+        id_document_path: input.idDocumentPath,
+        authorization_document_path: input.authorizationDocumentPath,
+        storefront_photo_path: input.storefrontPhotoPath,
+      });
+      if (error && __DEV__) console.warn('[Plated] submitRestaurantClaim failed', error);
+      return !error;
+    },
+    [live, userId],
+  );
+
+  const submitRestaurantRequest = useCallback(
+    async (input: RestaurantRequestInput): Promise<boolean> => {
+      if (!live || !userId) return true;
+      const { error } = await supabase.from('restaurant_requests').insert({
+        requester_id: userId,
+        business_name: input.businessName,
+        location: input.location,
+        contact_email: input.contactEmail,
+        contact_phone: input.contactPhone,
+        notes: input.notes,
+      });
+      if (error && __DEV__) console.warn('[Plated] submitRestaurantRequest failed', error);
+      return !error;
     },
     [live, userId],
   );
@@ -756,6 +1008,70 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, live, userId],
   );
 
+  /**
+   * An owner editing their own restaurant's page. Only the columns 0042
+   * grants column-level UPDATE on are writable — the RLS policy additionally
+   * requires the restaurant to be `verified` and the caller to hold a
+   * `restaurant_owners` row, so this can't be used to edit someone else's
+   * listing even if the client asked it to.
+   *
+   * Returns whether the write actually landed, so the editor can tell the
+   * owner it failed rather than silently keeping an optimistic value.
+   */
+  const updateRestaurantPage = useCallback(
+    async (restaurantId: string, patch: RestaurantPagePatch): Promise<boolean> => {
+      const before = restaurantMap[restaurantId];
+      // Optimistic: `custom_name`/`custom_photos` are what `mapRestaurant`
+      // folds into `name`/`image`/`photos`, so mirror that here rather than
+      // waiting on a refetch to see the edit.
+      setRestaurantMap((m) => {
+        const current = m[restaurantId];
+        if (!current) return m;
+        return {
+          ...m,
+          [restaurantId]: {
+            ...current,
+            ...(patch.customName !== undefined ? { name: patch.customName || current.name } : {}),
+            ...(patch.photos !== undefined
+              ? { photos: patch.photos, image: patch.photos[0] || current.image }
+              : {}),
+            ...(patch.orderMode !== undefined ? { orderMode: patch.orderMode } : {}),
+            ...(patch.reservationPlatform !== undefined ? { reservationPlatform: patch.reservationPlatform } : {}),
+            ...(patch.reservationUrl !== undefined ? { reservationUrl: patch.reservationUrl } : {}),
+            ...(patch.externalOrderUrl !== undefined ? { externalOrderUrl: patch.externalOrderUrl } : {}),
+          },
+        };
+      });
+
+      if (!live) return true;
+
+      const row: Record<string, unknown> = {};
+      if (patch.customName !== undefined) row.custom_name = patch.customName || null;
+      if (patch.photos !== undefined) row.custom_photos = patch.photos;
+      if (patch.orderMode !== undefined) row.order_mode = patch.orderMode ?? null;
+      if (patch.reservationPlatform !== undefined) row.reservation_platform = patch.reservationPlatform ?? null;
+      if (patch.reservationUrl !== undefined) row.reservation_url = patch.reservationUrl || null;
+      if (patch.externalOrderUrl !== undefined) row.external_order_url = patch.externalOrderUrl || null;
+      if (!Object.keys(row).length) return true;
+
+      // `.select()` matters: an UPDATE whose rows are all filtered out by RLS
+      // is reported as success with zero rows, not as an error. Without asking
+      // for the updated rows back there's nothing to distinguish "saved" from
+      // "silently rejected", and the editor would claim success either way.
+      const { data, error } = await supabase.from('restaurants').update(row).eq('id', restaurantId).select('id');
+      const saved = !error && (data?.length ?? 0) > 0;
+      if (!saved) {
+        console.warn('[restaurants] page update failed:', error?.message ?? 'no rows updated (blocked by RLS?)');
+        // Put the old values back — an edit that didn't save shouldn't keep
+        // looking saved.
+        if (before) setRestaurantMap((m) => ({ ...m, [restaurantId]: before }));
+        return false;
+      }
+      return true;
+    },
+    [live, restaurantMap],
+  );
+
   // Delete one of your own posts. Optimistic: drop it locally, then delete the
   // row (RLS "delete own order" allows it only for the author).
   const deleteOrder = useCallback(
@@ -801,10 +1117,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       restaurantWithRating,
       topRestaurants,
       topPlates,
+      myRestaurantRankings,
+      myPlateRankings,
       topCreators,
       followingUsers,
       followerUsers,
       suggestedUsers,
+      friendUsers,
       exploreOrders,
       searchRestaurants,
       menuForRestaurant,
@@ -829,8 +1148,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       offerFor,
       isOfferRedeemed,
       redeemOffer,
+      activeOffers,
+      recentActivity,
+      searchPlates,
+      searchUsers,
       bumpedOrderIds,
       placementsFor,
+      ownedRestaurantIds,
+      submitRestaurantClaim,
+      submitRestaurantRequest,
       reportContent,
       isBlocked,
       blockUser,
@@ -842,8 +1168,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setOrderArchived,
       ensureRestaurant,
       updateProfile,
+      updateRestaurantPage,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, topCreators, followingUsers, followerUsers, suggestedUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, bumpedOrderIds, placementsFor, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile],
+    [orders, restaurantMap, currentUser, loading, refresh, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

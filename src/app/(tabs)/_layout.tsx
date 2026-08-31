@@ -1,65 +1,55 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { tapMedium, tick } from '@/lib/haptics';
+import { SECTION_META, SectionKey, TAB_BAR_BOTTOM_MARGIN, TAB_BAR_HEIGHT } from '@/lib/sections';
 import { useAuth } from '@/store/AuthContext';
+import { DiscoverSharedProvider } from '@/store/DiscoverSharedContext';
+import { ExploreModeProvider } from '@/store/ExploreModeContext';
 import { useLocation } from '@/store/LocationContext';
+import { MainPagerProvider, useMainPagerControl } from '@/store/MainPagerControl';
 import { useTheme } from '@/theme/ThemeContext';
 
-/** Minimal shape of the props expo-router passes to a custom tabBar. */
-interface TabBarProps {
-  state: { index: number; routes: { key: string; name: string }[] };
-  // Loosely typed: expo-router's navigation helper has a complex generic
-  // signature; we only use emit + navigate.
-  navigation: {
-    emit: (...args: any[]) => { defaultPrevented: boolean };
-    navigate: (...args: any[]) => void;
-  };
-}
+const BAR_SECTIONS: SectionKey[] = ['home', 'platos', 'discover', 'profile'];
 
-const ICONS: Record<string, { on: keyof typeof Ionicons.glyphMap; off: keyof typeof Ionicons.glyphMap; label: string }> = {
-  index: { on: 'home', off: 'home-outline', label: 'Home' },
-  explore: { on: 'compass', off: 'compass-outline', label: 'Explore' },
-  leaderboard: { on: 'trophy', off: 'trophy-outline', label: 'Ranks' },
-  profile: { on: 'person', off: 'person-outline', label: 'Profile' },
-};
-
-function PlatedTabBar({ state, navigation }: TabBarProps) {
+/**
+ * One floating pill: Home · Platos · [create] · Discover · Profile, in swipe
+ * order. Every tap jumps the pager hosted by `index.tsx` directly — none of
+ * these five route anywhere, so the transition is always the pager's own
+ * live animation, not a navigation cut. The create button sits in the middle
+ * but isn't a section; the pager never lands on it.
+ */
+function PlatedTabBar() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { activeSection, jumpTo } = useMainPagerControl();
   const [chooser, setChooser] = useState(false);
 
-  const renderTab = (routeName: string) => {
-    const index = state.routes.findIndex((r) => r.name === routeName);
-    const route = state.routes[index];
-    if (!route) return null;
-    const focused = state.index === index;
-    const cfg = ICONS[routeName];
+  // Platos is a video feed edge-to-edge behind the bar — a solid card reads
+  // heavy against it, so the bar goes nearly see-through there instead.
+  const onPlatos = activeSection === 'platos';
 
-    const onPress = () => {
-      const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-      if (!focused && !event.defaultPrevented) {
-        tick();
-        navigation.navigate(route.name);
-      }
-    };
-
+  const renderSection = (key: SectionKey) => {
+    const cfg = SECTION_META[key];
+    const focused = activeSection === key;
+    const tint = onPlatos ? 'rgba(255,255,255,0.9)' : colors.textMuted;
     return (
-      <AnimatedPressable key={routeName} style={styles.tab} onPress={onPress} hitSlop={6}>
-        <Ionicons
-          name={focused ? cfg.on : cfg.off}
-          size={24}
-          color={focused ? colors.accent : colors.textMuted}
-        />
-        <Text style={[styles.label, { color: focused ? colors.accent : colors.textMuted }]}>
-          {cfg.label}
-        </Text>
+      <AnimatedPressable
+        key={key}
+        onPress={() => {
+          tick();
+          jumpTo(key);
+        }}
+        hitSlop={4}
+        pressScale={0.9}
+        style={[styles.item, focused && { backgroundColor: onPlatos ? 'rgba(255,255,255,0.18)' : colors.surface }]}>
+        <Ionicons name={focused ? cfg.icon : cfg.iconOutline} size={27} color={focused ? colors.accent : tint} />
       </AnimatedPressable>
     );
   };
@@ -68,31 +58,32 @@ function PlatedTabBar({ state, navigation }: TabBarProps) {
     <>
       <View
         style={[
-          styles.bar,
+          styles.barWrap,
           {
-            backgroundColor: colors.card,
-            borderTopColor: colors.border,
-            paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
+            bottom: insets.bottom + TAB_BAR_BOTTOM_MARGIN,
+            height: TAB_BAR_HEIGHT,
+            backgroundColor: onPlatos ? 'rgba(20,20,20,0.35)' : colors.card + 'D9',
+            borderColor: onPlatos ? 'rgba(255,255,255,0.15)' : colors.border,
+            shadowColor: colors.shadow,
           },
         ]}>
-        {renderTab('index')}
-        {renderTab('explore')}
+        {renderSection(BAR_SECTIONS[0])}
+        {renderSection(BAR_SECTIONS[1])}
 
-        {/* Center create button — chooses between a rated plate and a Plato video */}
-        <View style={styles.centerWrap}>
-          <AnimatedPressable
-            onPress={() => {
-              tapMedium();
-              setChooser(true);
-            }}
-            pressScale={0.92}
-            style={[styles.center, { backgroundColor: colors.accent, shadowColor: colors.shadow }]}>
-            <Ionicons name="add" size={32} color={colors.accentText} />
-          </AnimatedPressable>
-        </View>
+        {/* Create — chooses between a rated plate and a Plato video. Not a
+            section: tapped directly, never landed on by paging. */}
+        <AnimatedPressable
+          onPress={() => {
+            tapMedium();
+            setChooser(true);
+          }}
+          pressScale={0.92}
+          style={[styles.create, { backgroundColor: colors.accent, shadowColor: colors.shadow }]}>
+          <Ionicons name="add" size={30} color={colors.accentText} />
+        </AnimatedPressable>
 
-        {renderTab('leaderboard')}
-        {renderTab('profile')}
+        {renderSection(BAR_SECTIONS[2])}
+        {renderSection(BAR_SECTIONS[3])}
       </View>
 
       <ActionSheet
@@ -135,37 +126,50 @@ export default function TabsLayout() {
   if (!signedIn) return <Redirect href="/(auth)/sign-in" />;
 
   return (
-    <Tabs
-      screenOptions={{ headerShown: false }}
-      tabBar={(props) => <PlatedTabBar {...(props as unknown as TabBarProps)} />}>
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="explore" />
-      <Tabs.Screen name="leaderboard" />
-      <Tabs.Screen name="profile" />
-    </Tabs>
+    <MainPagerProvider>
+      <ExploreModeProvider>
+        <DiscoverSharedProvider>
+          <Tabs
+            screenOptions={{ headerShown: false }}
+            tabBar={() => <PlatedTabBar />}>
+            <Tabs.Screen name="index" />
+            <Tabs.Screen name="explore" />
+            <Tabs.Screen name="profile" />
+          </Tabs>
+        </DiscoverSharedProvider>
+      </ExploreModeProvider>
+    </MainPagerProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
+  barWrap: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    borderRadius: 30,
+    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
-  tab: { flex: 1, alignItems: 'center', gap: 3 },
-  label: { fontSize: 11, fontWeight: '700' },
-  centerWrap: { flex: 1, alignItems: 'center' },
-  center: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  // A rounded square, not a circle, behind the active icon — reads as a
+  // firmer, more "filled-in" tap target at this size.
+  item: { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  create: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -24,
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
 });

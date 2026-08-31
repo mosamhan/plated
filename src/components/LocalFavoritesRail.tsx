@@ -1,8 +1,11 @@
 import { Image } from 'expo-image';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import type { CuisineFilterValue } from '@/components/CuisineFilterRow';
 import { SectionHeader } from '@/components/SectionHeader';
 import { Restaurant, SponsoredPlacement } from '@/data/types';
+import { type DiscoverScope, useNearFilter } from '@/hooks/useNearFilter';
+import { placeTypeFor } from '@/lib/placeType';
 import { useData } from '@/store/DataContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -16,13 +19,26 @@ const CARD_WIDTH = 200;
  * restaurant has an active `local_favorite` placement, rather than an empty
  * section.
  */
-export function LocalFavoritesRail({ onPress }: { onPress: (restaurantId: string) => void }) {
+export function LocalFavoritesRail({
+  onPress,
+  scope,
+  origin,
+  cuisine,
+}: {
+  onPress: (restaurantId: string) => void;
+  scope: DiscoverScope;
+  origin: { lat: number; lng: number } | null;
+  cuisine: CuisineFilterValue;
+}) {
   const { colors } = useTheme();
   const { placementsFor, restaurantFor } = useData();
+  const isNear = useNearFilter(scope, origin);
 
   const items = placementsFor('local_favorite')
     .map((placement) => ({ placement, restaurant: restaurantFor(placement.restaurantId) }))
-    .filter((x): x is { placement: SponsoredPlacement; restaurant: Restaurant } => !!x.restaurant);
+    .filter((x): x is { placement: SponsoredPlacement; restaurant: Restaurant } => !!x.restaurant)
+    .filter(({ restaurant }) => isNear(restaurant))
+    .filter(({ restaurant }) => cuisine === 'overall' || placeTypeFor(restaurant.cuisine) === cuisine);
 
   if (items.length === 0) return null;
 

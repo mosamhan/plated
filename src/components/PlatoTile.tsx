@@ -24,10 +24,18 @@ interface Props {
   savedOverride?: boolean;
   /** Show the "⋯" manage menu (own profile only): audience / archive / delete. */
   manageable?: boolean;
+  /**
+   * A specific plate from this Plato to front instead of the headline dish —
+   * for a multi-plate Plato expanded into one tile per plate (see
+   * `expandPlatoPlates`), so a tile titled "Lobster Roll" still opens the one
+   * video, just with that dish (and its own rating) as the title shown.
+   */
+  titleOverride?: string;
+  ratingOverride?: number;
 }
 
 /** Grid thumbnail for a Plato (creator video). Taps into the full-screen player. */
-export function PlatoTile({ video, width, onSave, savedOverride, manageable }: Props) {
+export function PlatoTile({ video, width, onSave, savedOverride, manageable, titleOverride, ratingOverride }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const { currentUser } = useData();
@@ -82,12 +90,12 @@ export function PlatoTile({ video, width, onSave, savedOverride, manageable }: P
           <Text style={styles.viewsText}>{formatCount(video.views)}</Text>
         </View>
         <View style={styles.badge}>
-          <RatingBadge score={video.rating} size="sm" />
+          <RatingBadge score={ratingOverride ?? video.rating} size="sm" />
         </View>
       </View>
       <View style={styles.body}>
         <Text style={[styles.dish, { color: colors.text }]} numberOfLines={1}>
-          {video.dishName}
+          {titleOverride ?? video.dishName}
         </Text>
         <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>
           {video.restaurantName}

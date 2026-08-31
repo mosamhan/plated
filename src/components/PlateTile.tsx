@@ -5,10 +5,12 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { HighlightTag } from '@/components/HighlightTag';
 import { PostOptionsSheet } from '@/components/PostOptionsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { foodPlaceholder } from '@/data/images';
 import { Order } from '@/data/types';
+import type { PlateHighlight } from '@/lib/highlights';
 import { useData } from '@/store/DataContext';
 import { radius } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -25,9 +27,12 @@ interface Props extends ManageProps {
   onPress?: () => void;
   /** Draws the tile as the one currently pinned on the map. */
   selected?: boolean;
+  /** "Top Rated" / "Most Reordered" at this plate's own restaurant. Discover
+   *  passes this; other grids leave tiles unbadged. */
+  highlight?: PlateHighlight;
 }
 
-export function PlateTile({ order, width, onPress, selected, manageable }: Props) {
+export function PlateTile({ order, width, onPress, selected, manageable, highlight }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const { userFor, restaurantFor, currentUser, deleteOrder, setOrderVisibility, setOrderArchived } = useData();
@@ -70,13 +75,19 @@ export function PlateTile({ order, width, onPress, selected, manageable }: Props
             <Ionicons name="ellipsis-horizontal" size={15} color="#fff" />
           </Pressable>
         )}
-        {/* FTC: disclosure must appear where the endorsement appears, not one tap later */}
-        {user.compensationEligible && (
-          <View style={styles.commission}>
-            <Ionicons name="cash-outline" size={9} color="#FFFFFF" />
-            <Text style={styles.commissionText}>Earns commission</Text>
-          </View>
-        )}
+        {/* Stacked rather than absolutely placed individually: a plate can be
+            both its restaurant's best *and* earn commission, and the two
+            would otherwise land on top of each other. */}
+        <View style={styles.topLeft}>
+          {highlight && <HighlightTag highlight={highlight} />}
+          {/* FTC: disclosure must appear where the endorsement appears, not one tap later */}
+          {user.compensationEligible && (
+            <View style={styles.commission}>
+              <Ionicons name="cash-outline" size={9} color="#FFFFFF" />
+              <Text style={styles.commissionText}>Earns commission</Text>
+            </View>
+          )}
+        </View>
       </View>
       <View style={styles.body}>
         <Text style={[styles.dish, { color: colors.text }]} numberOfLines={1}>
@@ -111,10 +122,8 @@ const styles = StyleSheet.create({
   },
   photo: { width: '100%', aspectRatio: 1 },
   badge: { position: 'absolute', right: 8, bottom: 8 },
+  topLeft: { position: 'absolute', left: 8, top: 8, alignItems: 'flex-start', gap: 4 },
   commission: {
-    position: 'absolute',
-    left: 8,
-    top: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,

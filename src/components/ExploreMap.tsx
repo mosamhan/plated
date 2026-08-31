@@ -22,7 +22,7 @@ type MciName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
  * taco and no steak, so the food types were landing on stand-ins (ramen was an
  * apple). This set has a real glyph for each one.
  */
-export const PLACE_TYPE_META: Record<PlaceType, { icon: MciName; label: string }> = {
+export const PLACE_TYPE_META: Record<PlaceType, { icon: MciName; label: string; /** Overrides the icon with literal text — the Halal wordmark reads better than any icon glyph could. */ glyph?: string }> = {
   cafe: { icon: 'coffee', label: 'Café & drinks' },
   bakery: { icon: 'cupcake', label: 'Bakery & dessert' },
   bar: { icon: 'glass-cocktail', label: 'Bar' },
@@ -35,10 +35,27 @@ export const PLACE_TYPE_META: Record<PlaceType, { icon: MciName; label: string }
   french: { icon: 'glass-wine', label: 'French & fine dining' },
   steakhouse: { icon: 'food-steak', label: 'Steakhouse & BBQ' },
   seafood: { icon: 'fish', label: 'Seafood' },
-  midEast: { icon: 'food-drumstick', label: 'Halal & Middle Eastern' },
+  midEast: { icon: 'food-drumstick', label: 'Halal & Middle Eastern', glyph: 'حلال' },
   vegan: { icon: 'leaf', label: 'Vegan & salads' },
   other: { icon: 'storefront-outline', label: 'Everything else' },
 };
+
+/**
+ * Renders a place type's glyph — its `glyph` text when set (Halal, see
+ * above), otherwise its MaterialCommunityIcons icon. One place so a pin, a
+ * filter chip, and a rankings row never disagree on how a type reads.
+ */
+export function PlaceGlyph({ type, size, color }: { type: PlaceType; size: number; color: string }) {
+  const meta = PLACE_TYPE_META[type];
+  if (meta.glyph) {
+    return (
+      <Text style={{ fontSize: size, fontWeight: '800', color, textAlign: 'center' }} numberOfLines={1}>
+        {meta.glyph}
+      </Text>
+    );
+  }
+  return <MaterialCommunityIcons name={meta.icon} size={size} color={color} />;
+}
 
 /**
  * The types offered as filters. 'other' is deliberately absent: with no filter
@@ -275,7 +292,6 @@ function Pin({
   name?: string;
   sponsored?: boolean;
 }) {
-  const glyph = PLACE_TYPE_META[type].icon;
   const tint = pinColorFor(statuses);
 
   // Zoomed out (and not the selected pin): a bare dot. Enough to read the shape
@@ -283,7 +299,7 @@ function Pin({
   if (detail === 'far' && !highlighted) {
     return (
       <View style={[styles.pinFar, { backgroundColor: tint, borderColor: saved ? '#B07207' : '#fff' }]}>
-        <MaterialCommunityIcons name={glyph} size={10} color="#fff" />
+        <PlaceGlyph type={type} size={10} color="#fff" />
       </View>
     );
   }
@@ -299,7 +315,7 @@ function Pin({
         highlighted && styles.pinHighlighted,
       ]}>
       <View style={[styles.dot, highlighted && styles.dotLg, { backgroundColor: tint }]}>
-        <MaterialCommunityIcons name={glyph} size={highlighted ? 15 : 13} color="#fff" />
+        <PlaceGlyph type={type} size={highlighted ? 15 : 13} color="#fff" />
       </View>
       <Text style={[styles.score, highlighted && styles.scoreLg]}>{score > 0 ? score.toFixed(1) : '—'}</Text>
       {saved && <Ionicons name="star" size={highlighted ? 13 : 11} color="#B07207" style={{ marginLeft: -1 }} />}

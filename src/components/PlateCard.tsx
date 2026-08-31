@@ -3,30 +3,50 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, ZoomIn, ZoomOut } from 'react-native-reanimated';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { PlateCarousel } from '@/components/PlateCarousel';
+import { PlateCommentsSheet } from '@/components/PlateCommentsSheet';
 import { PostOptionsSheet } from '@/components/PostOptionsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
+import { SendToSheet } from '@/components/SendToSheet';
 import { formatCount } from '@/components/StatPill';
 import { foodPlaceholder } from '@/data/images';
 import { Order } from '@/data/types';
 import { collabEarningsNote, collabLabel } from '@/lib/collabs';
+import { formatRelativeDate } from '@/lib/dates';
 import { showAlert } from '@/lib/dialog';
 import { exploreFocusHref } from '@/lib/inAppRoute';
-import { postMedia, postShareArgs } from '@/lib/post';
-import { buildPlateShareMessage } from '@/lib/invite';
+import { postMedia } from '@/lib/post';
+import { buildPlateShareMessage, plateLink } from '@/lib/invite';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
+import { useStories } from '@/store/StoriesContext';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 const DOUBLE_TAP_MS = 200;
+
+/**
+ * Counts actual taps so the like/save icon's `entering` pop only plays when
+ * this fires — never on mount. Comparing old/new key values (the previous
+ * approach) still remounts on the icon's *first* render whenever that render
+ * happens to be the icon's genuine first mount, which is every card on a
+ * cold app start — so the whole feed's hearts popped in together on launch.
+ * A tap-only counter sidesteps that: the key starts at 0 (`entering` is
+ * `undefined`, no animation possible) and only becomes truthy — remounting
+ * the view with `entering` attached — once something has actually called
+ * `bump()`.
+ */
+function useTapBurst(): [number, () => void] {
+  const [n, setN] = useState(0);
+  return [n, () => setN((v) => v + 1)];
+}
 
 export function PlateCard({
   order,
@@ -45,8 +65,13 @@ export function PlateCard({
   const { colors } = useTheme();
   const router = useRouter();
   const { isLiked, toggleLike, isSaved, toggleSave, userFor, restaurantFor, currentUser, deleteOrder, setOrderVisibility, setOrderArchived } = useData();
+  const { storiesFor, isSeen } = useStories();
   const [sheet, setSheet] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  // Which plate of the carousel is on screen — what Share and Send-to act on.
+  const [plateIndex, setPlateIndex] = useState(0);
   const [burst, setBurst] = useState(false);
   const lastTap = useRef(0);
   const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,20 +90,42 @@ export function PlateCard({
   const collabs = collabLabel(order.collaborators, (id) => userFor(id).handle);
   const restaurant = restaurantFor(order.restaurantId);
 
-  // Shares the whole post (all plates), matching the post-detail header — not
-  // just the headline dish.
+  // Visibility (public vs. friends-only) is already enforced server-side —
+  // a story only ever reaches `storiesFor` if this viewer is allowed to see
+  // it, so there's nothing further to gate here.
+  const authorStories = storiesFor(user.id);
+  const authorStoryRing: 'unseen' | 'seen' | undefined =
+    authorStories.length === 0 ? undefined : authorStories.every((s) => isSeen(s.id)) ? 'seen' : 'unseen';
+  const openAuthorAvatar = () => {
+    tapLight();
+    router.push(authorStories.length > 0 ? `/story/${user.id}` : `/user/${user.id}`);
+  };
+
+  // Sharing leads with people ("you have to try this"), so the button opens the
+  // Send-to sheet rather than the system share sheet — which is still one tap
+  // away inside it.
+  //
+  // What gets shared is the plate you're looking at. A post is a carousel of
+  // several dishes now, and "this" means the one on screen — sharing the whole
+  // post as an average is a number nobody chose and no recipient can act on.
+  const media = postMedia(order);
+  const plate = media[Math.min(plateIndex, media.length - 1)] ?? media[0];
   const sharePost = () => {
     tapLight();
-    Share.share({
-      message: buildPlateShareMessage({
-        ...postShareArgs(order),
-        restaurantName: restaurant?.name,
-        handle: userFor(order.userId).handle,
-      }),
-    }).catch(() => {});
+    setSendOpen(true);
   };
+  const shareMessage = buildPlateShareMessage({
+    orderId: order.id,
+    dishName: plate.dishName || order.dishName,
+    rating: plate.rating || order.rating,
+    restaurantName: restaurant?.name,
+    handle: user.handle,
+    earns: order.monetizable,
+  });
   const liked = isLiked(order.id);
   const saved = savedOverride ?? isSaved(order.id);
+  const [likeBurst, bumpLikeBurst] = useTapBurst();
+  const [saveBurst, bumpSaveBurst] = useTapBurst();
 
   const onPhotoPress = () => {
     const now = Date.now();
@@ -116,9 +163,15 @@ export function PlateCard({
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       {/* User row */}
       <View style={styles.header}>
-        <Pressable style={styles.userRow} onPress={() => router.push(`/user/${user.id}`)}>
-          <Avatar uri={user.avatar} size={42} verified={user.verified} />
-          <View style={{ marginLeft: 10, flex: 1 }}>
+        <View style={styles.userRow}>
+          <Avatar
+            uri={user.avatar}
+            size={42}
+            verified={user.verified}
+            storyRing={authorStoryRing}
+            onPress={openAuthorAvatar}
+          />
+          <Pressable style={{ marginLeft: 10, flex: 1 }} onPress={() => router.push(`/user/${user.id}`)}>
             <View style={styles.nameRow}>
               <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
                 {user.name}
@@ -144,8 +197,11 @@ export function PlateCard({
                 {collabs ? ` · with ${collabs}` : ''}
               </Text>
             </Pressable>
-          </View>
-        </Pressable>
+            <Text style={[styles.time, { color: colors.textMuted }]} numberOfLines={1}>
+              {formatRelativeDate(order.createdAt)}
+            </Text>
+          </Pressable>
+        </View>
         {/* A feed bump, not a badge the poster earns — reads as an ad
             disclosure (neutral, muted) rather than the accent-colored
             commission tag above, which is about the creator, not the restaurant. */}
@@ -164,10 +220,11 @@ export function PlateCard({
           name + rating; a double-tap on any page still likes the post. */}
       <View>
         <PlateCarousel
-          media={postMedia(order)}
+          media={media}
           onPress={onPhotoPress}
           reorders={order.reorders ?? 0}
           colorSurface={colors.surface}
+          onIndexChange={setPlateIndex}
         />
         {burst && (
           <View style={styles.burstWrap} pointerEvents="none">
@@ -192,9 +249,12 @@ export function PlateCard({
           onPress={() => {
             toggleLike(order.id);
             tapLight();
+            bumpLikeBurst();
           }}
           hitSlop={8}>
-          <Animated.View key={liked ? 'liked' : 'unliked'} entering={ZoomIn.springify().damping(12)}>
+          <Animated.View
+            key={likeBurst || undefined}
+            entering={likeBurst ? ZoomIn.springify().damping(12) : undefined}>
             <Ionicons
               name={liked ? 'heart' : 'heart-outline'}
               size={22}
@@ -208,7 +268,17 @@ export function PlateCard({
             </Text>
           )}
         </Pressable>
-        <Pressable style={styles.action} onPress={() => router.push(`/order/${order.id}`)} hitSlop={8}>
+        {/* Opens a sheet rather than pushing the post: saying one line shouldn't
+            cost you your place in the feed. Same shape as Plato comments. */}
+        <Pressable
+          style={styles.action}
+          accessibilityRole="button"
+          accessibilityLabel="Comments"
+          onPress={() => {
+            tapLight();
+            setCommentsOpen(true);
+          }}
+          hitSlop={8}>
           <Ionicons name={order.commentsDisabled ? 'chatbubble-ellipses-outline' : 'chatbubble-outline'} size={20} color={colors.text} />
           {!order.commentsDisabled && (
             <Text style={[styles.actionText, { color: colors.textMuted }]}>
@@ -224,9 +294,12 @@ export function PlateCard({
             if (onSave) onSave();
             else toggleSave(order.id);
             tapLight();
+            bumpSaveBurst();
           }}
           hitSlop={8}>
-          <Animated.View key={saved ? 'saved' : 'unsaved'} entering={ZoomIn.springify().damping(12)}>
+          <Animated.View
+            key={saveBurst || undefined}
+            entering={saveBurst ? ZoomIn.springify().damping(12) : undefined}>
             <Ionicons
               name={saved ? 'bookmark' : 'bookmark-outline'}
               size={20}
@@ -257,7 +330,15 @@ export function PlateCard({
         onClose={() => setSheet(false)}
         order={order}
         restaurantName={restaurant?.name ?? ''}
+        restaurantLocation={restaurant?.location}
         dishName={order.dishName}
+        priceLevel={restaurant?.priceLevel}
+        orderMode={restaurant?.orderMode}
+        reservationPlatform={restaurant?.reservationPlatform}
+        reservationUrl={restaurant?.reservationUrl}
+        externalOrderUrl={restaurant?.externalOrderUrl}
+        doordashStoreUrl={restaurant?.doordashStoreUrl}
+        ubereatsStoreUrl={restaurant?.ubereatsStoreUrl}
         creatorHandle={user.handle}
         supportsCreator={user.compensationEligible}
       />
@@ -272,6 +353,25 @@ export function PlateCard({
         onSetVisibility={(v) => setOrderVisibility(order.id, v)}
         onSetArchived={(a) => setOrderArchived(order.id, a)}
         onDelete={() => deleteOrder(order.id)}
+      />
+
+      <PlateCommentsSheet
+        orderId={order.id}
+        visible={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+      />
+
+      <SendToSheet
+        visible={sendOpen}
+        onClose={() => setSendOpen(false)}
+        payload={{
+          kind: 'plate',
+          attachmentId: order.id,
+          attachmentIndex: plateIndex,
+          shareMessage,
+          link: plateLink(order.id),
+          label: `the ${plate.dishName || order.dishName}`,
+        }}
       />
     </Animated.View>
   );
@@ -315,6 +415,7 @@ const styles = StyleSheet.create({
   },
   promotedTagText: { fontSize: 10, fontWeight: '700' },
   sub: { fontSize: 13, fontWeight: '500', marginTop: 1 },
+  time: { fontSize: 11, fontWeight: '500', marginTop: 1 },
   photo: { width: '100%', aspectRatio: 0.92 },
   scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%' },
   scrimContent: {

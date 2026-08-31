@@ -15,9 +15,7 @@ export function SuggestedFriendCard({ contact }: { contact: Contact }) {
   const [added, setAdded] = useState(false);
 
   const onInvite = () => {
-    Share.share({
-      message: buildInviteMessage({ earns: currentUser.compensationEligible }),
-    }).catch(() => {});
+    Share.share({ message: buildInviteMessage({ earns: currentUser.compensationEligible }) }).catch(() => {});
   };
 
   return (

@@ -26,5 +26,8 @@ export default function UserProfile() {
     );
   }
 
-  return <ProfileView user={user} isCurrent={isCurrent} />;
+  // This route is always pushed — unlike the Profile tab, there's no tab bar
+  // to fall back on, so even your own profile needs a way back. (Only takes
+  // effect on the isCurrent branch; the other-user header already has one.)
+  return <ProfileView user={user} isCurrent={isCurrent} showBack />;
 }

@@ -15,8 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { ActionSheet } from '@/components/ActionSheet';
+import { AccountSwitchSheet } from '@/components/AccountSwitchSheet';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
+import { AvatarViewerSheet } from '@/components/AvatarViewerSheet';
 import { Button } from '@/components/Button';
 import { NameInputModal } from '@/components/NameInputModal';
 import { PlateTile } from '@/components/PlateTile';
@@ -27,33 +29,60 @@ import { SocialLinks } from '@/components/SocialLinks';
 import { formatCount, StatPill } from '@/components/StatPill';
 import { User } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
+import { creatorEligibilityCounts, evaluateCreatorEligibility } from '@/lib/creatorEligibility';
 import { success, tapLight, tick } from '@/lib/haptics';
-import { buildInviteMessage, INVITE_LINK } from '@/lib/invite';
+import { buildInviteMessage, buildProfileShareMessage, INVITE_LINK } from '@/lib/invite';
 import { Collection, useCollections } from '@/store/CollectionsContext';
 import { useCreatorCard } from '@/store/CreatorCardContext';
 import { useData } from '@/store/DataContext';
-import { useLocation } from '@/store/LocationContext';
+import { useMessages } from '@/store/MessagesContext';
 import { usePlatos } from '@/store/PlatosContext';
+import { useStories } from '@/store/StoriesContext';
 import { useCollectionContents } from '@/store/useCollectionContents';
 import { usePublicCollections } from '@/store/usePublicCollections';
-import { displayFont } from '@/theme/fonts';
-import { buildProfileShareMessage } from '@/lib/invite';
 import { radius, spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 const PADDING = spacing.lg;
 const GAP = spacing.md;
 
-const COMP_THRESHOLD = 10000;
-
-export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolean }) {
+export function ProfileView({
+  user,
+  isCurrent,
+  showBack,
+}: {
+  user: User;
+  isCurrent: boolean;
+  /**
+   * The compact self header has no back control by default, because the one
+   * place that renders it unpushed is the Profile tab — "back" there would
+   * mean leaving the tab, which the tab bar already does. Every other way of
+   * reaching your own profile (tapping your avatar from a plate, a mention,
+   * etc.) is a pushed route with nothing else to return to it, so those
+   * callers pass this to get a back arrow instead of a dead end.
+   */
+  showBack?: boolean;
+}) {
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const { ordersByUser, isFollowing, toggleFollow, blockUser, isBlocked, suggestedUsers, currentUser } = useData();
-  const { location } = useLocation();
+  const { startDirect } = useMessages();
   const { platos } = usePlatos();
+  const { storiesFor, isSeen } = useStories();
+
+  // Visibility is already enforced server-side (storiesFor only ever returns
+  // what this viewer is allowed to see), same as the home feed's avatar ring.
+  const profileStories = storiesFor(user.id);
+  const profileStoryRing: 'unseen' | 'seen' | undefined =
+    profileStories.length === 0 ? undefined : profileStories.every((s) => isSeen(s.id)) ? 'seen' : 'unseen';
+  const openProfileStory = profileStories.length > 0
+    ? () => {
+        tapLight();
+        router.push(`/story/${user.id}`);
+      }
+    : undefined;
   const { collections, createCollection, openSaveSheet, isSaved: isSavedInCollections } = useCollections();
   const [tab, setTab] = useState<'plates' | 'platos' | 'collections'>('plates');
   const changeTab = (t: 'plates' | 'platos' | 'collections') => {
@@ -62,6 +91,8 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   };
   const [actionsOpen, setActionsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   // Your own lists live in context (and stay in sync with saves); someone
   // else's have to be fetched, and RLS returns only the ones they've shared.
@@ -112,9 +143,7 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   const blocked = isBlocked(user.id);
 
   const onInvite = () =>
-    Share.share({ message: buildInviteMessage({ earns: user.compensationEligible }) }).catch(
-      () => {},
-    );
+    Share.share({ message: buildInviteMessage({ earns: user.compensationEligible }) }).catch(() => {});
 
   const onBlock = () =>
     confirmAction({
@@ -129,23 +158,13 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {isCurrent ? (
-        <View style={[styles.selfHeader, { paddingTop: insets.top + 8 }]}>
-          <Avatar uri={user.avatar} size={72} verified={user.verified} ring />
-          <View style={{ flex: 1 }}>
-            <Text style={[typography.heading, { color: colors.text, fontFamily: displayFont }]} numberOfLines={1}>
-              {user.name}
-            </Text>
-            <Text style={[styles.selfMeta, { color: colors.textMuted }]} numberOfLines={1}>
-              @{user.handle} · {location.label}
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => router.push('/settings')}
-            hitSlop={8}
-            style={[styles.settingsGear, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-            <Ionicons name="settings-outline" size={20} color={colors.text} />
-          </Pressable>
-        </View>
+        <ScreenHeader
+          title={`@${user.handle}`}
+          hideBack={!showBack}
+          rightIcon="settings-outline"
+          onRight={() => router.push('/settings')}
+          onTitlePress={() => setSwitcherOpen(true)}
+        />
       ) : (
         <ScreenHeader
           title={`@${user.handle}`}
@@ -153,6 +172,19 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
           onRight={() => setActionsOpen(true)}
         />
       )}
+
+      {isCurrent && <AccountSwitchSheet visible={switcherOpen} onClose={() => setSwitcherOpen(false)} />}
+
+      <AvatarViewerSheet
+        visible={avatarViewerOpen}
+        onClose={() => setAvatarViewerOpen(false)}
+        uri={user.avatar}
+        name={user.name}
+        handle={user.handle}
+        isCurrent={isCurrent}
+        following={following}
+        onToggleFollow={() => toggleFollow(user.id)}
+      />
 
       <NameInputModal
         visible={createOpen}
@@ -193,40 +225,38 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
         </View>
       ) : (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 + insets.bottom }}>
-        {/* Identity — the compact header above already covers avatar/name/handle
-            for the current user; other profiles keep the original centered block. */}
-        {isCurrent ? (
-          !!user.bio && (
-            <Text style={[styles.bio, { color: colors.text, marginTop: 4 }]}>{user.bio}</Text>
-          )
-        ) : (
-          <View style={styles.identity}>
-            <Avatar uri={user.avatar} size={86} verified={user.verified} ring />
-            <Text style={[typography.title, { color: colors.text, marginTop: 12 }]}>{user.name}</Text>
-            <Text style={[styles.handle, { color: colors.textMuted }]}>@{user.handle}</Text>
-            {!!user.bio && (
-              <Text style={[styles.bio, { color: colors.text }]}>{user.bio}</Text>
-            )}
+        {/* Identity — the same centered layout everywhere: photo above the name,
+            everything else centered below it. */}
+        <View style={styles.identity}>
+          <Avatar
+            uri={user.avatar}
+            size={86}
+            verified={user.verified}
+            storyRing={profileStoryRing}
+            onPress={openProfileStory}
+            onLongPress={() => setAvatarViewerOpen(true)}
+          />
+          <Text style={[typography.title, { color: colors.text, marginTop: 12 }]}>{user.name}</Text>
+          <Text style={[styles.handle, { color: colors.textMuted }]}>@{user.handle}</Text>
+          {!!user.bio && (
+            <Text style={[styles.bio, { color: colors.text }]}>{user.bio}</Text>
+          )}
+          {!isCurrent && (
             <View style={{ marginTop: 12 }}>
               <SocialLinks socials={user.socials} />
             </View>
-          </View>
-        )}
+          )}
+        </View>
 
-        {/* Stats — Followers/Following open the People screen on that tab. */}
+        {/* Stats — Followers/Following open the People screen on that tab;
+            Plates opens the current user's own rankings/visited-places view. */}
         <View style={[styles.stats, { borderColor: colors.border }]}>
-          <StatPill value={orders.length} label="Plates" />
+          <StatPill value={orders.length} label="Plates" onPress={isCurrent ? () => router.push('/my-rankings') : undefined} />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <StatPill value={user.followers} label="Followers" onPress={() => router.push('/people?tab=followers')} />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <StatPill value={user.following} label="Following" onPress={() => router.push('/people?tab=following')} />
         </View>
-
-        {isCurrent && (
-          <View style={{ marginTop: spacing.md, alignItems: 'center' }}>
-            <SocialLinks socials={user.socials} />
-          </View>
-        )}
 
         {/* Actions. On your own profile: Edit / Share side by side, with a
             person-add square opening the existing discover-people screen —
@@ -248,17 +278,41 @@ export function ProfileView({ user, isCurrent }: { user: User; isCurrent: boolea
               </Pressable>
             </View>
           ) : (
-            <Button
-              label={following ? 'Following' : 'Follow'}
-              variant={following ? 'secondary' : 'primary'}
-              icon={following ? 'checkmark' : 'person-add'}
-              onPress={() => {
-                following ? tapLight() : success();
-                toggleFollow(user.id);
-              }}
-            />
+            <View style={styles.actionRow}>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label={following ? 'Following' : 'Follow'}
+                  variant={following ? 'secondary' : 'primary'}
+                  icon={following ? 'checkmark' : 'person-add'}
+                  onPress={() => {
+                    following ? tapLight() : success();
+                    toggleFollow(user.id);
+                  }}
+                />
+              </View>
+              {/* Beside Follow, not buried in an options menu: "message them"
+                  is the other thing a profile is for. */}
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="Message"
+                  variant="secondary"
+                  icon="chatbubble-outline"
+                  onPress={async () => {
+                    tapLight();
+                    const conversationId = await startDirect(user.id);
+                    if (conversationId) router.push(`/messages/${conversationId}`);
+                  }}
+                />
+              </View>
+            </View>
           )}
         </View>
+
+        {isCurrent && (
+          <View style={{ marginTop: spacing.md, alignItems: 'center' }}>
+            <SocialLinks socials={user.socials} />
+          </View>
+        )}
 
         {/* Suggested for you — only on someone else's profile, where "who else
             is like this" is a question the user is already asking. */}
@@ -504,8 +558,14 @@ function TabButton({
 function CompensationCard({ user, onInvite }: { user: User; onInvite: () => void }) {
   const { colors } = useTheme();
   const router = useRouter();
-  const progress = Math.min(user.followers / COMP_THRESHOLD, 1);
+  const { ordersByUser } = useData();
+  const { platos } = usePlatos();
   const eligible = user.compensationEligible;
+
+  const myPlates = ordersByUser(user.id);
+  const myPlatos = useMemo(() => platos.filter((p) => p.creatorId === user.id), [platos, user.id]);
+  const counts = creatorEligibilityCounts({ followers: user.followers, plates: myPlates, platos: myPlatos });
+  const { criteria } = evaluateCreatorEligibility(counts);
 
   // visible is null until the stored preference has been read; rendering
   // nothing until then avoids showing the card for a frame and yanking it away.
@@ -552,14 +612,22 @@ function CompensationCard({ user, onInvite }: { user: User; onInvite: () => void
       ) : (
         <>
           <Text style={[styles.compBody, { color: colors.text }]}>
-            Unlock payouts at {formatCount(COMP_THRESHOLD)} followers — earn whenever an order
-            starts from one of your plates, regardless of your rating.
+            Meet 5 creator requirements to unlock payouts — earn whenever an order starts from
+            one of your plates, regardless of your rating.
           </Text>
           <View style={[styles.progressTrack, { backgroundColor: colors.card }]}>
-            <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: colors.accent }]} />
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${(criteria.reduce((s, c) => s + c.progress, 0) / criteria.length) * 100}%`,
+                  backgroundColor: colors.accent,
+                },
+              ]}
+            />
           </View>
           <Text style={[styles.progressLabel, { color: colors.textMuted }]}>
-            {formatCount(user.followers)} / {formatCount(COMP_THRESHOLD)} followers
+            {criteria.filter((c) => c.met).length} / {criteria.length} requirements met — tap for details
           </Text>
         </>
       )}
@@ -593,22 +661,6 @@ function CreatorPartnerBadge({ user }: { user: User }) {
 }
 
 const styles = StyleSheet.create({
-  selfHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: PADDING,
-    paddingBottom: 12,
-  },
-  selfMeta: { fontSize: 13, fontWeight: '600', marginTop: 2 },
-  settingsGear: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
   blockedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: 10 },
   blockedTitle: { fontSize: 18, fontWeight: '800' },
   blockedBody: { fontSize: 14, fontWeight: '500', textAlign: 'center', lineHeight: 20 },
@@ -680,6 +732,7 @@ const styles = StyleSheet.create({
   },
   suggestBtnText: { fontSize: 13, fontWeight: '800' },
   selfActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   discoverBtn: {
     width: 48,
     height: 44,

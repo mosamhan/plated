@@ -2,9 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { PLATO_COMMENTS, PLATOS, PlatoComment, PlatoVideo } from '@/data/platos';
 import { showAlert } from '@/lib/dialog';
+import { rankWithDistance, scoreTextMatch } from '@/lib/search';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
+import { useLocation } from '@/store/LocationContext';
 import { mapPlato, mapPlatoComment } from '@/store/mappers';
 
 export interface NewPlatoInput {
@@ -45,6 +47,8 @@ interface PlatosContextValue {
   setPlatoVisibility: (id: string, visibility: 'public' | 'friends' | 'private') => void;
   /** Archive/unarchive your Plato — hidden from everyone but you when archived. */
   setPlatoArchived: (id: string, archived: boolean) => void;
+  /** Every Plato whose dish name matches `query`, ranked nearby-first. For the multi-entity search screen. */
+  searchPlatos: (query: string) => PlatoVideo[];
 }
 
 const PlatosContext = createContext<PlatosContextValue | undefined>(undefined);
@@ -72,7 +76,8 @@ const PLATO_SELECT =
 
 export function PlatosProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();
-  const { currentUser } = useData();
+  const { currentUser, restaurantFor } = useData();
+  const { location } = useLocation();
   const live = isSupabaseConfigured;
 
   const [platos, setPlatos] = useState<PlatoVideo[]>([]);
@@ -392,9 +397,41 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     [live],
   );
 
+  // Every Plato whose dish name matches, ranked nearby-first — search screen.
+  // Scores the best-matching dish (headline or any other plate in a multi-dish
+  // Plato), same idea as DataContext's searchPlates.
+  const locationOrigin = location.lat != null && location.lng != null ? { lat: location.lat, lng: location.lng } : null;
+  const searchPlatos = useCallback(
+    (query: string) => {
+      const q = query.trim();
+      if (!q) return [];
+      // Also scored against the restaurant's own name (already on the video,
+      // no lookup needed) — searching "3 Arts Club" should surface Platos
+      // filmed there, not just ones whose dish name contains the term.
+      const bestScore = (p: PlatoVideo) => {
+        const scores = [
+          scoreTextMatch(p.dishName, q),
+          ...(p.plates ?? []).map((pl) => scoreTextMatch(pl.dishName, q)),
+          scoreTextMatch(p.restaurantName, q),
+        ].filter((s) => s >= 0);
+        return scores.length ? Math.min(...scores) : -1;
+      };
+      return rankWithDistance(platos, {
+        score: bestScore,
+        coords: (p) => {
+          const r = p.restaurantId ? restaurantFor(p.restaurantId) : undefined;
+          return r?.lat != null && r?.lng != null ? { lat: r.lat, lng: r.lng } : undefined;
+        },
+        rating: (p) => p.rating,
+        origin: locationOrigin,
+      });
+    },
+    [platos, restaurantFor, locationOrigin],
+  );
+
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived }),
-    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived],
+    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, searchPlatos }),
+    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, searchPlatos],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;

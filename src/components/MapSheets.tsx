@@ -1,9 +1,9 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { FILTERABLE_PLACE_TYPES, PLACE_TYPE_META, STATUS_META } from '@/components/ExploreMap';
-import type { PlaceStatus, PlaceType } from '@/lib/placeType';
+import { STATUS_META } from '@/components/ExploreMap';
+import type { PlaceStatus } from '@/lib/placeType';
 import { useCollections } from '@/store/CollectionsContext';
 import { useLocation } from '@/store/LocationContext';
 import { useData } from '@/store/DataContext';
@@ -108,7 +108,7 @@ export function MapSettingsSheet({
       })}
 
       <Text style={[styles.sectionLabel, { color: colors.textMuted, marginTop: 20 }]}>FIND</Text>
-      {linkRow('pricetags-outline', 'Categories', null, () => {
+      {linkRow('checkmark-circle-outline', 'Your status', null, () => {
         onClose();
         onOpenCategories();
       })}
@@ -127,67 +127,28 @@ export function MapSettingsSheet({
   );
 }
 
-/** Toggle which pin categories render on the map. */
+/** Toggle a place's status filter (loved / saved / been) — cuisine/type
+ *  filtering now lives inline on Discover as a chip row, not in this sheet. */
 export function CategoriesSheet({
   onClose,
-  activeTypes,
-  setActiveTypes,
   activeStatuses,
   setActiveStatuses,
 }: {
   onClose: () => void;
-  activeTypes: PlaceType[];
-  setActiveTypes: (fn: (prev: PlaceType[]) => PlaceType[]) => void;
   activeStatuses: PlaceStatus[];
   setActiveStatuses: (fn: (prev: PlaceStatus[]) => PlaceStatus[]) => void;
 }) {
   const { colors } = useTheme();
-  const toggleType = (k: PlaceType) =>
-    setActiveTypes((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
   const toggleStatus = (k: PlaceStatus) =>
     setActiveStatuses((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
 
-  const allTypes = FILTERABLE_PLACE_TYPES;
-  const allOn = activeTypes.length === allTypes.length;
-
   return (
     <SheetShell onClose={onClose}>
-      <Text style={[styles.title, { color: colors.text }]}>Filters</Text>
+      <Text style={[styles.title, { color: colors.text }]}>Your status</Text>
       <Text style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>
-        Leave everything off to see it all. The glyph on a pin is what kind of place it is; the
-        colour is your history with it.
+        Leave all off to see places regardless of your history with them.
       </Text>
 
-      <View style={styles.groupHead}>
-        <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>PLACE TYPE</Text>
-        <Pressable onPress={() => setActiveTypes(() => (allOn ? [] : allTypes))}>
-          <Text style={[styles.groupAction, { color: colors.accent }]}>{allOn ? 'Clear' : 'All'}</Text>
-        </Pressable>
-      </View>
-      <View style={styles.chipWrap}>
-        {allTypes.map((key) => {
-          const on = activeTypes.includes(key);
-          return (
-            <Pressable
-              key={key}
-              onPress={() => toggleType(key)}
-              style={[
-                styles.chip,
-                { borderColor: on ? colors.accent : colors.border, backgroundColor: on ? colors.accentSoft : 'transparent' },
-              ]}>
-              <MaterialCommunityIcons name={PLACE_TYPE_META[key].icon} size={15} color={on ? colors.accent : colors.textMuted} />
-              <Text style={[styles.chipText, { color: on ? colors.text : colors.textMuted }]}>
-                {PLACE_TYPE_META[key].label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <Text style={[styles.sectionLabel, { color: colors.textMuted, marginTop: 20 }]}>YOUR STATUS</Text>
-      <Text style={{ fontSize: 12, color: colors.textMuted, marginBottom: 10 }}>
-        Leave all off to see places regardless of your history.
-      </Text>
       <View style={styles.chipWrap}>
         {(Object.keys(STATUS_META) as PlaceStatus[]).map((key) => {
           const on = activeStatuses.includes(key);
@@ -290,8 +251,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   linkLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
-  groupHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  groupAction: { fontSize: 13, fontWeight: '800' },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     flexDirection: 'row',

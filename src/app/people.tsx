@@ -5,12 +5,16 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import { PersonRow } from '@/components/PersonRow';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { UnderlineTabs } from '@/components/UnderlineTabs';
 import { User } from '@/data/types';
 import { useData } from '@/store/DataContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 type Tab = 'followers' | 'following' | 'friends';
+
+/** Tab order — the labels rendered in the tab row line up with this positionally. */
+const TAB_ORDER: Tab[] = ['followers', 'following', 'friends'];
 
 /**
  * People — followers, following, and friends, as three switchable tabs.
@@ -46,6 +50,14 @@ export default function People() {
   const [active, setActive] = useState<Tab>(initial);
   const [query, setQuery] = useState('');
 
+  // The tab control is label-driven, and these labels carry live counts —
+  // so they're mapped back to the tab key positionally rather than parsed.
+  const tabLabels = [
+    `${followers.length} followers`,
+    `${following.length} following`,
+    `${friends.length} friends`,
+  ];
+
   const listFor = (t: Tab) => (t === 'followers' ? followers : t === 'following' ? following : friends);
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -54,19 +66,6 @@ export default function People() {
     return list.filter((u) => u.name.toLowerCase().includes(q) || u.handle.toLowerCase().includes(q));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, query, followers, following, friends]);
-
-  const TabButton = ({ id, label }: { id: Tab; label: string }) => {
-    const on = active === id;
-    return (
-      <Pressable onPress={() => setActive(id)} style={styles.tab}>
-        <Text style={[styles.tabText, { color: on ? colors.text : colors.textMuted }]} numberOfLines={1}>
-          {label}
-        </Text>
-        {/* The underline is the only active affordance, so it carries the accent. */}
-        <View style={[styles.underline, { backgroundColor: on ? colors.accent : 'transparent' }]} />
-      </Pressable>
-    );
-  };
 
   const emptyFor: Record<Tab, string> = {
     followers: 'No followers yet.',
@@ -78,11 +77,14 @@ export default function People() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScreenHeader title="People" />
 
-      <View style={[styles.tabBar, { borderBottomColor: colors.border }]}>
-        <TabButton id="followers" label={`${followers.length} followers`} />
-        <TabButton id="following" label={`${following.length} following`} />
-        <TabButton id="friends" label={`${friends.length} friends`} />
-      </View>
+      {/* Labels carry counts, so they're wider than a plain tab — the row
+          scrolls rather than squeezing three long labels flat. */}
+      <UnderlineTabs
+        tabs={tabLabels}
+        value={tabLabels[TAB_ORDER.indexOf(active)]}
+        onChange={(label) => setActive(TAB_ORDER[tabLabels.indexOf(label)])}
+        scrollable
+      />
 
       <View style={styles.searchWrap}>
         <View style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -121,10 +123,6 @@ export default function People() {
 }
 
 const styles = StyleSheet.create({
-  tabBar: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth },
-  tab: { flex: 1, alignItems: 'center', paddingTop: 6 },
-  tabText: { fontSize: 14, fontWeight: '800', paddingHorizontal: 4 },
-  underline: { height: 2.5, borderRadius: 2, alignSelf: 'stretch', marginTop: 10, marginHorizontal: 10 },
   searchWrap: { paddingHorizontal: spacing.lg, paddingTop: 12, paddingBottom: 4 },
   search: {
     flexDirection: 'row',

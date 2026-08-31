@@ -56,7 +56,7 @@ export default function CreatePost() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { userId } = useAuth();
-  const { restaurants, restaurantFor, restaurantWithRating, addOrder } = useData();
+  const { restaurants, restaurantFor, restaurantWithRating, restaurantMenu, addOrder } = useData();
   const { placeQuery } = useLocation();
   const { invite } = useCollabs();
 
@@ -82,8 +82,18 @@ export default function CreatePost() {
   const selectedLabel = selectedRestaurant?.name ?? place?.name;
 
   // Suggested rating = the restaurant's current Plated average, so the poster
-  // has a starting point that matches the crowd rather than a blank slate.
+  // has a starting point that matches the crowd rather than a blank slate —
+  // used until a dish name is entered, at which point the per-dish average
+  // below (when one exists) takes over as the more specific default.
   const suggested = restaurantId ? restaurantWithRating(restaurantId)?.platedRating ?? 0 : 0;
+
+  // The crowd average for the active draft's exact dish name, when this
+  // restaurant already has ratings for it.
+  const activeDishMatch = (() => {
+    const name = drafts[active]?.dishName.trim().toLowerCase();
+    if (!restaurantId || !name) return null;
+    return restaurantMenu(restaurantId).find((e) => e.count > 0 && e.name.toLowerCase() === name) ?? null;
+  })();
 
   const addPhotos = async () => {
     const room = MAX_POST_MEDIA - drafts.length;
@@ -116,6 +126,15 @@ export default function CreatePost() {
 
   const updateDraft = (i: number, patch: Partial<Draft>) =>
     setDrafts((p) => p.map((d, idx) => (idx === i ? { ...d, ...patch } : d)));
+
+  // Switches the active draft's rating to the per-dish average the moment
+  // its name matches one — keyed on the name (not the match object, which is
+  // recomputed every render), so a rating the user adjusts afterward for a
+  // still-matching name is never overwritten again.
+  useEffect(() => {
+    if (activeDishMatch) updateDraft(active, { rating: activeDishMatch.rating });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, drafts[active]?.dishName, restaurantId]);
 
   const removeDraft = (i: number) => {
     setDrafts((p) => p.filter((_, idx) => idx !== i));
@@ -262,6 +281,12 @@ export default function CreatePost() {
                   onChangeText={(t) => updateDraft(active, { dishName: t })}
                   placeholder="e.g. Truffle Smash Burger"
                 />
+                {activeDishMatch && (
+                  <Text style={[styles.avgLabel, { color: colors.textMuted, marginTop: spacing.sm }]}>
+                    Starting at the crowd average ({activeDishMatch.rating.toFixed(1)}, {activeDishMatch.count}{' '}
+                    {activeDishMatch.count === 1 ? 'rating' : 'ratings'}) — rate it however you actually feel.
+                  </Text>
+                )}
                 <View style={{ marginTop: spacing.sm }}>
                   <RatingInput value={drafts[active].rating} onChange={(r) => updateDraft(active, { rating: r })} />
                 </View>

@@ -176,7 +176,9 @@ export function PlatoCommentsSheet({ platoId, visible, onClose }: Props) {
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  kav: { width: '100%' },
+  // Matches PlateCommentsSheet: the KAV has to own the vertical space and
+  // bottom-align its child, or it can't lift the sheet clear of the keyboard.
+  kav: { flex: 1, width: '100%', justifyContent: 'flex-end' },
   sheet: {
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
