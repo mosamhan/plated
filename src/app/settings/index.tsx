@@ -1,34 +1,76 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { Linking, Pressable, ScrollView, Share, StyleSheet, Switch, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { ActionSheet } from '@/components/ActionSheet';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { SettingsRow, SettingsSection } from '@/components/SettingsKit';
 import { confirmAction } from '@/lib/dialog';
 import { warn } from '@/lib/haptics';
 import { buildInviteMessage } from '@/lib/invite';
+import { useActivity } from '@/store/ActivityContext';
 import { useAuth } from '@/store/AuthContext';
-import { useCreatorCard } from '@/store/CreatorCardContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
+import { useMessages } from '@/store/MessagesContext';
+import { useSettings } from '@/store/SettingsContext';
 import { useStreak } from '@/store/StreakContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 const MODE_LABELS = { light: 'Light', dark: 'Dark', auto: 'Automatic' } as const;
+const ORDER_PROVIDER_LABELS = { doordash: 'DoorDash', ubereats: 'Uber Eats', ask: 'Ask each time' } as const;
+const MAPS_APP_LABELS = { apple: 'Apple Maps', google: 'Google Maps', ask: 'Ask each time' } as const;
 
+interface Entry {
+  section: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value?: string;
+  route?: string;
+  onPress?: () => void;
+  destructive?: boolean;
+  accent?: boolean;
+  /** Extra words the search should match but that aren't in the label. */
+  keywords?: string;
+}
+
+function audienceLabel(a: string): string {
+  if (a === 'off') return 'Off';
+  if (a === 'friends') return 'Friends';
+  if (a === 'followers') return 'Followers';
+  return 'Everyone';
+}
+
+/**
+ * Settings.
+ *
+ * Grouped by the question each group answers — how you use Plated, who can see
+ * your content, how others can interact with you — rather than by which part of
+ * the codebase implements it. That's how people actually look for a setting
+ * ("where do I stop strangers commenting?"), and it's why the whole screen is
+ * one searchable list of entries rather than hand-written sections: the search
+ * field can then match a row that lives three taps deep.
+ */
 export default function Settings() {
   const { colors, mode } = useTheme();
-  const { visible: creatorCardVisible, setVisible: setCreatorCardVisible } = useCreatorCard();
-  const { remindersOn } = useStreak();
-  const { signOut } = useAuth();
-  const { blockedUsers, currentUser } = useData();
-  const { location } = useLocation();
   const router = useRouter();
+  const { remindersOn } = useStreak();
+  const { signOut, accounts } = useAuth();
+  const { blockedUsers, currentUser, ownedRestaurantIds } = useData();
+  const { location } = useLocation();
+  const { privacy: messagePrivacy } = useMessages();
+  const { showActivity } = useActivity();
+  const { settings, update, closeFriends, hiddenWords } = useSettings();
+  const [orderProviderSheetOpen, setOrderProviderSheetOpen] = useState(false);
+  const [mapsAppSheetOpen, setMapsAppSheetOpen] = useState(false);
+  const [query, setQuery] = useState('');
 
   const blockedCount = blockedUsers().length;
 
-  const onShare = () =>
+  const onInvite = () =>
     Share.share({ message: buildInviteMessage({ earns: currentUser.compensationEligible }) }).catch(
       () => {},
     );
@@ -39,7 +81,6 @@ export default function Settings() {
   };
 
   // Apple 5.1.1(v): account deletion must be available in-app.
-  // confirmAction works on web too (Alert.alert is a no-op there).
   const onDeleteAccount = () => {
     warn();
     confirmAction({
@@ -56,179 +97,168 @@ export default function Settings() {
     });
   };
 
+  const entries = useMemo<Entry[]>(
+    () => [
+      // ── How you use Plated ────────────────────────────────────────────────
+      { section: 'How you use Plated', icon: 'archive-outline', label: 'Archive', route: '/settings/archive', keywords: 'archived hidden posts' },
+      { section: 'How you use Plated', icon: 'notifications-outline', label: 'Notifications', value: remindersOn ? 'Reminders on' : 'Off', route: '/settings/reminders' },
+      { section: 'How you use Plated', icon: 'time-outline', label: 'Time management', route: '/settings/time', keywords: 'screen time break reminder' },
+      { section: 'How you use Plated', icon: 'color-palette-outline', label: 'Appearance', value: MODE_LABELS[mode], route: '/settings/theme', keywords: 'theme dark light' },
+      { section: 'How you use Plated', icon: 'location-outline', label: 'Location', value: location.label, route: '/settings/location' },
+      { section: 'How you use Plated', icon: 'bicycle-outline', label: 'Preferred delivery app', value: ORDER_PROVIDER_LABELS[settings.preferredOrderProvider], onPress: () => setOrderProviderSheetOpen(true), keywords: 'doordash ubereats delivery order' },
+      { section: 'How you use Plated', icon: 'map-outline', label: 'Preferred maps app', value: MAPS_APP_LABELS[settings.preferredMapsApp], onPress: () => setMapsAppSheetOpen(true), keywords: 'apple google directions navigation' },
+
+      // ── Who can see your content ──────────────────────────────────────────
+      { section: 'Who can see your content', icon: 'lock-closed-outline', label: 'Account privacy', value: settings.privateAccount ? 'Private' : 'Public', route: '/settings/privacy' },
+      { section: 'Who can see your content', icon: 'star-outline', label: 'Close friends', value: `${closeFriends.length}`, route: '/settings/close-friends' },
+      { section: 'Who can see your content', icon: 'aperture-outline', label: 'Story', route: '/settings/story', keywords: 'stories replies archive sharing' },
+      { section: 'Who can see your content', icon: 'hand-left-outline', label: 'Blocked', value: `${blockedCount}`, route: '/settings/blocked' },
+      { section: 'Who can see your content', icon: 'ellipse-outline', label: 'Activity status', value: showActivity ? 'On' : 'Off', route: '/settings/activity', keywords: 'last active online' },
+
+      // ── How others can interact with you ──────────────────────────────────
+      { section: 'How others can interact with you', icon: 'chatbubble-ellipses-outline', label: 'Messages and story replies', value: messagePrivacy === 'friends' ? 'Friends only' : 'Everyone', route: '/settings/messages' },
+      { section: 'How others can interact with you', icon: 'chatbox-outline', label: 'Comments', value: audienceLabel(settings.commentAudience), route: '/settings/comments' },
+      { section: 'How others can interact with you', icon: 'at-outline', label: 'Tags and mentions', value: audienceLabel(settings.tagAudience), route: '/settings/tags' },
+      { section: 'How others can interact with you', icon: 'repeat-outline', label: 'Sharing', value: settings.allowResharing ? 'Allowed' : 'Off', route: '/settings/sharing', keywords: 'reshare repost' },
+      { section: 'How others can interact with you', icon: 'text-outline', label: 'Hidden words', value: `${hiddenWords.length}`, route: '/settings/hidden-words', keywords: 'filter mute words' },
+
+      // ── Your app and media ────────────────────────────────────────────────
+      { section: 'Your app and media', icon: 'phone-portrait-outline', label: 'Device permissions', route: '/settings/permissions', keywords: 'camera photos microphone location' },
+      { section: 'Your app and media', icon: 'accessibility-outline', label: 'Accessibility', route: '/settings/accessibility', keywords: 'motion contrast' },
+      { section: 'Your app and media', icon: 'cellular-outline', label: 'Media quality', value: settings.uploadHd ? 'Highest' : 'Standard', route: '/settings/media-quality', keywords: 'data upload hd' },
+
+      // ── Your account ──────────────────────────────────────────────────────
+      { section: 'Your account', icon: 'person-outline', label: 'Edit profile', route: '/edit-profile' },
+      { section: 'Your account', icon: 'people-outline', label: 'Accounts', value: `${accounts.length}`, route: '/settings/accounts', keywords: 'switch account add account center' },
+      { section: 'Your account', icon: 'cash-outline', label: 'Creator dashboard', route: '/creator', keywords: 'earnings commission payouts' },
+      // Only surfaced once a claim's been approved — there's nothing to manage before that.
+      ...(ownedRestaurantIds.size > 0
+        ? [{
+            section: 'Your account',
+            icon: 'storefront-outline' as const,
+            label: 'Business dashboard',
+            route: `/business/${[...ownedRestaurantIds][0]}`,
+            keywords: 'restaurant advertising promotion rate',
+          }]
+        : []),
+
+      // ── More info and support ─────────────────────────────────────────────
+      { section: 'More info and support', icon: 'gift-outline', label: 'Invite friends', onPress: onInvite },
+      { section: 'More info and support', icon: 'document-text-outline', label: 'Terms & Community Guidelines', route: '/legal/terms' },
+      { section: 'More info and support', icon: 'shield-checkmark-outline', label: 'Privacy Policy', route: '/legal/privacy' },
+      { section: 'More info and support', icon: 'mail-outline', label: 'Contact us', onPress: () => Linking.openURL('mailto:support@joinplated.app').catch(() => {}) },
+      { section: 'More info and support', icon: 'information-circle-outline', label: 'About Plated', value: 'v1.0' },
+
+      // ── Login ─────────────────────────────────────────────────────────────
+      { section: 'Login', icon: 'log-out-outline', label: 'Log out', accent: true, onPress: onSignOut },
+      { section: 'Login', icon: 'trash-outline', label: 'Delete account', destructive: true, onPress: onDeleteAccount },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, location.label, remindersOn, blockedCount, messagePrivacy, showActivity, settings, closeFriends.length, hiddenWords.length, ownedRestaurantIds, accounts.length],
+  );
+
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? entries.filter(
+        (e) =>
+          e.label.toLowerCase().includes(q) ||
+          e.section.toLowerCase().includes(q) ||
+          (e.keywords ?? '').includes(q),
+      )
+    : entries;
+
+  // Section order comes from first appearance, so adding an entry can't
+  // accidentally reorder the screen.
+  const sections = shown.reduce<{ title: string; items: Entry[] }[]>((acc, e) => {
+    const found = acc.find((s) => s.title === e.section);
+    if (found) found.items.push(e);
+    else acc.push({ title: e.section, items: [e] });
+    return acc;
+  }, []);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScreenHeader title="Settings" />
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
-        <Section title="Preferences">
-          <Row
-            icon="color-palette-outline"
-            label="Appearance"
-            value={MODE_LABELS[mode]}
-            onPress={() => router.push('/settings/theme')}
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        <View style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="search" size={17} color={colors.textMuted} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search settings"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="none"
+            style={[styles.searchInput, { color: colors.text }]}
           />
-          <Row
-            icon="notifications-outline"
-            label="Notifications"
-            value={remindersOn ? 'Reminders on' : 'Off'}
-            onPress={() => router.push('/settings/reminders')}
-          />
-          <Row
-            icon="location-outline"
-            label="Location"
-            value={location.label}
-            onPress={() => router.push('/settings/location')}
-            last
-          />
-        </Section>
+          {query.length > 0 && (
+            <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={17} color={colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
 
-        <Section title="Account">
-          <Row icon="person-outline" label="Edit profile" onPress={() => router.push('/edit-profile')} />
-          <Row icon="cash-outline" label="Creator dashboard" onPress={() => router.push('/creator')} />
-          <ToggleRow
-            icon="eye-outline"
-            label="Show creator card"
-            value={creatorCardVisible === true}
-            onValueChange={setCreatorCardVisible}
-          />
-          <Row
-            icon="hand-left-outline"
-            label="Blocked users"
-            value={blockedCount > 0 ? `${blockedCount}` : 'None'}
-            onPress={() => router.push('/settings/blocked')}
-          />
-          <Row
-            icon="trash-outline"
-            label="Delete account"
-            destructive
-            onPress={onDeleteAccount}
-            last
-          />
-        </Section>
+        {sections.map((s) => (
+          <SettingsSection key={s.title} title={s.title}>
+            {s.items.map((e, i) => (
+              <SettingsRow
+                key={e.label}
+                icon={e.icon}
+                label={e.label}
+                value={e.value}
+                destructive={e.destructive}
+                accent={e.accent}
+                last={i === s.items.length - 1}
+                onPress={e.onPress ?? (e.route ? () => router.push(e.route as never) : undefined)}
+              />
+            ))}
+          </SettingsSection>
+        ))}
 
-        <Section title="Legal & safety">
-          <Row icon="document-text-outline" label="Terms & Community Guidelines" onPress={() => router.push('/legal/terms')} />
-          <Row icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => router.push('/legal/privacy')} />
-          <Row
-            icon="mail-outline"
-            label="Contact us"
-            onPress={() => Linking.openURL('mailto:support@plated.app').catch(() => {})}
-            last
-          />
-        </Section>
-
-        <Section title="More">
-          <Row icon="gift-outline" label="Invite friends" onPress={onShare} />
-          <Row icon="information-circle-outline" label="About Plated" value="v1.0" last />
-        </Section>
-
-        <Pressable onPress={onSignOut} style={[styles.signOut, { borderColor: colors.border }]}>
-          <Ionicons name="log-out-outline" size={20} color={colors.ratingLow} />
-          <Text style={[styles.signOutText, { color: colors.ratingLow }]}>Sign out</Text>
-        </Pressable>
+        {sections.length === 0 && (
+          <Text style={[styles.blank, { color: colors.textMuted }]}>
+            Nothing in settings matches “{query.trim()}”.
+          </Text>
+        )}
       </ScrollView>
-    </View>
-  );
-}
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ marginBottom: spacing.xl }}>
-      <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{title.toUpperCase()}</Text>
-      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        {children}
-      </View>
-    </View>
-  );
-}
-
-/** A settings row whose control is a switch rather than a chevron. */
-function ToggleRow({
-  icon,
-  label,
-  value,
-  onValueChange,
-  last,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: boolean;
-  onValueChange: (value: boolean) => void;
-  last?: boolean;
-}) {
-  const { colors } = useTheme();
-  return (
-    <View
-      style={[
-        styles.row,
-        !last && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
-      ]}>
-      <Ionicons name={icon} size={20} color={colors.text} />
-      <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{ true: colors.accent, false: colors.border }}
-        thumbColor="#FFFFFF"
+      <ActionSheet
+        visible={orderProviderSheetOpen}
+        onClose={() => setOrderProviderSheetOpen(false)}
+        title="Preferred delivery app"
+        actions={[
+          { label: 'DoorDash', onPress: () => update('preferredOrderProvider', 'doordash') },
+          { label: 'Uber Eats', onPress: () => update('preferredOrderProvider', 'ubereats') },
+          { label: 'Ask each time', onPress: () => update('preferredOrderProvider', 'ask') },
+        ]}
+      />
+      <ActionSheet
+        visible={mapsAppSheetOpen}
+        onClose={() => setMapsAppSheetOpen(false)}
+        title="Preferred maps app"
+        actions={[
+          { label: 'Apple Maps', onPress: () => update('preferredMapsApp', 'apple') },
+          { label: 'Google Maps', onPress: () => update('preferredMapsApp', 'google') },
+          { label: 'Ask each time', onPress: () => update('preferredMapsApp', 'ask') },
+        ]}
       />
     </View>
   );
 }
 
-function Row({
-  icon,
-  label,
-  value,
-  onPress,
-  destructive,
-  last,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value?: string;
-  onPress?: () => void;
-  destructive?: boolean;
-  last?: boolean;
-}) {
-  const { colors } = useTheme();
-  const tint = destructive ? colors.ratingLow : colors.text;
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        !last && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
-        { opacity: pressed ? 0.7 : 1 },
-      ]}>
-      <Ionicons name={icon} size={20} color={tint} />
-      <Text style={[styles.rowLabel, { color: tint }]}>{label}</Text>
-      {value && <Text style={[styles.rowValue, { color: colors.textMuted }]}>{value}</Text>}
-      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 8, marginLeft: 4 },
-  card: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
-  row: {
+  search: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-  },
-  rowLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
-  rowValue: { fontSize: 14, fontWeight: '500' },
-  signOut: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
-    paddingVertical: 15,
-    borderRadius: radius.lg,
+    height: 42,
+    paddingHorizontal: 12,
+    marginBottom: spacing.lg,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  signOutText: { fontSize: 15, fontWeight: '800' },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '500' },
+  blank: { textAlign: 'center', marginTop: 30, fontSize: 14, fontWeight: '500' },
 });
