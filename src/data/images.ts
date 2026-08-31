@@ -3,6 +3,17 @@
  * needs network at demo time. Swap to bundled assets later if you want offline.
  */
 
+import { Asset } from 'expo-asset';
+
+/**
+ * The real "no profile photo" placeholder for actual Supabase profiles —
+ * distinct from `avatar()` below, which is only for mock/demo data and stays
+ * on pravatar for visual variety in offline mode.
+ */
+export function defaultAvatar(): string {
+  return Asset.fromModule(require('../../assets/images/default-avatar.png')).uri;
+}
+
 /** Unsplash food photo IDs (curated, food-forward). */
 const FOOD_IDS = [
   '1568901346375-23c9450c58cd', // burger

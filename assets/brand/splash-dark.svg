@@ -1,0 +1,16 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Splash-screen tile, dark appearance — matches wordmark-dark.svg's
+       gradient/type. Reference for assets/images/splash-icon-dark.png.
+
+       NOTE: the shipped PNGs are produced by
+       scripts/generate-brand-assets.py; this SVG is the design reference. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A2622"/>
+      <stop offset="1" stop-color="#14120F"/>
+    </linearGradient>
+  </defs>
+  <rect x="56" y="56" width="400" height="400" rx="96" fill="url(#bg)"/>
+  <text x="256" y="283" text-anchor="middle" font-family="Fraunces, serif" font-weight="600"
+        font-size="74" letter-spacing="-2" fill="#D9A441">Plated</text>
+</svg>

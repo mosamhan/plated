@@ -1,10 +1,23 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <!--
     Plated wordmark — dark (Noir Gold) tile. Requires Fraunces (600 SemiBold).
-    Source of truth for assets/images/icon-dark.png (iOS 18+ dark-appearance
-    app icon variant, wired via app.config.ts ios.icon.dark).
+    Reference for assets/images/icon-dark.png (iOS 18+ dark-appearance app
+    icon variant, wired via app.config.ts ios.icon.dark).
+
+    A warm charcoal *gradient* rather than a flat fill, so it reads the way
+    iOS's own dark app icons do — still recognisably warm, not neutral grey.
+
+    NOTE: the shipped PNGs are produced by scripts/generate-brand-assets.py,
+    which renders from the Fraunces TTF in node_modules. This SVG is the
+    design reference; the script is the source of truth.
   -->
-  <rect width="1024" height="1024" fill="#14120F"/>
-  <text x="512" y="552" text-anchor="middle" font-family="Fraunces, serif" font-weight="600"
-        font-size="148" letter-spacing="-4" fill="#D9A441">Plated</text>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A2622"/>
+      <stop offset="1" stop-color="#14120F"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <text x="512" y="563" text-anchor="middle" font-family="Fraunces, serif" font-weight="600"
+        font-size="190" letter-spacing="-5.1" fill="#D9A441">Plated</text>
 </svg>
