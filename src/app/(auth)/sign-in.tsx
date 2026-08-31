@@ -16,13 +16,14 @@ import { Button } from '@/components/Button';
 import { Logo } from '@/components/Logo';
 import { TextField } from '@/components/TextField';
 import { showAlert } from '@/lib/dialog';
+import { isProbablyEmail } from '@/lib/handles';
 import { useAuth } from '@/store/AuthContext';
 import { spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 export default function SignIn() {
   const { colors } = useTheme();
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle, signInWithApple, appleAvailable, sendPasswordReset } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
@@ -31,6 +32,14 @@ export default function SignIn() {
   const [error, setError] = useState<string | null>(null);
 
   const handleSignIn = async () => {
+    if (!isProbablyEmail(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (!password) {
+      setError('Enter your password.');
+      return;
+    }
     setBusy(true);
     setError(null);
     const { error: err } = await signIn(email.trim(), password);
@@ -42,8 +51,37 @@ export default function SignIn() {
     router.replace('/(tabs)');
   };
 
-  const comingSoon = () =>
-    showAlert('Coming soon', 'Apple & Google sign-in are on the roadmap — use email to sign in for now.');
+  /** Shared by both social buttons — they differ only in which call they make. */
+  const social = async (run: () => Promise<{ error?: string; cancelled?: boolean }>) => {
+    setBusy(true);
+    setError(null);
+    const { error: err, cancelled } = await run();
+    setBusy(false);
+    // Backing out of the sheet isn't a failure, so it isn't reported as one.
+    if (cancelled) return;
+    if (err) {
+      setError(err);
+      return;
+    }
+    router.replace('/(tabs)');
+  };
+
+  const forgotPassword = async () => {
+    if (!isProbablyEmail(email)) {
+      setError('Enter your email above first, then tap Forgot password.');
+      return;
+    }
+    setBusy(true);
+    const { error: err } = await sendPasswordReset(email);
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    // Deliberately the same message whether or not the address has an account —
+    // otherwise this becomes a way to check who's registered.
+    showAlert('Check your email', `If an account exists for ${email.trim()}, a reset link is on its way.`);
+  };
 
   return (
     <KeyboardAvoidingView
@@ -81,7 +119,7 @@ export default function SignIn() {
           placeholder="••••••••"
         />
 
-        <Pressable style={{ alignSelf: 'flex-end', marginBottom: spacing.lg }}>
+        <Pressable onPress={forgotPassword} style={{ alignSelf: 'flex-end', marginBottom: spacing.lg }}>
           <Text style={[styles.link, { color: colors.accent }]}>Forgot password?</Text>
         </Pressable>
 
@@ -98,8 +136,12 @@ export default function SignIn() {
         </View>
 
         <View style={{ gap: 10 }}>
-          <SocialButton icon="logo-apple" label="Continue with Apple" onPress={comingSoon} />
-          <SocialButton icon="logo-google" label="Continue with Google" onPress={comingSoon} />
+          {/* Apple only where it actually works — an "Apple" button on Android
+              or an older iOS would fail the moment it's tapped. */}
+          {appleAvailable && (
+            <SocialButton icon="logo-apple" label="Continue with Apple" onPress={() => social(signInWithApple)} />
+          )}
+          <SocialButton icon="logo-google" label="Continue with Google" onPress={() => social(signInWithGoogle)} />
         </View>
 
         <View style={styles.footer}>

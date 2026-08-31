@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -16,6 +16,7 @@ import { Button } from '@/components/Button';
 import { Logo } from '@/components/Logo';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { TextField } from '@/components/TextField';
+import { HANDLE_MAX, handleProblem, isHandleAvailable, isProbablyEmail, normalizeHandle } from '@/lib/handles';
 import { useAuth } from '@/store/AuthContext';
 import { spacing, typography } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -34,10 +35,59 @@ export default function SignUp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** null = not checked yet (too short, or still typing). */
+  const [handleFree, setHandleFree] = useState<boolean | null>(null);
+  const [checkingHandle, setCheckingHandle] = useState(false);
+  const handleSeq = useRef(0);
+
+  // Debounced so a check fires when someone pauses, not on every keystroke.
+  // The DB de-duplicates a collision anyway (see 0046) — this exists so people
+  // find out *before* submitting that the name they wanted is gone.
+  useEffect(() => {
+    const normalized = normalizeHandle(handle);
+    if (handleProblem(handle)) {
+      setHandleFree(null);
+      setCheckingHandle(false);
+      return;
+    }
+    setCheckingHandle(true);
+    const seq = ++handleSeq.current;
+    const t = setTimeout(async () => {
+      const free = await isHandleAvailable(normalized);
+      // Ignore a response for a handle the user has already typed past.
+      if (seq !== handleSeq.current) return;
+      setHandleFree(free);
+      setCheckingHandle(false);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [handle]);
 
   const handleSignUp = async () => {
-    if (!agreed || !name.trim() || !handle.trim() || !email.trim() || password.length < 6) {
-      setError('Fill every field (password 6+ chars) and accept the terms.');
+    // Checked one at a time so the message names the actual problem instead of
+    // listing every rule and leaving the user to work out which one they broke.
+    if (!name.trim()) {
+      setError('Enter your name.');
+      return;
+    }
+    const handleIssue = handleProblem(handle);
+    if (handleIssue) {
+      setError(handleIssue);
+      return;
+    }
+    if (handleFree === false) {
+      setError(`@${normalizeHandle(handle)} is already taken.`);
+      return;
+    }
+    if (!isProbablyEmail(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password needs at least 6 characters.');
+      return;
+    }
+    if (!agreed) {
+      setError('Please accept the terms to continue.');
       return;
     }
     setBusy(true);
@@ -59,6 +109,19 @@ export default function SignUp() {
     }
     router.replace('/(tabs)');
   };
+
+  const handleIssueNow = handle.trim() ? handleProblem(handle) : null;
+  const handleStatus: { text: string; ok: boolean } | null = !handle.trim()
+    ? null
+    : handleIssueNow
+      ? { text: handleIssueNow, ok: false }
+      : checkingHandle
+        ? { text: 'Checking availability…', ok: false }
+        : handleFree === true
+          ? { text: `@${normalizeHandle(handle)} is available`, ok: true }
+          : handleFree === false
+            ? { text: `@${normalizeHandle(handle)} is already taken`, ok: false }
+            : null;
 
   return (
     <KeyboardAvoidingView
@@ -91,8 +154,17 @@ export default function SignUp() {
           value={handle}
           onChangeText={setHandle}
           autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={HANDLE_MAX + 1}
           placeholder="samhan"
         />
+        {/* Sits directly under the field it's about — pulled up over the
+            TextField's own bottom margin so it reads as part of the field. */}
+        {handleStatus && (
+          <Text style={[styles.handleStatus, { color: handleStatus.ok ? colors.ratingHigh : colors.textMuted }]}>
+            {handleStatus.text}
+          </Text>
+        )}
         <TextField
           label="Email"
           icon="mail-outline"
@@ -148,7 +220,12 @@ export default function SignUp() {
 
         <View style={styles.footer}>
           <Text style={[styles.footerText, { color: colors.textMuted }]}>Already have an account? </Text>
-          <Pressable onPress={() => router.back()}>
+          {/* Explicit navigation, not router.back() — sign-up isn't only ever
+              reached by pushing from sign-in anymore (it's also reachable
+              directly from the Account Center/switcher's "Create new
+              account"), and back() from there can be a no-op if this screen
+              ends up as the root of its own stack instance. */}
+          <Pressable onPress={() => router.replace('/(auth)/sign-in')}>
             <Text style={[styles.link, { color: colors.accent }]}>Sign in</Text>
           </Pressable>
         </View>
@@ -159,6 +236,7 @@ export default function SignUp() {
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.xl },
+  handleStatus: { fontSize: 12, fontWeight: '600', marginTop: -8, marginBottom: 14, marginLeft: 2 },
   sub: { fontSize: 14, fontWeight: '500', marginBottom: spacing.xl },
   termsRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginBottom: spacing.md },
   termsText: { flex: 1, fontSize: 12, fontWeight: '500', lineHeight: 17 },
