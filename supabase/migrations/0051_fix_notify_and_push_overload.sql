@@ -1,0 +1,16 @@
+-- Plated — `notify_and_push` has been two different functions since 0031, not
+-- one. `create or replace function` only replaces a function with the exact
+-- same parameter list; 0031 added a 7th parameter (`in_order_id default
+-- null`), which Postgres treats as a distinct overload rather than a
+-- replacement of 0025/0026's 6-parameter version. Every call site using the
+-- original 6-argument form (messages, reactions — 0025/0026) has been
+-- ambiguous ever since: Postgres can't tell whether an untyped literal like
+-- 'message' is meant to resolve against the 6-arg or the 7-arg-with-default
+-- overload, and errors "is not unique" rather than guessing. This is why
+-- sending any message has been silently failing at the database level
+-- (surfaced first by image-sending, since voice/text sends were failing the
+-- same way and simply going unnoticed as "message read but no notification").
+--
+-- Fix: drop the stale 6-arg overload so only the 7-arg-with-default version
+-- remains — every existing call site (6 args or 7) resolves to it unambiguously.
+drop function if exists public.notify_and_push(uuid[], uuid, text, text, text, jsonb);
