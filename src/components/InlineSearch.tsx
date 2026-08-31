@@ -4,7 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RatingBadge } from '@/components/RatingBadge';
+import { placeTypeFor } from '@/lib/placeType';
 import { searchPlaces, type PlaceResult } from '@/lib/places';
+import { rankWithDistance, scoreTextMatch } from '@/lib/search';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useData, type RestaurantWithRating } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { radius, spacing } from '@/theme/palettes';
@@ -46,7 +49,7 @@ export function InlineSearch({
   onQueryChange,
 }: Props) {
   const { colors } = useTheme();
-  const { topRestaurants } = useData();
+  const { topRestaurants, currentUser } = useData();
   const { placeQuery } = useLocation();
   const router = useRouter();
 
@@ -63,23 +66,10 @@ export function InlineSearch({
   // whichever happens to be best-rated.
   const rated = useMemo<RestaurantWithRating[]>(() => {
     if (q.length < 1) return [];
-    const needle = q.toLowerCase();
-    return topRestaurants()
-      .map((r) => {
-        const name = r.name.toLowerCase();
-        const score = name.startsWith(needle)
-          ? 0
-          : name.includes(needle)
-            ? 1
-            : r.cuisine.toLowerCase().includes(needle)
-              ? 2
-              : -1;
-        return { r, score };
-      })
-      .filter((x) => x.score >= 0)
-      .sort((a, b) => a.score - b.score || b.r.platedRating - a.r.platedRating)
-      .slice(0, MAX_PLATED)
-      .map((x) => x.r);
+    return rankWithDistance(topRestaurants(), {
+      score: (r) => scoreTextMatch(r.name, q, r.cuisine),
+      rating: (r) => r.platedRating,
+    }).slice(0, MAX_PLATED);
   }, [q, topRestaurants]);
 
   useEffect(() => {
@@ -97,11 +87,24 @@ export function InlineSearch({
       if (seq !== reqSeq.current) return;
       setNearby(res);
       setSearching(false);
+
+      // Search-intent signal for personalization (0044) — only once someone's
+      // actually paused on a real search, and only for terms that read as
+      // food/cuisine intent. A name or a typo never gets a row.
+      if (isSupabaseConfigured) {
+        const matched = placeTypeFor(q);
+        if (matched !== 'other') {
+          supabase
+            .from('search_queries')
+            .insert({ user_id: currentUser.id, query: q, matched_place_type: matched })
+            .then(() => {});
+        }
+      }
     }, 300);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
     };
-  }, [q, placeQuery]);
+  }, [q, placeQuery, currentUser.id]);
 
   // Anything already on Plated is shown from our own data, so drop the
   // Foursquare duplicate rather than listing the same place twice.
