@@ -1,15 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
 import { ChatQuickActions, RowAnchor } from '@/components/ChatQuickActions';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Skeleton } from '@/components/Skeleton';
-import { Conversation } from '@/data/messages';
+import { Conversation, Message } from '@/data/messages';
+import { User } from '@/data/types';
 import { activityLabel, isActiveNow } from '@/lib/activity';
 import { conversationTitle, messagePreview, shortTime } from '@/lib/conversation';
 import { confirmAction } from '@/lib/dialog';
@@ -34,10 +36,11 @@ type Tab = 'chats' | 'requests';
 export function InboxView() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { conversations, requests, loading, otherIds } = useMessages();
+  const { conversations, requests, loading, otherIds, messagesFor } = useMessages();
   const { refresh } = useActivity();
-  const { ensureProfiles } = useData();
+  const { ensureProfiles, userFor, currentUser } = useData();
   const [tab, setTab] = useState<Tab>('chats');
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
 
   const peopleKey = conversations.map((c) => c.id).join(',');
   useEffect(() => {
@@ -56,12 +59,28 @@ export function InboxView() {
           somewhere to go back to, so this gets the standard back chevron. */}
       <ScreenHeader
         title="Messages"
+        secondaryIcon="search-outline"
+        onSecondary={() => {
+          tapLight();
+          setGlobalSearchOpen(true);
+        }}
         rightIcon="create-outline"
         onRight={() => {
           tapLight();
           router.push('/messages/new');
         }}
       />
+
+      {globalSearchOpen && (
+        <GlobalSearchOverlay
+          conversations={conversations}
+          otherIds={otherIds}
+          userFor={userFor}
+          messagesFor={messagesFor}
+          currentUserId={currentUser.id}
+          onClose={() => setGlobalSearchOpen(false)}
+        />
+      )}
 
       {showTabs && (
         <View style={[styles.tabs, { borderBottomColor: colors.border }]}>
@@ -163,6 +182,7 @@ function ConversationRow({ conversation, request }: { conversation: Conversation
     otherIds,
     lastMessageFor,
     unreadFor,
+    seenBy,
     isMuted,
     toggleMute,
     isPinned,
@@ -182,10 +202,13 @@ function ConversationRow({ conversation, request }: { conversation: Conversation
   const title = conversationTitle(conversation, others, (id) => userFor(id).name);
   const last = lastMessageFor(conversation.id);
   const unread = request ? 0 : unreadFor(conversation.id);
+  const mine = last?.senderId === currentUser.id;
   const preview = messagePreview(last, {
-    mine: last?.senderId === currentUser.id,
+    mine,
     senderName: last ? userFor(last.senderId).name : undefined,
     isGroup: conversation.isGroup,
+    unreadCount: unread,
+    seen: mine && !!last && seenBy(conversation.id, last.createdAt).length > 0,
   });
   const lead = others[0] ? userFor(others[0]) : currentUser;
   // Only for 1:1 threads — "active now" about a group of five means nothing.
@@ -365,6 +388,193 @@ function SwipeAction({
     </Pressable>
   );
 }
+
+interface GlobalMatch {
+  conversationId: string;
+  title: string;
+  avatarUri: string;
+  isGroup: boolean;
+  kind: 'conversation' | 'message';
+  snippet?: string;
+  /** Set when kind is 'message' — which one, so tapping it jumps straight there. */
+  messageId?: string;
+}
+
+/**
+ * Global inbox search — conversations/groups by name, and every accepted
+ * thread's own messages by content, in one query. A message match jumps
+ * straight to that message (`messages/[id].tsx` scrolls + highlights it via
+ * `?messageId=...`) rather than landing you back in a search box — you
+ * already searched once to get here, re-showing the same query as a
+ * tappable result would just read as the app not having found anything yet.
+ */
+function GlobalSearchOverlay({
+  conversations,
+  otherIds,
+  userFor,
+  messagesFor,
+  currentUserId,
+  onClose,
+}: {
+  conversations: Conversation[];
+  otherIds: (c: Conversation) => string[];
+  userFor: (userId: string) => User;
+  messagesFor: (conversationId: string) => Message[];
+  currentUserId: string;
+  onClose: () => void;
+}) {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [query, setQuery] = useState('');
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const out: GlobalMatch[] = [];
+
+    for (const c of conversations) {
+      const others = otherIds(c);
+      const title = conversationTitle(c, others, (uid) => userFor(uid).name);
+      const lead = others[0] ? userFor(others[0]) : userFor(currentUserId);
+      const avatarUri = c.isGroup ? (c.avatarUrl ?? lead.avatar) : lead.avatar;
+
+      const nameMatch =
+        title.toLowerCase().includes(q) ||
+        others.some((uid) => {
+          const u = userFor(uid);
+          return u.name.toLowerCase().includes(q) || u.handle.toLowerCase().includes(q);
+        });
+      if (nameMatch) {
+        out.push({ conversationId: c.id, title, avatarUri, isGroup: c.isGroup, kind: 'conversation' });
+      }
+
+      // One message hit per conversation is enough to say "search inside
+      // this thread" — the thread's own search shows every match once
+      // you're there.
+      const messages = messagesFor(c.id);
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.text.toLowerCase().includes(q)) {
+          const who = m.senderId === currentUserId ? 'You' : userFor(m.senderId).name.split(' ')[0];
+          out.push({
+            conversationId: c.id,
+            title,
+            avatarUri,
+            isGroup: c.isGroup,
+            kind: 'message',
+            snippet: `${who}: ${m.text}`,
+            messageId: m.id,
+          });
+          break;
+        }
+      }
+    }
+    return out;
+  }, [query, conversations, otherIds, userFor, messagesFor, currentUserId]);
+
+  const onSelect = (match: GlobalMatch) => {
+    tapLight();
+    onClose();
+    router.push(
+      match.messageId
+        ? `/messages/${match.conversationId}?messageId=${encodeURIComponent(match.messageId)}`
+        : `/messages/${match.conversationId}`,
+    );
+  };
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, zIndex: 10, elevation: 10 }]}>
+      <View style={[searchStyles.bar, { paddingTop: insets.top + 6, borderBottomColor: colors.border }]}>
+        <View style={[searchStyles.inputWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="search" size={16} color={colors.textMuted} />
+          <TextInput
+            autoFocus
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search conversations and messages"
+            placeholderTextColor={colors.textMuted}
+            returnKeyType="search"
+            style={[searchStyles.input, { color: colors.text }]}
+          />
+          {query.length > 0 && (
+            <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
+        <Pressable onPress={onClose} hitSlop={8}>
+          <Text style={[searchStyles.cancel, { color: colors.accent }]}>Cancel</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40 }}>
+        {query.trim().length === 0 ? (
+          <Text style={[searchStyles.hint, { color: colors.textMuted }]}>
+            Search conversations, groups, and messages.
+          </Text>
+        ) : results.length === 0 ? (
+          <Text style={[searchStyles.hint, { color: colors.textMuted }]}>No matches.</Text>
+        ) : (
+          results.map((r, i) => (
+            <Pressable
+              key={`${r.conversationId}-${r.kind}-${i}`}
+              onPress={() => onSelect(r)}
+              style={({ pressed }) => [
+                searchStyles.row,
+                { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 },
+              ]}>
+              <Avatar uri={r.avatarUri} size={40} />
+              <View style={{ flex: 1 }}>
+                <Text style={[searchStyles.title, { color: colors.text }]} numberOfLines={1}>
+                  {r.title}
+                </Text>
+                <Text style={[searchStyles.snippet, { color: colors.textMuted }]} numberOfLines={1}>
+                  {r.kind === 'message' ? r.snippet : r.isGroup ? 'Group' : 'Conversation'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const searchStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  inputWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  input: { flex: 1, fontSize: 14, fontWeight: '500' },
+  cancel: { fontSize: 14, fontWeight: '700' },
+  hint: { textAlign: 'center', marginTop: 40, fontSize: 14, fontWeight: '500', paddingHorizontal: spacing.xl },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  title: { fontSize: 15, fontWeight: '700' },
+  snippet: { fontSize: 13, fontWeight: '500', marginTop: 2 },
+});
 
 const styles = StyleSheet.create({
   tabs: { flexDirection: 'row', paddingHorizontal: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth },

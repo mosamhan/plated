@@ -15,12 +15,18 @@ export function SegmentedPill<T extends string>({
   options,
   minWidth = 200,
   fontSize = 16,
+  /** Tighter padding — for a filter riding under a screen's real tab rail
+   *  (group-info/chat-info's Plates/Platos split), where the full-size
+   *  control this was designed for (a whole screen's own mode switch)
+   *  reads as too heavy for something one step down in the hierarchy. */
+  compact = false,
 }: {
   value: T;
   onChange: (value: T) => void;
   options: { key: T; label: string }[];
   minWidth?: number;
   fontSize?: number;
+  compact?: boolean;
 }) {
   const { colors } = useTheme();
 
@@ -31,7 +37,7 @@ export function SegmentedPill<T extends string>({
         return (
           <Pressable
             key={key}
-            style={[styles.seg, on && { backgroundColor: colors.accent }]}
+            style={[styles.seg, compact && styles.segCompact, on && { backgroundColor: colors.accent }]}
             onPress={() => {
               tick();
               onChange(key);
@@ -55,5 +61,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   seg: { flex: 1, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
+  segCompact: { paddingHorizontal: 9, paddingVertical: 5 },
   segText: { fontWeight: '700' },
 });

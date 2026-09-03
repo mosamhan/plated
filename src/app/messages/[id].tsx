@@ -4,7 +4,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
@@ -16,26 +18,34 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ActionSheet } from '@/components/ActionSheet';
 import { MessageActionsSheet } from '@/components/MessageActionsSheet';
+import { PhotoPickerSheet } from '@/components/PhotoPickerSheet';
+import { PhotoViewerSheet } from '@/components/PhotoViewerSheet';
+import { StreakUnlockModal } from '@/components/StreakUnlockModal';
 import { SendToSheet } from '@/components/SendToSheet';
 import { VoiceComposer } from '@/components/VoiceComposer';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
+import { UnderlineTabs } from '@/components/UnderlineTabs';
 import { MessageBubble, type MessageAnchor } from '@/components/MessageBubble';
 import { RatingBadge } from '@/components/RatingBadge';
+import { TypingIndicator } from '@/components/TypingIndicator';
 import { Message } from '@/data/messages';
+import { PlatoVideo } from '@/data/platos';
 import { Order } from '@/data/types';
 import { activityLabel } from '@/lib/activity';
 import { conversationTitle, dayLabel, sameRun } from '@/lib/conversation';
+import { useConversationStreak } from '@/lib/conversationStreak';
 import { confirmAction } from '@/lib/dialog';
 import { tapLight, warn } from '@/lib/haptics';
 import { postMedia } from '@/lib/post';
-import { pickImage, uploadAsset } from '@/lib/upload';
+import { resolveQuote } from '@/lib/quotePreview';
+import { useTypingPresence } from '@/lib/typingPresence';
 import { useActivity } from '@/store/ActivityContext';
-import { useAuth } from '@/store/AuthContext';
-import { useData } from '@/store/DataContext';
+import { SavedItemType, useCollections } from '@/store/CollectionsContext';
+import { RestaurantWithRating, useData } from '@/store/DataContext';
 import { useMessages } from '@/store/MessagesContext';
+import { usePlatos } from '@/store/PlatosContext';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -55,12 +65,15 @@ type Row =
  * this conversation yet, so the app shouldn't let you drift into having one.
  */
 export default function Thread() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `messageId` arrives from the inbox's global search — a message match
+  // there jumps straight to that message once you're in the right thread,
+  // rather than reopening this thread's own search over again.
+  const { id, messageId } = useLocalSearchParams<{ id: string; messageId?: string }>();
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { userFor, currentUser } = useData();
-  const { userId } = useAuth();
+  const { userFor, currentUser, orders, restaurantFor } = useData();
+  const { platos } = usePlatos();
   const { lastActiveFor, refresh: refreshActivity } = useActivity();
   const {
     conversationFor,
@@ -76,17 +89,55 @@ export default function Thread() {
     hideMessage,
     unsendMessage,
     leaveThread,
+    seenBy,
   } = useMessages();
 
   const [draft, setDraft] = useState('');
-  const [optionsOpen, setOptionsOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   // The message the long-press menu is acting on, and the one being replied to.
   const [actionTarget, setActionTarget] = useState<Message | null>(null);
   const [actionAnchor, setActionAnchor] = useState<MessageAnchor | null>(null);
+  // Which album page actionTarget/replyTo was showing when long-pressed —
+  // what a Reply from here should point at, not just the message as a whole.
+  const [actionPhotoIndex, setActionPhotoIndex] = useState<number | undefined>(undefined);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [replyPhotoIndex, setReplyPhotoIndex] = useState<number | undefined>(undefined);
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(false);
+  // Measured, not assumed — the composer's real on-screen height (it grows
+  // with a reply banner, a multiline draft, the safe-area inset baked into
+  // its own padding) is what the long-press action sheet needs to actually
+  // clear, not just the home-indicator inset alone.
+  const [composerHeight, setComposerHeight] = useState(0);
+  // Shown once the thread is scrolled far enough from the newest message
+  // that it's no longer obvious how to get back — a long thread otherwise
+  // has no way back to the bottom except manually dragging all the way down.
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  // The composer's own bottom padding clears the home indicator when the
+  // keyboard is hidden — with it up, KeyboardAvoidingView has already
+  // shifted everything above the keyboard itself, so that same padding has
+  // nothing left to clear and just sits there as a dead gap between the
+  // composer and the keyboard's top edge.
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
   const [forwarding, setForwarding] = useState<Message | null>(null);
+  const [viewingPhoto, setViewingPhoto] = useState<Message | null>(null);
+  const [viewingPhotoIndex, setViewingPhotoIndex] = useState(0);
+  // Briefly flashed on the message a reply-quote tap just scrolled back to —
+  // the scroll alone can land you among several visually similar bubbles.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const listRef = useRef<FlatList<Row>>(null);
 
   const conversation = conversationFor(id);
@@ -97,6 +148,20 @@ export default function Thread() {
     ? conversationTitle(conversation, others, (u) => userFor(u).name)
     : 'Conversation';
 
+  const { typingUserIds, notifyTyping, notifyStopped } = useTypingPresence(id, currentUser.id);
+
+  // Read receipt for the very last thing you sent — irrelevant unless it was
+  // yours, since nobody needs to be told they've read their own message.
+  const lastMessage = messages[messages.length - 1];
+  const seenIds =
+    lastMessage && lastMessage.senderId === currentUser.id ? seenBy(id, lastMessage.createdAt) : [];
+  const seenLabel =
+    seenIds.length === 0
+      ? undefined
+      : conversation?.isGroup
+        ? `Seen by ${seenIds.map((uid) => userFor(uid).name.split(' ')[0]).join(', ')}`
+        : 'Seen';
+
   // Read on arrival, and again as messages arrive while the thread is open.
   const lastId = messages[messages.length - 1]?.id;
   useEffect(() => {
@@ -106,6 +171,15 @@ export default function Thread() {
 
   // Leaving the thread re-enables banners for it.
   useEffect(() => () => leaveThread(), [leaveThread]);
+
+  // Only plain text has anything to match against — a shared plate/Plato/
+  // photo/voice note's caption is the closest thing it has, and those
+  // already surface via their own message.text when present.
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return messages.filter((m) => m.text.toLowerCase().includes(q)).reverse();
+  }, [messages, searchQuery]);
 
   const othersKey = others.join(',');
   useEffect(() => {
@@ -137,46 +211,117 @@ export default function Thread() {
     listRef.current?.scrollToEnd({ animated: true });
   }, []);
 
+  // Cleared on unmount so a delayed flash never fires into a screen that's
+  // moved on to a different thread.
+  useEffect(() => () => {
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+  }, []);
+
+  const scrollToMessage = useCallback(
+    (messageId: string) => {
+      const index = rows.findIndex((r) => r.type === 'message' && r.message.id === messageId);
+      if (index === -1) return;
+      tapLight();
+      listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.4 });
+      setHighlightedId(messageId);
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+      highlightTimer.current = setTimeout(() => setHighlightedId(null), 1200);
+    },
+    [rows],
+  );
+
+  // Jump straight to the message a global inbox search matched on, once —
+  // depending only on `messageId` (not `scrollToMessage`, which changes
+  // identity with every new `rows`) so this fires on arrival and doesn't
+  // re-fire and re-scroll every time a new message comes in afterward.
+  useEffect(() => {
+    // scrollToMessage's setHighlightedId only runs once messages/rows exist
+    // to scroll to — an external-system (FlatList) trigger, not derived
+    // render state — the rule just can't see past the function call.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (messageId) scrollToMessage(messageId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageId]);
+
+  // Rows are variable height (photos, voice bars, day labels), so FlatList
+  // can't always resolve a target that's outside what it's measured yet —
+  // this is the documented fallback: jump near it by estimate, then retry
+  // the precise scroll once that's rendered.
+  const onScrollToIndexFailed = useCallback((info: { index: number; averageItemLength: number }) => {
+    listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+    setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.4 }), 50);
+  }, []);
+
+  // Inverted-free FlatList: content grows downward like any normal list, so
+  // "near the bottom" means the remaining scrollable distance below the
+  // viewport is small, not that contentOffset itself is near zero.
+  const JUMP_THRESHOLD = 400;
+  const onListScroll = useCallback(
+    (e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+      setShowJumpToLatest(distanceFromBottom > JUMP_THRESHOLD);
+    },
+    [],
+  );
+
   const onSend = () => {
     if (!id || !draft.trim()) return;
     tapLight();
     const text = draft;
     const answering = replyTo?.id;
+    const answeringIndex = replyPhotoIndex;
     setDraft('');
     setReplyTo(null);
-    sendMessage(id, { text, replyTo: answering }).catch(() => {});
+    setReplyPhotoIndex(undefined);
+    notifyStopped();
+    sendMessage(id, { text, replyTo: answering, replyToIndex: answeringIndex }).catch(() => {});
   };
 
   const onVoice = (uri: string, durationMs: number) => {
     if (!id) return;
     const answering = replyTo?.id;
+    const answeringIndex = replyPhotoIndex;
     setReplyTo(null);
+    setReplyPhotoIndex(undefined);
     // The uploaded URL rides in `attachmentId` — it's the only pointer a voice
     // note needs, and it keeps the schema to one polymorphic column.
-    sendMessage(id, { kind: 'voice', attachmentId: uri, durationMs, replyTo: answering }).catch(() => {});
+    sendMessage(id, { kind: 'voice', attachmentId: uri, durationMs, replyTo: answering, replyToIndex: answeringIndex }).catch(() => {});
   };
 
-  const onPickPhoto = async () => {
-    if (!id || !userId || uploadingPhoto) return;
-    const asset = await pickImage();
-    if (!asset) return;
+  // Captured when the picker opens (mirroring every other composer action
+  // here) rather than read fresh inside `onPhotosSelected`, since the reply
+  // strip is cleared the moment the sheet opens and would otherwise be gone
+  // by the time the user actually picks photos and taps Send.
+  const [photoReplyTo, setPhotoReplyTo] = useState<string | undefined>(undefined);
+  const [photoReplyToIndex, setPhotoReplyToIndex] = useState<number | undefined>(undefined);
+
+  const onOpenPhotoPicker = () => {
+    if (!id) return;
     tapLight();
-    const answering = replyTo?.id;
+    setPhotoReplyTo(replyTo?.id);
+    setPhotoReplyToIndex(replyPhotoIndex);
     setReplyTo(null);
-    setUploadingPhoto(true);
-    const url = await uploadAsset('chat-media', userId, asset);
-    setUploadingPhoto(false);
-    if (!url) return;
-    sendMessage(id, { kind: 'image', attachmentId: url, replyTo: answering }).catch(() => {});
+    setReplyPhotoIndex(undefined);
+    setPhotoPickerOpen(true);
   };
 
-  const onShareOrder = (order: Order) => {
+  const onPhotosSelected = (urls: string[]) => {
+    if (!id) return;
+    sendMessage(id, { kind: 'image', attachmentIds: urls, replyTo: photoReplyTo, replyToIndex: photoReplyToIndex }).catch(() => {});
+  };
+
+  // Plates, Platos and restaurants all share this shape once picked — the
+  // attach sheet only needs to say which kind and which id.
+  const onShareAttachment = (kind: 'plate' | 'plato' | 'restaurant', attachmentId: string) => {
     if (!id) return;
     setAttachOpen(false);
     tapLight();
-    sendMessage(id, { kind: 'plate', attachmentId: order.id, text: draft.trim() }).catch(() => {});
+    sendMessage(id, { kind, attachmentId, text: draft.trim() }).catch(() => {});
     setDraft('');
   };
+
+  const { current: streakCount } = useConversationStreak(conversation ? id : undefined);
 
   if (!conversation) {
     return (
@@ -207,19 +352,18 @@ export default function Thread() {
         }
         avatar={conversation.isGroup ? conversation.avatarUrl ?? lead.avatar : lead.avatar}
         verified={!conversation.isGroup && lead.verified}
+        streak={streakCount}
         onBack={() => router.back()}
         onTitlePress={() =>
           conversation.isGroup ? router.push(`/messages/group-info/${id}`) : router.push(`/user/${lead.id}`)
         }
+        onSearch={() => setSearchOpen(true)}
         onOptions={() =>
-          conversation.isGroup ? router.push(`/messages/group-info/${id}`) : setOptionsOpen(true)
+          router.push(conversation.isGroup ? `/messages/group-info/${id}` : `/messages/chat-info/${id}`)
         }
       />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={insets.top + 52}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <FlatList
           ref={listRef}
           data={rows}
@@ -232,11 +376,20 @@ export default function Thread() {
                 message={item.message}
                 mine={item.message.senderId === currentUser.id}
                 showAuthor={conversation.isGroup && item.showAuthor}
+                showSenderAvatar={item.showAuthor}
+                hidden={actionTarget?.id === item.message.id}
+                highlighted={highlightedId === item.message.id}
                 onRetry={() => retryMessage(item.message)}
-                onLongPress={(m, anchor) => {
+                onLongPress={(m, anchor, photoIndex) => {
                   setActionAnchor(anchor);
                   setActionTarget(m);
+                  setActionPhotoIndex(photoIndex);
                 }}
+                onOpenPhoto={(m, index) => {
+                  setViewingPhoto(m);
+                  setViewingPhotoIndex(index);
+                }}
+                onJumpToReply={scrollToMessage}
               />
             )
           }
@@ -245,12 +398,53 @@ export default function Thread() {
           contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xl }}
           showsVerticalScrollIndicator={false}
           onContentSizeChange={scrollToEnd}
+          onScroll={onListScroll}
+          scrollEventThrottle={100}
+          onScrollToIndexFailed={onScrollToIndexFailed}
           ListEmptyComponent={
             <Text style={[styles.blank, { color: colors.textMuted }]}>
               Say something — or send them a plate.
             </Text>
           }
+          ListFooterComponent={
+            typingUserIds.length > 0 ? (
+              <TypingIndicator />
+            ) : seenLabel ? (
+              <Text style={[styles.seenLabel, { color: colors.textMuted }]}>{seenLabel}</Text>
+            ) : null
+          }
         />
+
+        {showJumpToLatest && (
+          // A full-bleed, untouchable layer that only aligns its one real
+          // child to the corner — flexbox placement, not raw absolute
+          // right/bottom offsets on the button itself, so there's no
+          // dependency on this being the button's own positioned ancestor
+          // (KeyboardAvoidingView animates its own layout as the keyboard
+          // moves, which is exactly the kind of container that can leave a
+          // directly-offset absolute child unconstrained instead).
+          <View
+            pointerEvents="box-none"
+            // This layer spans the whole KeyboardAvoidingView (list +
+            // composer together), so `bottom: 0` on it is the composer's
+            // own bottom edge, not the gap above it — push up by the
+            // composer's real measured height (already tracked for the
+            // keyboard-offset fix above) plus a little breathing room.
+            style={[styles.jumpToLatestLayer, { paddingBottom: composerHeight + 12 }]}>
+            <Pressable
+              onPress={() => {
+                tapLight();
+                scrollToEnd();
+              }}
+              hitSlop={8}
+              style={[
+                styles.jumpToLatest,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}>
+              <Ionicons name="chevron-down" size={20} color={colors.accent} />
+            </Pressable>
+          </View>
+        )}
 
         {isRequest ? (
           <View style={[styles.requestBar, { borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
@@ -289,61 +483,85 @@ export default function Thread() {
           </View>
         ) : (
           <View
+            onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
             style={[
               styles.composerWrap,
-              { borderTopColor: colors.border, backgroundColor: colors.background, paddingBottom: insets.bottom + 8 },
+              {
+                borderTopColor: colors.border,
+                backgroundColor: colors.background,
+                paddingBottom: keyboardVisible ? 8 : insets.bottom + 8,
+              },
             ]}>
-            {replyTo && (
-              <View style={[styles.replyBanner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <View style={[styles.replyBar, { backgroundColor: colors.accent }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.replyWho, { color: colors.accent }]} numberOfLines={1}>
-                    Replying to {replyTo.senderId === currentUser.id ? 'yourself' : userFor(replyTo.senderId).name}
-                  </Text>
-                  <Text style={[styles.replyText, { color: colors.textMuted }]} numberOfLines={1}>
-                    {replyTo.kind === 'voice'
-                      ? '🎙 Voice message'
-                      : replyTo.kind === 'plate'
-                        ? '🍽 Shared a plate'
-                        : replyTo.kind === 'plato'
-                          ? '🎬 Shared a Plato'
-                          : replyTo.text}
-                  </Text>
-                </View>
-                <Pressable onPress={() => setReplyTo(null)} hitSlop={8}>
-                  <Ionicons name="close" size={18} color={colors.textMuted} />
-                </Pressable>
-              </View>
-            )}
+            {replyTo &&
+              (() => {
+                const preview = resolveQuote(replyTo, replyPhotoIndex, orders, platos, restaurantFor);
+                return (
+                  <View style={[styles.replyBanner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                    <View style={[styles.replyBar, { backgroundColor: colors.accent }]} />
+                    {preview.thumbnail ? (
+                      <Image source={{ uri: preview.thumbnail }} style={styles.replyThumb} contentFit="cover" />
+                    ) : (
+                      preview.icon && (
+                        <View style={[styles.replyThumb, styles.replyIcon, { backgroundColor: colors.accentSoft }]}>
+                          <Ionicons name={preview.icon} size={15} color={colors.accent} />
+                        </View>
+                      )
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.replyWho, { color: colors.accent }]} numberOfLines={1}>
+                        Replying to {replyTo.senderId === currentUser.id ? 'yourself' : userFor(replyTo.senderId).name}
+                      </Text>
+                      <Text style={[styles.replyText, { color: colors.textMuted }]} numberOfLines={1}>
+                        {preview.text}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        setReplyTo(null);
+                        setReplyPhotoIndex(undefined);
+                      }}
+                      hitSlop={8}>
+                      <Ionicons name="close" size={18} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+                );
+              })()}
 
             <View style={styles.composer}>
-            <Pressable
-              onPress={() => {
-                tapLight();
-                setAttachOpen(true);
-              }}
-              hitSlop={8}
-              style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="restaurant-outline" size={19} color={colors.accent} />
-            </Pressable>
-            <Pressable
-              onPress={onPickPhoto}
-              disabled={uploadingPhoto}
-              hitSlop={8}
-              style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border, opacity: uploadingPhoto ? 0.5 : 1 }]}>
-              <Ionicons name={uploadingPhoto ? 'cloud-upload-outline' : 'image-outline'} size={19} color={colors.accent} />
-            </Pressable>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Message"
-              placeholderTextColor={colors.textMuted}
-              multiline
-              style={[
-                styles.input,
-                { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
-              ]}
-            />
+            {!voiceActive && (
+              <>
+                <Pressable
+                  onPress={() => {
+                    tapLight();
+                    setAttachOpen(true);
+                  }}
+                  hitSlop={8}
+                  style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Ionicons name="restaurant-outline" size={19} color={colors.accent} />
+                </Pressable>
+                <Pressable
+                  onPress={onOpenPhotoPicker}
+                  hitSlop={8}
+                  style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Ionicons name="image-outline" size={19} color={colors.accent} />
+                </Pressable>
+                <TextInput
+                  value={draft}
+                  onChangeText={(t) => {
+                    setDraft(t);
+                    if (t.trim()) notifyTyping();
+                    else notifyStopped();
+                  }}
+                  placeholder="Message"
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  style={[
+                    styles.input,
+                    { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
+                  ]}
+                />
+              </>
+            )}
             {draft.trim() ? (
               <AnimatedPressable
                 pressScale={0.92}
@@ -354,46 +572,44 @@ export default function Thread() {
             ) : (
               // The send button becomes the mic when there's nothing typed —
               // the two are never both useful, and the composer stays one row.
-              <VoiceComposer onRecorded={onVoice} />
+              // While actively recording, this is the row's only child (the
+              // attach/photo/text-input siblings above are hidden), so its
+              // own flex:1 gets the whole bar to lay out trash/waveform/lock
+              // controls in, instead of being squeezed into a leftover sliver.
+              <VoiceComposer onRecorded={onVoice} onActiveChange={setVoiceActive} />
             )}
             </View>
           </View>
         )}
       </KeyboardAvoidingView>
 
-      {/* Groups route to /messages/group-info instead — this sheet is 1:1-only now. */}
-      <ActionSheet
-        visible={optionsOpen}
-        onClose={() => setOptionsOpen(false)}
-        title={title}
-        actions={[
-          {
-            label: 'View profile',
-            icon: 'person-outline' as const,
-            onPress: () => router.push(`/user/${lead.id}`),
-          },
-          {
-            label: 'Delete conversation',
-            icon: 'exit-outline' as const,
-            destructive: true,
-            onPress: () => {
-              warn();
-              confirmAction({
-                title: 'Delete this conversation?',
-                message: 'It’s removed from your inbox. The other person keeps their copy.',
-                confirmLabel: 'Delete',
-                destructive: true,
-                onConfirm: () => {
-                  leaveConversation(conversation.id);
-                  router.back();
-                },
-              });
-            },
-          },
-        ]}
-      />
+      {/* Rendered after (not alongside) KeyboardAvoidingView on purpose: RN
+          paints later siblings over earlier ones, and this used to sit
+          before it — meaning the list/composer/keyboard inside
+          KeyboardAvoidingView painted *over* the search overlay instead of
+          the other way around, so both ended up visible and interactive at
+          once instead of search actually covering the thread. */}
+      {searchOpen && (
+        <SearchOverlay
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          results={searchResults}
+          isGroup={conversation.isGroup}
+          nameFor={(uid) => userFor(uid).name}
+          mineId={currentUser.id}
+          onClose={() => {
+            setSearchOpen(false);
+            setSearchQuery('');
+          }}
+          onSelect={(messageId) => {
+            setSearchOpen(false);
+            setSearchQuery('');
+            scrollToMessage(messageId);
+          }}
+        />
+      )}
 
-      <AttachPlateSheet visible={attachOpen} onClose={() => setAttachOpen(false)} onPick={onShareOrder} />
+      <AttachSheet visible={attachOpen} onClose={() => setAttachOpen(false)} onPick={onShareAttachment} />
 
       <MessageActionsSheet
         visible={!!actionTarget}
@@ -401,7 +617,11 @@ export default function Thread() {
         anchor={actionAnchor}
         mine={actionTarget?.senderId === currentUser.id}
         currentEmoji={actionTarget ? myReaction(actionTarget.id) : undefined}
-        onClose={() => setActionTarget(null)}
+        bottomReserved={composerHeight}
+        onClose={() => {
+          setActionTarget(null);
+          setActionPhotoIndex(undefined);
+        }}
         onReact={(emoji) => {
           const target = actionTarget;
           setActionTarget(null);
@@ -412,7 +632,9 @@ export default function Thread() {
         }}
         onReply={() => {
           setReplyTo(actionTarget);
+          setReplyPhotoIndex(actionPhotoIndex);
           setActionTarget(null);
+          setActionPhotoIndex(undefined);
         }}
         onForward={() => {
           setForwarding(actionTarget);
@@ -453,6 +675,24 @@ export default function Thread() {
         payload={null}
         forward={forwarding}
       />
+
+      <PhotoPickerSheet
+        visible={photoPickerOpen}
+        onClose={() => setPhotoPickerOpen(false)}
+        onSend={onPhotosSelected}
+      />
+
+      <PhotoViewerSheet
+        message={viewingPhoto}
+        initialIndex={viewingPhotoIndex}
+        onClose={() => setViewingPhoto(null)}
+        onForward={(m) => {
+          setViewingPhoto(null);
+          setForwarding(m);
+        }}
+      />
+
+      <StreakUnlockModal conversationId={id} streakCount={streakCount} />
     </View>
   );
 }
@@ -467,22 +707,31 @@ function ThreadHeader({
   subtitle,
   avatar,
   verified,
+  streak,
   onBack,
   onTitlePress,
+  onSearch,
   onOptions,
+  onLayout,
 }: {
   title: string;
   subtitle?: string;
   avatar?: string;
   verified?: boolean;
+  /** Chat-streak day count — a flame badge next to the title once it's ≥ 3. */
+  streak?: number;
   onBack: () => void;
   onTitlePress?: () => void;
+  onSearch?: () => void;
   onOptions?: () => void;
+  /** Reports this header's real rendered height, for KeyboardAvoidingView's offset. */
+  onLayout?: (e: LayoutChangeEvent) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   return (
     <View
+      onLayout={onLayout}
       style={[
         styles.header,
         { paddingTop: insets.top + 6, borderBottomColor: colors.border, backgroundColor: colors.background },
@@ -493,9 +742,18 @@ function ThreadHeader({
       <Pressable style={styles.headerTitle} onPress={onTitlePress} disabled={!onTitlePress}>
         {avatar && <Avatar uri={avatar} size={34} verified={verified} />}
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerName, { color: colors.text, fontFamily: displayFont }]} numberOfLines={1}>
-            {title}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Text
+              style={[styles.headerName, { color: colors.text, fontFamily: displayFont }]}
+              numberOfLines={1}>
+              {title}
+            </Text>
+            {!!streak && streak >= 3 && (
+              <View style={styles.streakBadge}>
+                <Text style={styles.streakBadgeText}>🔥{streak}</Text>
+              </View>
+            )}
+          </View>
           {subtitle && (
             <Text style={[styles.headerSub, { color: colors.textMuted }]} numberOfLines={1}>
               {subtitle}
@@ -503,6 +761,11 @@ function ThreadHeader({
           )}
         </View>
       </Pressable>
+      {onSearch && (
+        <Pressable onPress={onSearch} hitSlop={10} style={styles.headerIcon}>
+          <Ionicons name="search-outline" size={21} color={colors.text} />
+        </Pressable>
+      )}
       {onOptions && (
         <Pressable onPress={onOptions} hitSlop={10} style={styles.headerIcon}>
           <Ionicons name="ellipsis-horizontal" size={20} color={colors.text} />
@@ -513,23 +776,168 @@ function ThreadHeader({
 }
 
 /**
+ * In-thread search — replaces the normal header with a search bar (same
+ * spot, same safe-area padding, so nothing jumps) and the message list with
+ * matching results. Only plain text is searched: a shared plate/Plato/photo/
+ * voice note's own caption is the closest thing it has to body text, and
+ * this already matches on that when present via `message.text`.
+ */
+function SearchOverlay({
+  query,
+  onQueryChange,
+  results,
+  isGroup,
+  nameFor,
+  mineId,
+  onClose,
+  onSelect,
+}: {
+  query: string;
+  onQueryChange: (query: string) => void;
+  results: Message[];
+  isGroup: boolean;
+  nameFor: (userId: string) => string;
+  mineId: string;
+  onClose: () => void;
+  onSelect: (messageId: string) => void;
+}) {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, zIndex: 10, elevation: 10 }]}>
+      <View
+        style={[
+          styles.searchBar,
+          { paddingTop: insets.top + 6, borderBottomColor: colors.border, backgroundColor: colors.background },
+        ]}>
+        <View style={[styles.searchInputWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="search" size={16} color={colors.textMuted} />
+          <TextInput
+            autoFocus
+            value={query}
+            onChangeText={onQueryChange}
+            placeholder="Search in this conversation"
+            placeholderTextColor={colors.textMuted}
+            returnKeyType="search"
+            style={[styles.searchInput, { color: colors.text }]}
+          />
+          {query.length > 0 && (
+            <Pressable onPress={() => onQueryChange('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
+        <Pressable onPress={onClose} hitSlop={8}>
+          <Text style={[styles.searchCancel, { color: colors.accent }]}>Cancel</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40 }}>
+        {query.trim().length === 0 ? (
+          <Text style={[styles.searchHint, { color: colors.textMuted }]}>
+            Search this conversation’s messages.
+          </Text>
+        ) : results.length === 0 ? (
+          <Text style={[styles.searchHint, { color: colors.textMuted }]}>No matches.</Text>
+        ) : (
+          results.map((m) => (
+            <Pressable
+              key={m.id}
+              onPress={() => onSelect(m.id)}
+              style={({ pressed }) => [
+                styles.searchResultRow,
+                { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 },
+              ]}>
+              <View style={{ flex: 1 }}>
+                {isGroup && (
+                  <Text style={[styles.searchResultWho, { color: colors.accent }]} numberOfLines={1}>
+                    {m.senderId === mineId ? 'You' : nameFor(m.senderId)}
+                  </Text>
+                )}
+                <Text style={[styles.searchResultText, { color: colors.text }]} numberOfLines={2}>
+                  {m.text}
+                </Text>
+              </View>
+              <Text style={[styles.searchResultTime, { color: colors.textMuted }]}>{dayLabel(m.createdAt)}</Text>
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+/**
  * Pick one of your own plates to send. Your plates are what "you have to try
  * this" almost always means — anything else is a share from the post itself,
  * which the Send-to sheet already handles.
  */
-function AttachPlateSheet({
+type AttachTab = 'Plates' | 'Platos' | 'Restaurants';
+const ATTACH_TABS: AttachTab[] = ['Plates', 'Platos', 'Restaurants'];
+const ALL_COLLECTIONS = 'All';
+
+/**
+ * Share sheet: your own plates and Platos, plus whatever's saved to any of
+ * your collections — restaurants included, since those have no "yours" of
+ * their own to lead with. Saved items already covered by "Yours" (you saved
+ * your own post) aren't repeated in "Saved".
+ *
+ * The Saved section can be filtered down to one collection at a time — once
+ * you've got more than a couple of lists, "everything you've ever saved"
+ * stops being a useful thing to scroll through.
+ */
+function AttachSheet({
   visible,
   onClose,
   onPick,
 }: {
   visible: boolean;
   onClose: () => void;
-  onPick: (order: Order) => void;
+  onPick: (kind: 'plate' | 'plato' | 'restaurant', attachmentId: string) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { ordersByUser, currentUser, restaurantFor } = useData();
-  const mine = ordersByUser(currentUser.id);
+  const { ordersByUser, orders, currentUser, restaurantWithRating } = useData();
+  const { platos } = usePlatos();
+  const { collections } = useCollections();
+  const [tab, setTab] = useState<AttachTab>('Plates');
+  const [collectionFilter, setCollectionFilter] = useState<string>(ALL_COLLECTIONS);
+
+  // Every list by name, not just the ones already holding something of this
+  // type — the picker needs to be somewhere you can always find it, not a
+  // row that only appears once you happen to have the right kind of item
+  // saved somewhere. Picking an empty-for-this-tab list just shows the
+  // "nothing here" state below, which is itself useful feedback.
+  const collectionNames = [...new Set(collections.map((c) => c.name))];
+  const activeCollectionIds =
+    collectionFilter === ALL_COLLECTIONS ? null : collections.filter((c) => c.name === collectionFilter).map((c) => c.id);
+
+  const savedIds = (t: SavedItemType) => {
+    const ids = new Set<string>();
+    collections.forEach((c) => {
+      if (activeCollectionIds && !activeCollectionIds.includes(c.id)) return;
+      c.items.forEach((i) => i.type === t && ids.add(i.id));
+    });
+    return ids;
+  };
+
+  const myPlates = ordersByUser(currentUser.id);
+  const savedPlateIds = savedIds('plate');
+  const savedPlates = orders.filter((o) => savedPlateIds.has(o.id) && o.userId !== currentUser.id);
+
+  const myPlatos = platos.filter((p) => p.creatorId === currentUser.id);
+  const savedPlatoIds = savedIds('plato');
+  const savedPlatos = platos.filter((p) => savedPlatoIds.has(p.id) && p.creatorId !== currentUser.id);
+
+  const savedRestaurants = [...savedIds('restaurant')]
+    .map((rid) => restaurantWithRating(rid))
+    .filter((r): r is RestaurantWithRating => !!r);
+
+  const empty =
+    (tab === 'Plates' && myPlates.length === 0 && savedPlates.length === 0) ||
+    (tab === 'Platos' && myPlatos.length === 0 && savedPlatos.length === 0) ||
+    (tab === 'Restaurants' && savedRestaurants.length === 0);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -538,43 +946,156 @@ function AttachPlateSheet({
           style={[styles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 16 }]}
           onPress={(e) => e.stopPropagation()}>
           <View style={[styles.grabber, { backgroundColor: colors.border }]} />
-          <Text style={[styles.sheetTitle, { color: colors.text, fontFamily: displayFont }]}>
-            Send a plate
-          </Text>
-          {mine.length === 0 ? (
+          <Text style={[styles.sheetTitle, { color: colors.text, fontFamily: displayFont }]}>Share</Text>
+
+          {/* UnderlineTabs owns its own edge padding (it's meant to sit full-bleed,
+              the way it does on Search) — negate the sheet's own inset here so it
+              lines up with that padding instead of stacking on top of it. */}
+          <View style={styles.attachFilterRow}>
+            <UnderlineTabs
+              tabs={ATTACH_TABS}
+              value={tab}
+              onChange={(t) => {
+                setTab(t);
+                setCollectionFilter(ALL_COLLECTIONS);
+              }}
+            />
+          </View>
+
+          {collectionNames.length > 0 && (
+            <View style={styles.attachFilterRow}>
+              <UnderlineTabs
+                tabs={[ALL_COLLECTIONS, ...collectionNames]}
+                value={collectionFilter}
+                onChange={setCollectionFilter}
+                scrollable
+              />
+            </View>
+          )}
+
+          {empty ? (
             <Text style={[styles.blank, { color: colors.textMuted }]}>
-              You haven’t posted a plate yet.
+              {tab === 'Plates'
+                ? 'You haven’t posted or saved a plate yet.'
+                : tab === 'Platos'
+                  ? 'You haven’t posted or saved a Plato yet.'
+                  : 'You haven’t saved a restaurant yet.'}
             </Text>
           ) : (
-            <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
-              {mine.map((o) => {
-                const media = postMedia(o)[0];
-                return (
-                  <Pressable
-                    key={o.id}
-                    onPress={() => onPick(o)}
-                    style={({ pressed }) => [
-                      styles.plateRow,
-                      { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 },
-                    ]}>
-                    <Image source={{ uri: media.uri }} style={styles.plateThumb} contentFit="cover" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.plateName, { color: colors.text }]} numberOfLines={1}>
-                        {o.dishName}
-                      </Text>
-                      <Text style={[styles.plateMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                        {restaurantFor(o.restaurantId)?.name ?? 'a restaurant'}
-                      </Text>
-                    </View>
-                    <RatingBadge score={o.rating} size="sm" />
-                  </Pressable>
-                );
-              })}
+            <ScrollView style={{ maxHeight: 380, marginTop: 8 }} showsVerticalScrollIndicator={false}>
+              {tab === 'Plates' && (
+                <>
+                  <AttachSection title="Yours" show={myPlates.length > 0}>
+                    {myPlates.map((o) => (
+                      <PlateRow key={o.id} order={o} onPress={() => onPick('plate', o.id)} />
+                    ))}
+                  </AttachSection>
+                  <AttachSection title="Saved" show={savedPlates.length > 0}>
+                    {savedPlates.map((o) => (
+                      <PlateRow key={o.id} order={o} onPress={() => onPick('plate', o.id)} />
+                    ))}
+                  </AttachSection>
+                </>
+              )}
+              {tab === 'Platos' && (
+                <>
+                  <AttachSection title="Yours" show={myPlatos.length > 0}>
+                    {myPlatos.map((p) => (
+                      <PlatoRow key={p.id} plato={p} onPress={() => onPick('plato', p.id)} />
+                    ))}
+                  </AttachSection>
+                  <AttachSection title="Saved" show={savedPlatos.length > 0}>
+                    {savedPlatos.map((p) => (
+                      <PlatoRow key={p.id} plato={p} onPress={() => onPick('plato', p.id)} />
+                    ))}
+                  </AttachSection>
+                </>
+              )}
+              {tab === 'Restaurants' && (
+                <AttachSection title="Saved" show={savedRestaurants.length > 0}>
+                  {savedRestaurants.map((r) => (
+                    <RestaurantRow key={r.id} restaurant={r} onPress={() => onPick('restaurant', r.id)} />
+                  ))}
+                </AttachSection>
+              )}
             </ScrollView>
           )}
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+function AttachSection({ title, show, children }: { title: string; show: boolean; children: React.ReactNode }) {
+  const { colors } = useTheme();
+  if (!show) return null;
+  return (
+    <View style={{ marginBottom: 4 }}>
+      <Text style={[styles.attachSectionTitle, { color: colors.textMuted }]}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function PlateRow({ order, onPress }: { order: Order; onPress: () => void }) {
+  const { colors } = useTheme();
+  const { restaurantFor } = useData();
+  const media = postMedia(order)[0];
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.plateRow, { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 }]}>
+      <Image source={{ uri: media.uri }} style={styles.plateThumb} contentFit="cover" />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.plateName, { color: colors.text }]} numberOfLines={1}>
+          {order.dishName}
+        </Text>
+        <Text style={[styles.plateMeta, { color: colors.textMuted }]} numberOfLines={1}>
+          {restaurantFor(order.restaurantId)?.name ?? 'a restaurant'}
+        </Text>
+      </View>
+      <RatingBadge score={order.rating} size="sm" />
+    </Pressable>
+  );
+}
+
+function PlatoRow({ plato, onPress }: { plato: PlatoVideo; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.plateRow, { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 }]}>
+      <Image source={{ uri: plato.poster }} style={styles.plateThumb} contentFit="cover" />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.plateName, { color: colors.text }]} numberOfLines={1}>
+          {plato.dishName}
+        </Text>
+        <Text style={[styles.plateMeta, { color: colors.textMuted }]} numberOfLines={1}>
+          {plato.restaurantName}
+        </Text>
+      </View>
+      <Ionicons name="film-outline" size={16} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
+function RestaurantRow({ restaurant, onPress }: { restaurant: RestaurantWithRating; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.plateRow, { borderBottomColor: colors.border, opacity: pressed ? 0.7 : 1 }]}>
+      <Image source={{ uri: restaurant.image }} style={styles.plateThumb} contentFit="cover" />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.plateName, { color: colors.text }]} numberOfLines={1}>
+          {restaurant.name}
+        </Text>
+        <Text style={[styles.plateMeta, { color: colors.textMuted }]} numberOfLines={1}>
+          {restaurant.cuisine} · {restaurant.location}
+        </Text>
+      </View>
+      <RatingBadge score={restaurant.platedRating} size="sm" />
+    </Pressable>
   );
 }
 
@@ -589,13 +1110,82 @@ const styles = StyleSheet.create({
   },
   headerIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 },
-  headerName: { fontSize: 16, letterSpacing: -0.3 },
+  headerName: { fontSize: 16, letterSpacing: -0.3, flexShrink: 1 },
   headerSub: { fontSize: 12, fontWeight: '600', marginTop: 1 },
+  streakBadge: {
+    backgroundColor: 'rgba(255,140,0,0.16)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  streakBadgeText: { fontSize: 11, fontWeight: '800', color: '#FF8C00' },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  searchInputWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
+  searchCancel: { fontSize: 14, fontWeight: '700' },
+  searchHint: { textAlign: 'center', marginTop: 40, fontSize: 14, fontWeight: '500', paddingHorizontal: spacing.xl },
+  searchResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  searchResultWho: { fontSize: 12, fontWeight: '800', marginBottom: 2 },
+  searchResultText: { fontSize: 14, fontWeight: '500', lineHeight: 19 },
+  searchResultTime: { fontSize: 11, fontWeight: '600' },
   day: { textAlign: 'center', fontSize: 11, fontWeight: '700', marginVertical: 12 },
   blank: { textAlign: 'center', marginTop: 40, fontSize: 14, fontWeight: '500' },
+  seenLabel: {
+    textAlign: 'right',
+    fontSize: 11,
+    fontWeight: '600',
+    paddingHorizontal: spacing.lg,
+    paddingTop: 2,
+  },
   gone: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   goneText: { fontSize: 14, fontWeight: '500' },
   composerWrap: { paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
+  jumpToLatestLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+    paddingRight: 16,
+  },
+  jumpToLatest: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -615,6 +1205,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   replyBar: { width: 3, alignSelf: 'stretch', marginRight: -4 },
+  replyThumb: { width: 34, height: 34, borderRadius: radius.sm },
+  replyIcon: { alignItems: 'center', justifyContent: 'center' },
   replyWho: { fontSize: 11, fontWeight: '800' },
   replyText: { fontSize: 12, fontWeight: '500', marginTop: 1 },
   attachBtn: {
@@ -652,6 +1244,8 @@ const styles = StyleSheet.create({
   },
   grabber: { width: 40, height: 5, borderRadius: 3, alignSelf: 'center', marginBottom: 14 },
   sheetTitle: { fontSize: 20, fontWeight: '600', marginBottom: 12 },
+  attachSectionTitle: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3, marginTop: 6, marginBottom: 2 },
+  attachFilterRow: { marginHorizontal: -spacing.lg, marginTop: 4 },
   plateRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import {
   Conversation,
@@ -15,7 +16,7 @@ import { CURRENT_USER_ID } from '@/data/users';
 import { showAlert } from '@/lib/dialog';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/AuthContext';
-import { mapConversation, mapMessage, mapReaction } from '@/store/mappers';
+import { mapConversation, mapMessage, mapParticipant, mapReaction } from '@/store/mappers';
 
 /**
  * Direct messages.
@@ -39,12 +40,16 @@ export interface MessageDraft {
   text?: string;
   kind?: MessageKind;
   attachmentId?: string;
+  /** Multi-photo `image` sends — a whole picker selection as one album. */
+  attachmentIds?: string[];
   /** Which plate of a multi-plate post is being shared. */
   attachmentIndex?: number;
   /** Length of a voice note, ms. */
   durationMs?: number;
   /** The message this one answers. */
   replyTo?: string;
+  /** Which photo of `replyTo`'s album this points at — see Message.replyToIndex. */
+  replyToIndex?: number;
 }
 
 interface MessagesContextValue {
@@ -64,6 +69,9 @@ interface MessagesContextValue {
   otherIds: (conversation: Conversation) => string[];
 
   /** Everyone's reaction to one message. */
+  /** Everyone but you who's read up through a message sent at this time, in this thread. */
+  seenBy: (conversationId: string, messageCreatedAt: string) => string[];
+
   reactionsFor: (messageId: string) => MessageReaction[];
   /** Your own reaction to a message, if any. */
   myReaction: (messageId: string) => string | undefined;
@@ -79,6 +87,9 @@ interface MessagesContextValue {
   /** Pinned threads sort first in the inbox. */
   isPinned: (conversationId: string) => boolean;
   togglePin: (conversationId: string) => void;
+  /** Your own outgoing-bubble color override for this conversation, if set. */
+  bubbleColorFor: (conversationId: string) => string | undefined;
+  setBubbleColor: (conversationId: string, color: string | undefined) => void;
   /** Force a thread to show unread until it's actually opened again. */
   markUnread: (conversationId: string) => void;
 
@@ -109,6 +120,13 @@ interface MessagesContextValue {
   addParticipants: (conversationId: string, userIds: string[]) => Promise<boolean>;
   removeParticipant: (conversationId: string, targetUserId: string) => void;
 
+  /** Owner-only. Returns the group's existing code, or mints one if it has none yet. */
+  getInviteCode: (conversationId: string, regenerate?: boolean) => Promise<string | null>;
+  /** What a code resolves to, before committing to joining. */
+  getInvitePreview: (code: string) => Promise<InvitePreview | null>;
+  /** Joins the group a code points at. Returns its conversation id. */
+  joinViaInvite: (code: string) => Promise<string | null>;
+
   /**
    * The most recent message or reaction that arrived from someone else while
    * the app was open — what the in-app banner renders. Cleared once shown.
@@ -128,6 +146,14 @@ export interface IncomingNotice {
   conversationId: string;
   senderId: string;
   preview: string;
+}
+
+/** What an invite code resolves to — enough to show before committing to joining. */
+export interface InvitePreview {
+  conversationId: string;
+  title: string | null;
+  avatarUrl: string | null;
+  memberCount: number;
 }
 
 const MessagesContext = createContext<MessagesContextValue | undefined>(undefined);
@@ -193,7 +219,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     const [convsRes, msgsRes] = await Promise.all([
       supabase
         .from('conversations')
-        .select('*, participants:conversation_participants(user_id, state, last_read_at, muted, pinned, forced_unread)')
+        .select('*, participants:conversation_participants(user_id, state, last_read_at, muted, pinned, forced_unread, bubble_color)')
         .in('id', ids)
         .order('last_message_at', { ascending: false }),
       supabase
@@ -250,6 +276,29 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       });
   }, [live, userId, loadFromSupabase]);
 
+  // Realtime's socket drops the moment the app backgrounds, and doesn't
+  // replay what it missed on reconnect — so a read receipt (or anything
+  // else) that landed while this device was asleep would otherwise only
+  // ever show up after a full app relaunch. A light resync of conversations
+  // alone (not the full loadFromSupabase — no need to re-pull every
+  // message/reaction/hide just to catch this) on every foreground closes
+  // that gap without flashing the inbox's loading state.
+  const resyncConversations = useCallback(async (uid: string) => {
+    const { data } = await supabase
+      .from('conversations')
+      .select('*, participants:conversation_participants(user_id, state, last_read_at, muted, pinned, forced_unread, bubble_color)')
+      .order('last_message_at', { ascending: false });
+    if (data) setConversations(data.map(mapConversation));
+  }, []);
+
+  useEffect(() => {
+    if (!live || !userId) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') resyncConversations(userId).catch(() => {});
+    });
+    return () => sub.remove();
+  }, [live, userId, resyncConversations]);
+
   // ── Realtime ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!live || !userId) return;
@@ -291,7 +340,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
                       ? '🎙 Voice message'
                       : arrived.kind === 'image'
                         ? '📷 Photo'
-                        : arrived.text,
+                        : arrived.kind === 'restaurant'
+                          ? '📍 Shared a restaurant'
+                          : arrived.text,
             });
           }
         },
@@ -328,6 +379,24 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
               return current;
             });
           }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversation_participants' },
+        (payload) => {
+          const row: any = payload.new;
+          // Our own row changing is already reflected locally the moment we
+          // write it (markRead, toggleMute, ...) — this stream is for
+          // hearing about everyone *else's* row, chiefly their read receipt.
+          if (!row || row.user_id === userId) return;
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id !== row.conversation_id
+                ? c
+                : { ...c, participants: c.participants.map((p) => (p.userId === row.user_id ? mapParticipant(row) : p)) },
+            ),
+          );
         },
       )
       .subscribe();
@@ -379,6 +448,18 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       return row?.forcedUnread ? Math.max(1, real) : real;
     },
     [conversations, visibleMessages, me, myRow],
+  );
+
+  const seenBy = useCallback(
+    (conversationId: string, messageCreatedAt: string) => {
+      const conv = conversations.find((c) => c.id === conversationId);
+      if (!conv) return [];
+      const sentAt = +new Date(messageCreatedAt);
+      return conv.participants
+        .filter((p) => p.userId !== me && p.state === 'accepted' && +new Date(p.lastReadAt) >= sentAt)
+        .map((p) => p.userId);
+    },
+    [conversations, me],
   );
 
   const otherIds = useCallback(
@@ -538,6 +619,41 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     [isPinned, live, userId, me],
   );
 
+  // Self-scoped, like muted/pinned above — how MY own outgoing bubbles look
+  // in this one conversation, not synced to the other person.
+  const bubbleColorFor = useCallback(
+    (conversationId: string) => {
+      const conv = conversations.find((c) => c.id === conversationId);
+      return conv ? myRow(conv)?.bubbleColor : undefined;
+    },
+    [conversations, myRow],
+  );
+
+  const setBubbleColor = useCallback(
+    (conversationId: string, color: string | undefined) => {
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id !== conversationId
+            ? c
+            : {
+                ...c,
+                participants: c.participants.map((p) =>
+                  p.userId === me ? { ...p, bubbleColor: color } : p,
+                ),
+              },
+        ),
+      );
+      if (live && userId)
+        supabase
+          .from('conversation_participants')
+          .update({ bubble_color: color ?? null })
+          .eq('conversation_id', conversationId)
+          .eq('user_id', userId)
+          .then(() => {});
+    },
+    [live, userId, me],
+  );
+
   const markUnread = useCallback(
     (conversationId: string) => {
       setConversations((prev) =>
@@ -662,9 +778,11 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
           kind,
           text,
           attachment_id: draft.attachmentId ?? null,
+          attachment_ids: draft.attachmentIds ?? null,
           attachment_index: draft.attachmentIndex ?? null,
           duration_ms: draft.durationMs ?? null,
           reply_to: draft.replyTo ?? null,
+          reply_to_index: draft.replyToIndex ?? null,
         })
         .select('*')
         .single();
@@ -701,9 +819,11 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
         kind,
         text,
         attachmentId: draft.attachmentId,
+        attachmentIds: draft.attachmentIds,
         attachmentIndex: draft.attachmentIndex,
         durationMs: draft.durationMs,
         replyTo: draft.replyTo,
+        replyToIndex: draft.replyToIndex,
         createdAt: now,
         pending: true,
       };
@@ -730,6 +850,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
           text: message.text,
           kind: message.kind,
           attachmentId: message.attachmentId,
+          attachmentIds: message.attachmentIds,
           attachmentIndex: message.attachmentIndex,
           durationMs: message.durationMs,
           replyTo: message.replyTo,
@@ -744,7 +865,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   const hydrateConversation = useCallback(async (conversationId: string) => {
     const { data } = await supabase
       .from('conversations')
-      .select('*, participants:conversation_participants(user_id, state, last_read_at, muted, pinned, forced_unread)')
+      .select('*, participants:conversation_participants(user_id, state, last_read_at, muted, pinned, forced_unread, bubble_color)')
       .eq('id', conversationId)
       .single();
     if (!data) return;
@@ -950,7 +1071,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       }
       const { data } = await supabase
         .from('conversations')
-        .select('*, participants:conversation_participants(user_id, state, last_read_at, muted, pinned, forced_unread)')
+        .select('*, participants:conversation_participants(user_id, state, last_read_at, muted, pinned, forced_unread, bubble_color)')
         .eq('id', conversationId)
         .single();
       if (data) {
@@ -985,6 +1106,55 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
             showAlert('Could not remove them', 'Please try again.');
           }
         });
+    },
+    [live, userId, hydrateConversation],
+  );
+
+  const getInviteCode = useCallback(
+    async (conversationId: string, regenerate?: boolean): Promise<string | null> => {
+      if (!live || !userId) return null;
+      const { data, error } = await supabase.rpc('get_or_create_invite_code', {
+        cid: conversationId,
+        regenerate: !!regenerate,
+      });
+      if (error || !data) {
+        if (__DEV__) console.warn('[Plated] getInviteCode failed', error);
+        showAlert('Could not get invite link', 'Please try again.');
+        return null;
+      }
+      return data as string;
+    },
+    [live, userId],
+  );
+
+  const getInvitePreview = useCallback(
+    async (code: string): Promise<InvitePreview | null> => {
+      if (!live) return null;
+      const { data, error } = await supabase.rpc('invite_preview', { code });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row) return null;
+      return {
+        conversationId: row.conversation_id,
+        title: row.title ?? null,
+        avatarUrl: row.avatar_url ?? null,
+        memberCount: Number(row.member_count ?? 0),
+      };
+    },
+    [live],
+  );
+
+  const joinViaInvite = useCallback(
+    async (code: string): Promise<string | null> => {
+      if (!live || !userId) return null;
+      const { data, error } = await supabase.rpc('join_via_invite', { code });
+      if (error || !data) {
+        if (__DEV__) console.warn('[Plated] joinViaInvite failed', error);
+        showAlert('Could not join', 'That invite link may no longer be valid.');
+        return null;
+      }
+      const conversationId = data as string;
+      await hydrateConversation(conversationId);
+      return conversationId;
     },
     [live, userId, hydrateConversation],
   );
@@ -1036,6 +1206,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       messagesFor,
       lastMessageFor,
       unreadFor,
+      seenBy,
       otherIds,
       reactionsFor,
       myReaction,
@@ -1047,6 +1218,8 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       toggleMute,
       isPinned,
       togglePin,
+      bubbleColorFor,
+      setBubbleColor,
       markUnread,
       hideMessage,
       unsendMessage,
@@ -1063,10 +1236,13 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       setGroupPhoto,
       addParticipants,
       removeParticipant,
+      getInviteCode,
+      getInvitePreview,
+      joinViaInvite,
       privacy,
       setPrivacy,
     }),
-    [accepted, requests, loading, unreadCount, conversationFor, messagesFor, lastMessageFor, unreadFor, otherIds, reactionsFor, myReaction, react, incoming, clearIncoming, leaveThread, isMuted, toggleMute, isPinned, togglePin, markUnread, hideMessage, unsendMessage, messageById, markRead, sendMessage, retryMessage, startDirect, createGroup, sendTo, acceptRequest, leaveConversation, renameGroup, setGroupPhoto, addParticipants, removeParticipant, privacy, setPrivacy],
+    [accepted, requests, loading, unreadCount, conversationFor, messagesFor, lastMessageFor, unreadFor, seenBy, otherIds, reactionsFor, myReaction, react, incoming, clearIncoming, leaveThread, isMuted, toggleMute, isPinned, togglePin, bubbleColorFor, setBubbleColor, markUnread, hideMessage, unsendMessage, messageById, markRead, sendMessage, retryMessage, startDirect, createGroup, sendTo, acceptRequest, leaveConversation, renameGroup, setGroupPhoto, addParticipants, removeParticipant, getInviteCode, getInvitePreview, joinViaInvite, privacy, setPrivacy],
   );
 
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;

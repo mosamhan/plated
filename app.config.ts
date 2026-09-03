@@ -100,6 +100,14 @@ const config: ExpoConfig = {
       },
     ],
     [
+      'expo-media-library',
+      {
+        photosPermission: 'Plated needs access to your photos to send them in a chat.',
+        savePhotosPermission: 'Plated needs access to save this photo to your library.',
+        isAccessMediaLocationEnabled: false,
+      },
+    ],
+    [
       'expo-location',
       {
         locationWhenInUsePermission: 'Plated uses your location to show restaurants near you.',

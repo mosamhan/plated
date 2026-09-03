@@ -32,7 +32,10 @@ export function formatRelativeDate(iso: string): string {
   if (days < 7) return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 
   const weeks = Math.floor(diff / WEEK);
-  if (weeks < 4) return `${weeks} ${weeks === 1 ? 'week' : 'weeks'} ago`;
+  // Cut over on days, not weeks: 4 weeks can still be 28-29 days, which
+  // floors to 0 months below — checking days keeps the two branches
+  // contiguous instead of leaving a "0 months ago" gap between them.
+  if (days < 30) return `${weeks} ${weeks === 1 ? 'week' : 'weeks'} ago`;
 
   const months = Math.floor(days / 30);
   if (months < 12) return `${months} ${months === 1 ? 'month' : 'months'} ago`;

@@ -1,4 +1,17 @@
+import * as Linking from 'expo-linking';
+
 export const INVITE_LINK = 'joinplated.app/invite/samhan';
+
+/**
+ * A group's own invite link — unlike the marketing URLs below (aspirational
+ * `joinplated.app` links with no site behind them yet), this one has to
+ * actually open the app when tapped or scanned, so it's built from the
+ * app's own `plated://` scheme via `expo-linking` rather than borrowed from
+ * that convention. Resolves to `/join/[code]`.
+ */
+export function groupInviteLink(code: string): string {
+  return Linking.createURL(`join/${code}`);
+}
 
 /** Full invite URL — for the `url` field of `Share.share`, alongside `buildInviteMessage`. */
 export function inviteLink(): string {

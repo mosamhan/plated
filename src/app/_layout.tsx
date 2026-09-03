@@ -128,6 +128,7 @@ function RootNav() {
             the user has already finished with. */}
         <Stack.Screen name="messages/new" />
         <Stack.Screen name="messages/group-info/[id]" />
+        <Stack.Screen name="messages/chat-info/[id]" />
         <Stack.Screen name="messages/add-people/[id]" />
         {/* Full-bleed and gesture-dismissed, the way stories are everywhere —
             a card presentation would leave the app's background framing it. */}

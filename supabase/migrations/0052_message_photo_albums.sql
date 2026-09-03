@@ -1,0 +1,11 @@
+-- Plated — photo sending moves from "one image per message" to a custom
+-- in-app multi-select picker that sends a whole selection as one grouped
+-- "album" message (a swipeable carousel bubble), matching how the reference
+-- UI groups multi-select sends into a single bubble rather than one message
+-- per photo. `attachment_id` stays a single column (used by voice/plate/
+-- plato/story_reply, and by any already-sent single-photo `image` message);
+-- a new nullable array column carries multi-photo `image` sends instead of
+-- widening/overloading the existing column. Older `image` rows that only
+-- have `attachment_id` keep rendering fine — the client falls back to
+-- `[attachment_id]` when `attachment_ids` is null.
+alter table public.messages add column if not exists attachment_ids text[];

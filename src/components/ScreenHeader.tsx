@@ -57,6 +57,12 @@ export function ScreenHeader({ title, transparent, rightIcon, rightLabel, onRigh
           />
         </Pressable>
       )}
+      {/* Mirrors secondaryIcon's extra width on the left, so the title's
+          flex:1 region stays symmetric (one icon-slot each side) instead of
+          getting pulled off-center toward whichever side has fewer buttons —
+          it needs to land directly above the avatar below, not wherever the
+          leftover space happens to be. */}
+      {secondaryIcon && <View style={styles.iconBtn} />}
       {title ? (
         onTitlePress ? (
           <Pressable onPress={onTitlePress} style={styles.titleRow} hitSlop={6}>

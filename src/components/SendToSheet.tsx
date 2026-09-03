@@ -147,6 +147,7 @@ export function SendToSheet({
       ? {
           kind: forward.kind,
           attachmentId: forward.attachmentId,
+          attachmentIds: forward.attachmentIds,
           attachmentIndex: forward.attachmentIndex,
           durationMs: forward.durationMs,
           text: forward.kind === 'text' ? forward.text : note.trim() || forward.text,

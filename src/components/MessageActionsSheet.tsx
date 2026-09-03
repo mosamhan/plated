@@ -3,7 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { MessageAnchor } from '@/components/MessageBubble';
+import { MessageBubbleContent, type MessageAnchor } from '@/components/MessageBubble';
 import { canUnsend, Message, QUICK_REACTIONS } from '@/data/messages';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -49,6 +49,7 @@ export function MessageActionsSheet({
   onDeleteForMe,
   onUnsend,
   onReport,
+  bottomReserved,
 }: {
   message: Message | null;
   mine: boolean;
@@ -62,6 +63,13 @@ export function MessageActionsSheet({
   onDeleteForMe: () => void;
   onUnsend: () => void;
   onReport: () => void;
+  /**
+   * The composer's actual measured height — a message near the bottom of the
+   * thread otherwise only clears the home-indicator inset, not the docked
+   * composer bar sitting on top of it, so the menu could render half-hidden
+   * behind (or overlapping) the message input instead of fully above it.
+   */
+  bottomReserved?: number;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -77,9 +85,12 @@ export function MessageActionsSheet({
 
   const barTop = anchor.y - BAR_HEIGHT - GAP;
   const menuTop = anchor.y + anchor.height + GAP;
+  // Never less than the safe-area inset alone — bottomReserved is 0 for the
+  // first render or so, before the composer has ever laid out.
+  const reservedBottom = Math.max(insets.bottom, bottomReserved ?? 0);
   // If the actions would spill past the bottom, slide the whole arrangement up
   // by however much it overflows rather than letting it hang off.
-  const overflow = Math.max(0, menuTop + menuHeight - (screenH - insets.bottom - GAP));
+  const overflow = Math.max(0, menuTop + menuHeight - (screenH - reservedBottom - GAP));
   // ...and never push the bar under the status bar doing it.
   const lift = Math.min(overflow, Math.max(0, barTop - insets.top - GAP));
 
@@ -90,6 +101,23 @@ export function MessageActionsSheet({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
+        {/* The real bubble in the list is hidden (opacity 0, via
+            MessageBubble's `hidden` prop) for as long as this is open — this
+            is the exact same visual content, standing in for it at its exact
+            original spot, lifted by the same `lift` as the bar/menu below so
+            all three move as one group instead of the bubble staying fixed
+            while the menu detaches from it. */}
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: anchor.x,
+            top: anchor.y - lift,
+            width: anchor.width,
+          }}>
+          <MessageBubbleContent message={message} mine={mine} />
+        </View>
+
         <Animated.View
           entering={FadeIn.duration(120)}
           style={[

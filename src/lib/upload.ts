@@ -153,11 +153,17 @@ export async function uploadVoiceNote(userId: string, uri: string): Promise<stri
   }
 }
 
+/** The only fields uploadAsset actually reads off a picked asset. */
+export type UploadableAsset = { base64?: string | null; mimeType?: string | null };
+
 /**
  * Upload a picked asset to a public Storage bucket under the user's folder.
- * Returns the public URL, or null on failure.
+ * Returns the public URL, or null on failure. Takes the narrower
+ * `UploadableAsset` shape (not the full `ImagePicker.ImagePickerAsset`) so
+ * callers building an asset from `expo-media-library` + `expo-file-system`
+ * (which don't hand back an `ImagePickerAsset`) can call this unchanged.
  */
-export async function uploadAsset(bucket: Bucket, userId: string, asset: ImagePicker.ImagePickerAsset): Promise<string | null> {
+export async function uploadAsset(bucket: Bucket, userId: string, asset: UploadableAsset): Promise<string | null> {
   if (!asset.base64) return null;
   const ext = (asset.mimeType?.split('/')[1] ?? 'jpg').replace('jpeg', 'jpg');
   const path = `${userId}/${Date.now()}.${ext}`;

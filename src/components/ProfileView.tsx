@@ -20,6 +20,7 @@ import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
 import { AvatarViewerSheet } from '@/components/AvatarViewerSheet';
 import { Button } from '@/components/Button';
+import { InviteLinkSheet } from '@/components/InviteLinkSheet';
 import { NameInputModal } from '@/components/NameInputModal';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatoTile } from '@/components/PlatoTile';
@@ -31,7 +32,7 @@ import { User } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
 import { creatorEligibilityCounts, evaluateCreatorEligibility } from '@/lib/creatorEligibility';
 import { success, tapLight, tick } from '@/lib/haptics';
-import { buildInviteMessage, buildProfileShareMessage, INVITE_LINK } from '@/lib/invite';
+import { buildInviteMessage, buildProfileShareMessage, inviteLink, INVITE_LINK } from '@/lib/invite';
 import { Collection, useCollections } from '@/store/CollectionsContext';
 import { useCreatorCard } from '@/store/CreatorCardContext';
 import { useData } from '@/store/DataContext';
@@ -93,6 +94,7 @@ export function ProfileView({
   const [createOpen, setCreateOpen] = useState(false);
   const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
 
   // Your own lists live in context (and stay in sync with saves); someone
   // else's have to be fetched, and RLS returns only the ones they've shared.
@@ -161,6 +163,8 @@ export function ProfileView({
         <ScreenHeader
           title={`@${user.handle}`}
           hideBack={!showBack}
+          secondaryIcon="qr-code-outline"
+          onSecondary={() => setInviteSheetOpen(true)}
           rightIcon="settings-outline"
           onRight={() => router.push('/settings')}
           onTitlePress={() => setSwitcherOpen(true)}
@@ -214,6 +218,18 @@ export function ProfileView({
           },
         ]}
       />
+
+      {isCurrent && (
+        <InviteLinkSheet
+          visible={inviteSheetOpen}
+          onClose={() => setInviteSheetOpen(false)}
+          getLink={async () => inviteLink()}
+          allowReset={false}
+          title="Your invite link"
+          subtitle="Share this link or QR code to invite friends to Plated."
+          shareMessage={() => buildInviteMessage({ earns: user.compensationEligible })}
+        />
+      )}
 
       {blocked && !isCurrent ? (
         <View style={styles.blockedWrap}>
@@ -453,7 +469,7 @@ export function ProfileView({
  * One saved list on the Collections tab — name, what's inside, and up to three
  * cover thumbnails. Taps into the collection screen.
  */
-function CollectionRow({
+export function CollectionRow({
   collection,
   showPrivacy,
 }: {

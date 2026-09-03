@@ -23,12 +23,44 @@ export function conversationTitle(
   return `${names[0]}, ${names[1]} +${names.length - 2}`;
 }
 
-/** The inbox's one-line summary of the latest message. */
+/**
+ * The inbox's one-line summary of the latest message — mirrors Instagram's
+ * own inbox conventions (a Plato standing in for their Reel, a plate for
+ * their post) rather than inventing new ones:
+ *
+ *   * Several of the other person's messages have landed since you last
+ *     opened the thread → a count ("3 new messages"), not just the latest
+ *     one's content standing in for all of them.
+ *   * Otherwise, once the LAST message was yours, a plain text message
+ *     collapses to a status stamp instead of repeating content you already
+ *     know you wrote — "Sent 4h ago" while it's still unread, switching to
+ *     "Seen 4h ago" the moment the other person's actual read receipt says
+ *     they've opened it (not just "no unread from them", which is true of
+ *     your own last message by definition and would say "Seen" the instant
+ *     you hit send). A message you *received* keeps showing its content
+ *     even after you've read it: "Sent"/"Seen" would misdescribe who sent
+ *     it, and there's no privacy reason to hide your own inbox from
+ *     yourself. A shared plate/Plato/photo/story reply also keeps its label
+ *     either way, since that names *what* was sent rather than exposing the
+ *     private text.
+ */
 export function messagePreview(
   message: Message | undefined,
-  opts: { mine: boolean; senderName?: string; isGroup: boolean },
+  opts: { mine: boolean; senderName?: string; isGroup: boolean; unreadCount: number; seen?: boolean },
 ): string {
   if (!message) return 'No messages yet';
+
+  if (opts.unreadCount > 1) {
+    return `${opts.unreadCount > 9 ? '9+' : opts.unreadCount} new messages`;
+  }
+
+  const richContent =
+    message.kind === 'plate' ||
+    message.kind === 'plato' ||
+    message.kind === 'image' ||
+    message.kind === 'story_reply' ||
+    message.kind === 'restaurant' ||
+    message.kind === 'voice';
 
   const body =
     message.kind === 'plate'
@@ -39,13 +71,27 @@ export function messagePreview(
           ? `Replied to a story${message.text ? `: ${message.text}` : ''}`
           : message.kind === 'image'
             ? '📷 Photo'
-            : message.text;
+            : message.kind === 'restaurant'
+              ? '📍 Shared a restaurant'
+              : message.kind === 'voice'
+                ? '🎙 Voice message'
+                : message.text;
+
+  if (opts.mine && !richContent) return statusTimeLabel(message.createdAt, !!opts.seen);
 
   // "You:" matters in both thread types — it's how you tell at a glance whether
   // the ball is in your court. The sender's name only earns space in a group.
   if (opts.mine) return `You: ${body}`;
   if (opts.isGroup && opts.senderName) return `${opts.senderName.split(' ')[0]}: ${body}`;
   return body;
+}
+
+function statusTimeLabel(iso: string, seen: boolean): string {
+  const verb = seen ? 'Seen' : 'Sent';
+  const stamp = shortTime(iso);
+  if (stamp === 'now') return `${verb} just now`;
+  if (/^\d+[mhd]$/.test(stamp)) return `${verb} ${stamp} ago`;
+  return `${verb} ${stamp}`;
 }
 
 /** Compact relative stamp for list rows — "now", "4m", "3h", "2d", "Mar 4". */

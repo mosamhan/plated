@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
 import { RatingBadge } from '@/components/RatingBadge';
+import { formatCount } from '@/components/StatPill';
 import { MessageKind } from '@/data/messages';
 import { postMedia } from '@/lib/post';
 import { useData } from '@/store/DataContext';
@@ -14,24 +15,26 @@ import { radius } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 /**
- * A shared plate or Plato inside a thread.
+ * A shared plate, Plato or restaurant inside a thread — each one a shrunk
+ * version of the exact tile that same thing already renders as elsewhere in
+ * the app (the feed card, the Plato grid tile, the restaurant card), so a
+ * share looks like the thing rather than a bespoke one-off invented for chat.
  *
- * Two presentations, because the two things are shaped differently and a share
- * should look like what it is:
+ * A `Pressable` of its own would swallow the bubble's tap/double-tap/long-
+ * press before the bubble ever saw it, so unlike `PlatoTile`/`PlateTile`
+ * this stays a plain View — the surrounding bubble owns every gesture.
  *
- *   * A **plate** renders as a post card — author header, then the photo, then
- *     the dish and its score. It's the feed card, shrunk.
- *   * A **Plato** renders as a **reel** — a tall 9:16 poster with a play button,
- *     the way a video announces itself as something to watch rather than read.
- *
- * Both are fixed-width on purpose. The card sits in a bubble that hugs its
- * content, and its text column is `flex: 1` — which contributes nothing to
- * intrinsic width — so without an explicit width the whole thing collapses to
- * the thumbnail and ellipsises everything else.
+ * Fixed-width on purpose: the text column below the photo is `flex: 1`,
+ * which contributes nothing to intrinsic width — so without an explicit
+ * width the whole thing collapses to the thumbnail and ellipsises
+ * everything else.
  */
 
 const POST_WIDTH = 252;
-const REEL_WIDTH = 208;
+// A Plato's 3:4 photo already reads taller than a plate's square one at the
+// same width — a touch narrower keeps the two from feeling mismatched in
+// height when they land back to back in a thread.
+const PLATO_WIDTH = 208;
 
 /**
  * Where a shared attachment leads. Returned rather than navigated internally so
@@ -43,6 +46,9 @@ export function sharedItemHref(kind: MessageKind, attachmentId?: string): string
   if (!attachmentId) return null;
   if (kind === 'plate') return `/order/${attachmentId}`;
   if (kind === 'plato') return `/plato/${attachmentId}`;
+  // Same route Discover itself opens a restaurant on — its own back button
+  // returns here, to this exact conversation, for free.
+  if (kind === 'restaurant') return `/restaurant/${attachmentId}`;
   return null;
 }
 
@@ -60,7 +66,7 @@ export function SharedItemCard({
   onAccent?: boolean;
 }) {
   const { colors } = useTheme();
-  const { orders, restaurantFor, userFor } = useData();
+  const { orders, restaurantFor, restaurantWithRating, userFor } = useData();
   const { platos } = usePlatos();
 
   if (!attachmentId) return null;
@@ -124,34 +130,81 @@ export function SharedItemCard({
 
   if (kind === 'plato') {
     const plato = platos.find((p) => p.id === attachmentId);
-    if (!plato) return missing('This Plato is no longer available', REEL_WIDTH);
+    if (!plato) return missing('This Plato is no longer available', PLATO_WIDTH);
 
     return (
-      <View style={[styles.reel, { width: REEL_WIDTH }]}>
-        <Image source={{ uri: plato.poster }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
-        {/* Scrims top and bottom so the label and the dish stay legible over
-            whatever the poster frame happens to be. */}
-        <View style={styles.reelTopScrim} />
-        <View style={styles.reelBottomScrim} />
-
-        <View style={styles.reelTop}>
-          <Ionicons name="film-outline" size={13} color="#fff" />
-          <Text style={styles.reelHandle} numberOfLines={1}>
-            {plato.creatorHandle}
-          </Text>
+      <View
+        style={[
+          styles.post,
+          { width: PLATO_WIDTH, backgroundColor: colors.surface, borderColor: colors.border },
+        ]}>
+        <View>
+          <Image source={{ uri: plato.poster }} style={styles.platoPhoto} contentFit="cover" transition={150} />
+          <View style={styles.platoPlayGlyph}>
+            <Ionicons name="play" size={16} color="#fff" />
+          </View>
+          <View style={styles.platoViews}>
+            <Ionicons name="eye" size={11} color="#fff" />
+            <Text style={styles.platoViewsText}>{formatCount(plato.views)}</Text>
+          </View>
+          <View style={styles.platoBadge}>
+            <RatingBadge score={plato.rating} size="sm" />
+          </View>
         </View>
-
-        <View style={styles.reelPlay}>
-          <Ionicons name="play" size={26} color="#fff" style={styles.reelPlayIcon} />
+        <View style={styles.postFooter}>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[styles.postDish, { color: colors.text, fontFamily: displayFont }]}
+              numberOfLines={1}>
+              {plato.dishName}
+            </Text>
+            <Text style={[styles.postPlace, { color: metaColor }]} numberOfLines={1}>
+              {plato.restaurantName}
+            </Text>
+          </View>
         </View>
+      </View>
+    );
+  }
 
-        <View style={styles.reelBottom}>
-          <Text style={styles.reelDish} numberOfLines={1}>
-            {plato.dishName}
-          </Text>
-          <Text style={styles.reelPlace} numberOfLines={1}>
-            {plato.restaurantName}
-          </Text>
+  if (kind === 'restaurant') {
+    const restaurant = restaurantWithRating(attachmentId);
+    if (!restaurant) return missing('This restaurant is no longer available', POST_WIDTH);
+
+    return (
+      <View
+        style={[
+          styles.post,
+          { width: POST_WIDTH, backgroundColor: colors.surface, borderColor: colors.border },
+        ]}>
+        <Image source={{ uri: restaurant.image }} style={styles.postMedia} contentFit="cover" transition={150} />
+        <View style={styles.postFooter}>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[styles.postDish, { color: colors.text, fontFamily: displayFont }]}
+              numberOfLines={1}>
+              {restaurant.name}
+            </Text>
+            <Text style={[styles.postPlace, { color: metaColor }]} numberOfLines={1}>
+              {restaurant.cuisine} · {restaurant.location}
+            </Text>
+            {/* Cached, not fetched live here — a chat bubble re-renders far
+                more often than the restaurant page does, and Google's rating
+                is already kept fresh there (0045). */}
+            {restaurant.googleRating != null && (
+              <View style={styles.googleRow}>
+                <Image
+                  source={require('../../assets/images/providers/google.png')}
+                  style={styles.googleLogo}
+                  contentFit="contain"
+                />
+                <Text style={[styles.googleText, { color: metaColor }]}>
+                  {restaurant.googleRating.toFixed(1)}
+                </Text>
+              </View>
+            )}
+          </View>
+          <RatingBadge score={restaurant.platedRating} size="sm" />
         </View>
       </View>
     );
@@ -218,41 +271,37 @@ const styles = StyleSheet.create({
   postFooter: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 9 },
   postDish: { fontSize: 15, letterSpacing: -0.2 },
   postPlace: { fontSize: 12, fontWeight: '600', marginTop: 1 },
+  googleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  googleLogo: { width: 11, height: 11 },
+  googleText: { fontSize: 11, fontWeight: '700' },
 
-  // ── Shared Plato → reel card ──────────────────────────────────────────────
-  reel: {
-    aspectRatio: 9 / 16,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    backgroundColor: '#000',
+  // ── Shared Plato → same tile PlatoTile renders in every grid ─────────────
+  platoPhoto: { width: '100%', aspectRatio: 3 / 4 },
+  platoPlayGlyph: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '42%',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  reelTopScrim: { position: 'absolute', top: 0, left: 0, right: 0, height: 64, backgroundColor: 'rgba(0,0,0,0.35)' },
-  reelBottomScrim: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 96, backgroundColor: 'rgba(0,0,0,0.45)' },
-  reelTop: {
+  platoViews: {
     position: 'absolute',
-    top: 10,
-    left: 10,
-    right: 10,
+    left: 8,
+    bottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 3,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
   },
-  reelHandle: { flexShrink: 1, color: '#fff', fontSize: 12, fontWeight: '800' },
-  reelPlay: {
-    alignSelf: 'center',
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Nudged right so the triangle's mass reads as centred in the circle.
-  reelPlayIcon: { marginLeft: 3 },
-  reelBottom: { position: 'absolute', left: 10, right: 10, bottom: 10 },
-  reelDish: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: -0.2 },
-  reelPlace: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '600', marginTop: 1 },
+  platoViewsText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  platoBadge: { position: 'absolute', right: 8, bottom: 8 },
 
   // ── Story reply ───────────────────────────────────────────────────────────
   storyReply: {

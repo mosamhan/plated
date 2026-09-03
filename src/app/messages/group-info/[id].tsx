@@ -5,23 +5,38 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
+import { ChatBubbleColorSheet } from '@/components/ChatBubbleColorSheet';
+import { CollectionRow } from '@/components/ProfileView';
 import { EditGroupInfo } from '@/components/EditGroupInfo';
+import { IconAction, IconActionRow } from '@/components/IconAction';
+import { InviteLinkSheet } from '@/components/InviteLinkSheet';
 import { GroupAvatar } from '@/components/GroupAvatar';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatoTile } from '@/components/PlatoTile';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { SegmentedPill } from '@/components/discover/SegmentedPill';
 import { SettingsRow, SettingsSection } from '@/components/SettingsKit';
+import { StreakUnlockModal } from '@/components/StreakUnlockModal';
 import { UnderlineTabs } from '@/components/UnderlineTabs';
 import { confirmAction } from '@/lib/dialog';
+import { useConversationStreak } from '@/lib/conversationStreak';
 import { warn } from '@/lib/haptics';
+import { groupInviteLink } from '@/lib/invite';
 import { useData } from '@/store/DataContext';
 import { useMessages } from '@/store/MessagesContext';
 import { usePlatos } from '@/store/PlatosContext';
+import { usePublicCollections } from '@/store/usePublicCollections';
 import { spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-const TABS = ['Members', 'Plates & Platos', 'Photos'] as const;
+const TABS = ['Members', 'Plates & Platos', 'Collections', 'Photos'] as const;
 type Tab = (typeof TABS)[number];
+
+// No "All" — plate tiles (square, rating badge) and Plato tiles (3:4, play
+// glyph, view count) look different enough side by side that mixing them
+// in one grid reads as a mistake rather than a combined view.
+const CONTENT_FILTERS = ['Plates', 'Platos'] as const;
+type ContentFilter = (typeof CONTENT_FILTERS)[number];
 
 const PADDING = spacing.lg;
 const GRID_GAP = spacing.md;
@@ -30,8 +45,10 @@ const GRID_GAP = spacing.md;
  * Group settings — reached from the group thread's header. Everything here
  * is groups-only; a 1:1 thread's options stay the small Mute/Report/Delete
  * swipe actions it already had. Deliberately missing, per the current
- * scope: chat bubble color, alert tones, invite link/QR, and in-thread
- * search — see the "messaging-group-settings-deferred" memory note.
+ * scope: alert tones — see the "messaging-group-settings-deferred" memory
+ * note. Chat bubble color, the invite link/QR (owner-only), and in-thread
+ * search (via the thread's own header, `messages/[id].tsx`) have since
+ * been built.
  */
 export default function GroupInfo() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -48,20 +65,27 @@ export default function GroupInfo() {
     togglePin,
     isMuted,
     toggleMute,
+    bubbleColorFor,
+    setBubbleColor,
     leaveConversation,
     renameGroup,
     setGroupPhoto,
     removeParticipant,
     startDirect,
+    getInviteCode,
   } = useMessages();
 
   const [tab, setTab] = useState<Tab>('Members');
+  const [contentFilter, setContentFilter] = useState<ContentFilter>('Plates');
   const [editOpen, setEditOpen] = useState(false);
+  const [bubbleSheetOpen, setBubbleSheetOpen] = useState(false);
+  const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
 
   const conversation = id ? conversationFor(id) : undefined;
   const others = useMemo(() => (conversation ? otherIds(conversation) : []), [conversation, otherIds]);
   const messages = useMemo(() => (id ? messagesFor(id) : []), [id, messagesFor]);
   const isOwner = conversation?.createdBy === currentUser.id;
+  const { current: streakCount } = useConversationStreak(conversation ? id : undefined);
 
   if (!conversation || !id) {
     return (
@@ -75,10 +99,18 @@ export default function GroupInfo() {
   const memberAvatars = others.map((o) => userFor(o).avatar);
   const pinned = isPinned(id);
   const muted = isMuted(id);
+  const bubbleColor = bubbleColorFor(id);
 
   const plateMessages = messages.filter((m) => m.kind === 'plate' && m.attachmentId);
   const platoMessages = messages.filter((m) => m.kind === 'plato' && m.attachmentId);
-  const imageMessages = messages.filter((m) => m.kind === 'image' && m.attachmentId);
+  const visiblePlates = contentFilter === 'Platos' ? [] : plateMessages;
+  const visiblePlatos = contentFilter === 'Plates' ? [] : platoMessages;
+  // Flattened so an album message contributes every one of its photos to the
+  // grid individually, rather than just its first (or being skipped, since
+  // album messages don't carry a single `attachmentId`).
+  const photoUris = messages
+    .filter((m) => m.kind === 'image')
+    .flatMap((m) => (m.attachmentIds?.length ? m.attachmentIds : m.attachmentId ? [m.attachmentId] : []));
   const tileWidth = (windowWidth - PADDING * 2 - GRID_GAP) / 2;
   const photoWidth = (windowWidth - PADDING * 2 - GRID_GAP * 2) / 3;
 
@@ -127,20 +159,47 @@ export default function GroupInfo() {
           <Pressable onPress={() => setEditOpen(true)}>
             <GroupAvatar avatarUrl={conversation.avatarUrl} memberAvatars={memberAvatars} size={84} />
           </Pressable>
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
-            {title}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '90%' }}>
+            <Text style={[styles.title, { color: colors.text, flexShrink: 1 }]} numberOfLines={1}>
+              {title}
+            </Text>
+            {streakCount >= 3 && (
+              <View style={styles.streakBadge}>
+                <Text style={styles.streakBadgeText}>🔥{streakCount}</Text>
+              </View>
+            )}
+          </View>
           <Text style={[styles.editLink, { color: colors.accent }]} onPress={() => setEditOpen(true)}>
             Edit group info
           </Text>
+
+          {/* Matches chat-info's own View profile/Create group row — same
+              shared component, same spot under the picture, different
+              actions because these two are specific to a group. Invite
+              link is owner-only (0058's RPC would refuse anyone else
+              anyway), so it just doesn't offer a button that would fail. */}
+          <IconActionRow>
+            <IconAction
+              icon="person-add-outline"
+              label="Add people"
+              onPress={() => router.push(`/messages/add-people/${id}`)}
+            />
+            {isOwner && (
+              <IconAction
+                icon="qr-code-outline"
+                label="Invite link"
+                onPress={() => setInviteSheetOpen(true)}
+              />
+            )}
+          </IconActionRow>
         </View>
 
         <View style={{ paddingHorizontal: PADDING }}>
           <SettingsSection>
             <SettingsRow
-              icon="person-add-outline"
-              label="Add people"
-              onPress={() => router.push(`/messages/add-people/${id}`)}
+              icon="color-palette-outline"
+              label="Chat bubble"
+              onPress={() => setBubbleSheetOpen(true)}
             />
             <SettingsRow
               icon="pin-outline"
@@ -160,6 +219,24 @@ export default function GroupInfo() {
         </View>
 
         <UnderlineTabs tabs={TABS} value={tab} onChange={setTab} scrollable />
+
+        {/* A filter narrowing the grid already on screen, not a second
+            level of navigation — stays a compact centered pill rather than
+            the full-bleed rail above it, which otherwise stretches "Plates"
+            and "Platos" to opposite edges of the screen with nothing
+            between them. */}
+        {tab === 'Plates & Platos' && (
+          <View style={{ alignItems: 'center', paddingTop: spacing.md }}>
+            <SegmentedPill
+              value={contentFilter}
+              onChange={setContentFilter}
+              options={CONTENT_FILTERS.map((t) => ({ key: t, label: t }))}
+              minWidth={0}
+              fontSize={13}
+              compact
+            />
+          </View>
+        )}
 
         <View style={{ paddingHorizontal: PADDING, paddingTop: spacing.md }}>
           {tab === 'Members' && (
@@ -190,34 +267,49 @@ export default function GroupInfo() {
 
           {tab === 'Plates & Platos' && (
             <View style={styles.grid}>
-              {plateMessages.map((m) => {
+              {visiblePlates.map((m) => {
                 const order = orders.find((o) => o.id === m.attachmentId);
                 return order ? <PlateTile key={m.id} order={order} width={tileWidth} /> : null;
               })}
-              {platoMessages.map((m) => {
+              {visiblePlatos.map((m) => {
                 const video = platos.find((p) => p.id === m.attachmentId);
                 return video ? <PlatoTile key={m.id} video={video} width={tileWidth} /> : null;
               })}
-              {plateMessages.length === 0 && platoMessages.length === 0 && (
+              {visiblePlates.length === 0 && visiblePlatos.length === 0 && (
                 <Text style={[styles.blank, { color: colors.textMuted }]}>
-                  Nothing shared here yet.
+                  {contentFilter === 'Plates' ? 'No plates shared here yet.' : 'No Platos shared here yet.'}
                 </Text>
               )}
             </View>
           )}
 
+          {tab === 'Collections' && (
+            <View style={{ gap: spacing.lg }}>
+              <Text style={[styles.collectionsHint, { color: colors.textMuted }]}>
+                Public collections from everyone in this group.
+              </Text>
+              <MemberCollections user={currentUser} />
+              {others.map((userId) => (
+                <MemberCollections key={userId} user={userFor(userId)} />
+              ))}
+            </View>
+          )}
+
           {tab === 'Photos' && (
             <View style={styles.photoGrid}>
-              {imageMessages.map((m) => (
-                <Pressable key={m.id} onPress={() => router.push(`/messages/${id}`)}>
+              {photoUris.map((uri, i) => (
+                <Pressable key={`${uri}-${i}`} onPress={() => router.push(`/messages/${id}`)}>
                   <Image
-                    source={{ uri: m.attachmentId ?? '' }}
+                    source={{ uri }}
+                    recyclingKey={uri}
+                    cachePolicy="memory-disk"
+                    transition={150}
                     style={{ width: photoWidth, height: photoWidth, borderRadius: 6 }}
                     contentFit="cover"
                   />
                 </Pressable>
               ))}
-              {imageMessages.length === 0 && (
+              {photoUris.length === 0 && (
                 <Text style={[styles.blank, { color: colors.textMuted }]}>No photos sent here yet.</Text>
               )}
             </View>
@@ -236,6 +328,54 @@ export default function GroupInfo() {
           if (avatarUrl && avatarUrl !== conversation.avatarUrl) setGroupPhoto(id, avatarUrl);
         }}
       />
+
+      <ChatBubbleColorSheet
+        visible={bubbleSheetOpen}
+        current={bubbleColor}
+        onClose={() => setBubbleSheetOpen(false)}
+        onSelect={(color) => {
+          setBubbleColor(id, color);
+          setBubbleSheetOpen(false);
+        }}
+      />
+
+      {isOwner && (
+        <InviteLinkSheet
+          visible={inviteSheetOpen}
+          onClose={() => setInviteSheetOpen(false)}
+          getLink={async (regenerate) => {
+            const code = await getInviteCode(id, regenerate);
+            return code ? groupInviteLink(code) : null;
+          }}
+        />
+      )}
+
+      <StreakUnlockModal conversationId={id} streakCount={streakCount} />
+    </View>
+  );
+}
+
+/**
+ * One member's shared lists, headed by who they belong to — silently renders
+ * nothing while loading or once loaded empty, so a group of mostly-private
+ * savers doesn't leave a wall of "Nothing here" repeated once per person.
+ */
+function MemberCollections({ user }: { user: { id: string; name: string; avatar: string; verified: boolean } }) {
+  const { colors } = useTheme();
+  const { collections, loading } = usePublicCollections(user.id);
+  if (loading || collections.length === 0) return null;
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={styles.collectionsOwnerRow}>
+        <Avatar uri={user.avatar} size={22} verified={user.verified} />
+        <Text style={[styles.collectionsOwnerName, { color: colors.text }]} numberOfLines={1}>
+          {user.name}
+        </Text>
+      </View>
+      {collections.map((c) => (
+        <CollectionRow key={c.id} collection={c} />
+      ))}
     </View>
   );
 }
@@ -295,6 +435,13 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', paddingVertical: spacing.lg, gap: 6 },
   title: { fontSize: 18, fontWeight: '800', maxWidth: '80%' },
   editLink: { fontSize: 14, fontWeight: '700' },
+  streakBadge: {
+    backgroundColor: 'rgba(255,140,0,0.16)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  streakBadgeText: { fontSize: 12, fontWeight: '800', color: '#FF8C00' },
   memberCount: { fontSize: 12, fontWeight: '700', letterSpacing: 0.3, marginBottom: 4 },
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   memberName: { fontSize: 15, fontWeight: '700' },
@@ -306,4 +453,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
   blank: { fontSize: 14, fontWeight: '500', textAlign: 'center', marginTop: 40, width: '100%' },
+  collectionsHint: { fontSize: 12, fontWeight: '500' },
+  collectionsOwnerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  collectionsOwnerName: { fontSize: 13, fontWeight: '800' },
 });

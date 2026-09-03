@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { cancelReminders, requestReminderPermission, scheduleReminders } from '@/lib/reminders';
+import { iso, longestStreakFrom, streakFrom } from '@/lib/streakMath';
 import { useAuth } from '@/store/AuthContext';
 
 /** Opt-in preference for the local check-in reminders. */
@@ -32,47 +33,6 @@ export type ReminderResult =
   | { ok: false; reason: 'unavailable'; message: string };
 
 const StreakContext = createContext<StreakContextValue | undefined>(undefined);
-
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-
-const dayBefore = (day: string) => {
-  const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return iso(d);
-};
-
-/**
- * Walk backwards from today. Today missing doesn't break the run — the day isn't
- * over yet, so a streak "ends" only once a whole day has been skipped.
- */
-export function streakFrom(days: Set<string>, today = iso(new Date())): number {
-  let cursor = days.has(today) ? today : dayBefore(today);
-  if (!days.has(cursor)) return 0;
-  let n = 0;
-  while (days.has(cursor)) {
-    n++;
-    cursor = dayBefore(cursor);
-  }
-  return n;
-}
-
-export function longestStreakFrom(days: Set<string>): number {
-  let best = 0;
-  for (const day of days) {
-    // Only start counting from the beginning of a run, so each run is walked once.
-    if (days.has(dayBefore(day))) continue;
-    let n = 0;
-    let cursor = day;
-    while (days.has(cursor)) {
-      n++;
-      const next = new Date(`${cursor}T00:00:00Z`);
-      next.setUTCDate(next.getUTCDate() + 1);
-      cursor = iso(next);
-    }
-    best = Math.max(best, n);
-  }
-  return best;
-}
 
 export function StreakProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();

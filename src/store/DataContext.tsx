@@ -758,7 +758,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [currentUserId, live, userId],
   );
 
-  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+  // Messages and reactions get their own badge on the chat icon (unread
+  // conversations, via MessagesContext) and never surface as rows on the
+  // notifications screen itself (see notifications.tsx) — counting their
+  // rows here would double-badge the same activity on two different icons.
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read && n.kind !== 'message' && n.kind !== 'reaction').length,
+    [notifications],
+  );
   const markAllNotificationsRead = useCallback(() => {
     setNotifications((p) => p.map((n) => ({ ...n, read: true })));
     if (live && userId) supabase.from('notifications').update({ read: true }).eq('user_id', userId).eq('read', false).then(() => {});

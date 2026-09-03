@@ -1,6 +1,6 @@
 /** Maps Supabase rows (snake_case) to the app's domain types (camelCase). */
 import { defaultAvatar, foodPhoto, restaurantPhoto } from '@/data/images';
-import { Conversation, Message, MessageKind, MessageReaction } from '@/data/messages';
+import { Conversation, ConversationParticipant, Message, MessageKind, MessageReaction } from '@/data/messages';
 import { PlatoComment, PlatoVideo } from '@/data/platos';
 import { Story } from '@/data/stories';
 import { AppNotification, Collaborator, Comment, FeedBump, Order, PlateAttribution, Restaurant, RestaurantOffer, SponsoredPlacement, User } from '@/data/types';
@@ -223,6 +223,18 @@ export function mapPlatoComment(row: any): PlatoComment {
   };
 }
 
+export function mapParticipant(row: any): ConversationParticipant {
+  return {
+    userId: row.user_id,
+    state: row.state === 'request' ? 'request' : 'accepted',
+    lastReadAt: row.last_read_at ?? EPOCH,
+    muted: !!row.muted,
+    pinned: !!row.pinned,
+    forcedUnread: !!row.forced_unread,
+    bubbleColor: row.bubble_color ?? undefined,
+  };
+}
+
 export function mapConversation(row: any): Conversation {
   return {
     id: row.id,
@@ -232,14 +244,7 @@ export function mapConversation(row: any): Conversation {
     createdAt: row.created_at,
     lastMessageAt: row.last_message_at ?? row.created_at,
     avatarUrl: row.avatar_url ?? undefined,
-    participants: (row.participants ?? row.conversation_participants ?? []).map((p: any) => ({
-      userId: p.user_id,
-      state: p.state === 'request' ? 'request' : 'accepted',
-      lastReadAt: p.last_read_at ?? EPOCH,
-      muted: !!p.muted,
-      pinned: !!p.pinned,
-      forcedUnread: !!p.forced_unread,
-    })),
+    participants: (row.participants ?? row.conversation_participants ?? []).map(mapParticipant),
   };
 }
 
@@ -251,9 +256,11 @@ export function mapMessage(row: any): Message {
     kind: (row.kind as MessageKind) ?? 'text',
     text: row.text ?? '',
     attachmentId: row.attachment_id ?? undefined,
+    attachmentIds: row.attachment_ids ?? undefined,
     attachmentIndex: row.attachment_index ?? undefined,
     durationMs: row.duration_ms ?? undefined,
     replyTo: row.reply_to ?? undefined,
+    replyToIndex: row.reply_to_index ?? undefined,
     createdAt: row.created_at,
   };
 }

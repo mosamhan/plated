@@ -11,7 +11,7 @@ import { CURRENT_USER_ID } from '@/data/users';
  * same way ORDERS/PLATOS work.
  */
 
-export type MessageKind = 'text' | 'plate' | 'plato' | 'story_reply' | 'voice' | 'image';
+export type MessageKind = 'text' | 'plate' | 'plato' | 'story_reply' | 'voice' | 'image' | 'restaurant';
 
 export interface Message {
   id: string;
@@ -25,6 +25,13 @@ export interface Message {
    */
   attachmentId?: string;
   /**
+   * Multi-photo `image` sends (the custom picker's multi-select) — a whole
+   * selection is one message, rendered as a swipeable album. Single-photo
+   * sends and every other kind still use `attachmentId` alone; a reader
+   * should fall back to `[attachmentId]` when this is absent.
+   */
+  attachmentIds?: string[];
+  /**
    * Which plate of a multi-plate post this is. Posts carry a carousel, and a
    * share means the plate the sender was looking at — not the headline dish.
    * Absent (or 0) for single-plate posts and every other attachment kind.
@@ -34,6 +41,13 @@ export interface Message {
   durationMs?: number;
   /** The message this one answers — rendered as a quoted strip above the text. */
   replyTo?: string;
+  /**
+   * Which photo of `replyTo`'s album this reply points at, when `replyTo`
+   * is a multi-photo `image` message — the page the album carousel was on
+   * when Reply was tapped. Undefined for a whole-message reply or a quote
+   * that isn't a multi-photo album.
+   */
+  replyToIndex?: number;
   createdAt: string;
   /** Set on optimistic bubbles until the insert comes back. */
   pending?: boolean;
@@ -78,6 +92,8 @@ export interface ConversationParticipant {
   pinned?: boolean;
   /** Manually marked unread — cleared the next time this person actually opens the thread. */
   forcedUnread?: boolean;
+  /** This person's own outgoing-bubble color override for this conversation. */
+  bubbleColor?: string;
 }
 
 export interface Conversation {
