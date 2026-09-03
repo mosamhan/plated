@@ -100,6 +100,11 @@ interface MessagesContextValue {
    * UNSEND_WINDOW_MS — the database refuses it after that (0022).
    */
   unsendMessage: (messageId: string) => void;
+  /**
+   * Fix a sent message's text. Sender only, and only inside EDIT_WINDOW_MS —
+   * the database refuses it after that (0059).
+   */
+  editMessage: (messageId: string, text: string) => void;
   /** Look up a quoted message for the reply strip. */
   messageById: (messageId: string) => Message | undefined;
 
@@ -723,6 +728,31 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     [messages, live, userId],
   );
 
+  const editMessage = useCallback(
+    (messageId: string, text: string) => {
+      const previous = messages.find((m) => m.id === messageId);
+      const editedAt = new Date().toISOString();
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, text, editedAt } : m)));
+      if (!live || !userId) return;
+      supabase
+        .from('messages')
+        .update({ text, edited_at: editedAt })
+        .eq('id', messageId)
+        .select('id')
+        .then(({ data, error }) => {
+          // Same "empty result = refused" shape as unsendMessage — the edit
+          // window closing is enforced by the UPDATE policy (0059), not the
+          // client, so a silent empty result means it was too late.
+          if (error || !data || data.length === 0) {
+            if (__DEV__) console.warn('[Plated] edit refused', error);
+            if (previous) setMessages((prev) => prev.map((m) => (m.id === messageId ? previous : m)));
+            showAlert('Too late to edit', 'You can only edit a message within 15 minutes of sending it.');
+          }
+        });
+    },
+    [messages, live, userId],
+  );
+
   // ── Mutations ───────────────────────────────────────────────────────────────
   const clearIncoming = useCallback(() => setIncoming(null), []);
 
@@ -1223,6 +1253,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       markUnread,
       hideMessage,
       unsendMessage,
+      editMessage,
       messageById,
       markRead,
       sendMessage,
@@ -1242,7 +1273,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       privacy,
       setPrivacy,
     }),
-    [accepted, requests, loading, unreadCount, conversationFor, messagesFor, lastMessageFor, unreadFor, seenBy, otherIds, reactionsFor, myReaction, react, incoming, clearIncoming, leaveThread, isMuted, toggleMute, isPinned, togglePin, bubbleColorFor, setBubbleColor, markUnread, hideMessage, unsendMessage, messageById, markRead, sendMessage, retryMessage, startDirect, createGroup, sendTo, acceptRequest, leaveConversation, renameGroup, setGroupPhoto, addParticipants, removeParticipant, getInviteCode, getInvitePreview, joinViaInvite, privacy, setPrivacy],
+    [accepted, requests, loading, unreadCount, conversationFor, messagesFor, lastMessageFor, unreadFor, seenBy, otherIds, reactionsFor, myReaction, react, incoming, clearIncoming, leaveThread, isMuted, toggleMute, isPinned, togglePin, bubbleColorFor, setBubbleColor, markUnread, hideMessage, unsendMessage, editMessage, messageById, markRead, sendMessage, retryMessage, startDirect, createGroup, sendTo, acceptRequest, leaveConversation, renameGroup, setGroupPhoto, addParticipants, removeParticipant, getInviteCode, getInvitePreview, joinViaInvite, privacy, setPrivacy],
   );
 
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;

@@ -4,7 +4,7 @@ import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MessageBubbleContent, type MessageAnchor } from '@/components/MessageBubble';
-import { canUnsend, Message, QUICK_REACTIONS } from '@/data/messages';
+import { canEdit, canUnsend, Message, QUICK_REACTIONS } from '@/data/messages';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
@@ -44,8 +44,12 @@ export function MessageActionsSheet({
   visible,
   onClose,
   onReact,
+  onCopy,
   onReply,
   onForward,
+  onEdit,
+  onTogglePin,
+  pinned,
   onDeleteForMe,
   onUnsend,
   onReport,
@@ -58,8 +62,13 @@ export function MessageActionsSheet({
   visible: boolean;
   onClose: () => void;
   onReact: (emoji: string) => void;
+  onCopy: () => void;
   onReply: () => void;
   onForward: () => void;
+  onEdit: () => void;
+  /** Available to any thread member, not just the sender — pinning isn't ownership. */
+  onTogglePin: () => void;
+  pinned: boolean;
   onDeleteForMe: () => void;
   onUnsend: () => void;
   onReport: () => void;
@@ -77,10 +86,12 @@ export function MessageActionsSheet({
   if (!message || !anchor) return null;
 
   const unsendable = mine && canUnsend(message);
+  const editable = mine && canEdit(message);
+  const copyable = message.text.trim().length > 0;
 
   // How many rows the menu will have, so its height can be reserved before it
   // renders and the whole stack can be nudged up if it would run off-screen.
-  const rowCount = 3 + (unsendable ? 1 : 0) + (!mine ? 1 : 0);
+  const rowCount = 4 + (copyable ? 1 : 0) + (editable ? 1 : 0) + (unsendable ? 1 : 0) + (!mine ? 1 : 0);
   const menuHeight = rowCount * 48;
 
   const barTop = anchor.y - BAR_HEIGHT - GAP;
@@ -164,8 +175,15 @@ export function MessageActionsSheet({
             { top: menuTop - lift, left: alignLeft, backgroundColor: colors.card, borderColor: colors.border },
           ]}>
           <Pressable onPress={(e) => e.stopPropagation()}>
+            {copyable && <Row icon="copy-outline" label="Copy" onPress={onCopy} />}
             <Row icon="arrow-undo-outline" label="Reply" onPress={onReply} />
             <Row icon="arrow-redo-outline" label="Forward" onPress={onForward} />
+            {editable && <Row icon="create-outline" label="Edit" onPress={onEdit} />}
+            <Row
+              icon={pinned ? 'pin' : 'pin-outline'}
+              label={pinned ? 'Unpin' : 'Pin'}
+              onPress={onTogglePin}
+            />
             <Row icon="trash-outline" label="Delete for me" onPress={onDeleteForMe} />
             {unsendable && (
               <Row icon="close-circle-outline" label="Unsend" destructive onPress={onUnsend} />

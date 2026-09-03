@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,6 +19,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GifPicker } from '@/components/GifPickerSheet';
+import { GifSuggestionRail } from '@/components/GifSuggestionRail';
 import { MessageActionsSheet } from '@/components/MessageActionsSheet';
 import { PhotoPickerSheet } from '@/components/PhotoPickerSheet';
 import { PhotoViewerSheet } from '@/components/PhotoViewerSheet';
@@ -41,6 +44,7 @@ import { tapLight, warn } from '@/lib/haptics';
 import { postMedia } from '@/lib/post';
 import { resolveQuote } from '@/lib/quotePreview';
 import { useTypingPresence } from '@/lib/typingPresence';
+import { useMessagePins } from '@/lib/useMessagePins';
 import { useActivity } from '@/store/ActivityContext';
 import { SavedItemType, useCollections } from '@/store/CollectionsContext';
 import { RestaurantWithRating, useData } from '@/store/DataContext';
@@ -52,6 +56,7 @@ import { useTheme } from '@/theme/ThemeContext';
 
 type Row =
   | { type: 'day'; key: string; label: string }
+  | { type: 'unread-divider'; key: string }
   | { type: 'message'; key: string; message: Message; showAuthor: boolean };
 
 /**
@@ -88,8 +93,10 @@ export default function Thread() {
     react,
     hideMessage,
     unsendMessage,
+    editMessage,
     leaveThread,
     seenBy,
+    messageById,
   } = useMessages();
 
   const [draft, setDraft] = useState('');
@@ -102,6 +109,9 @@ export default function Thread() {
   const [actionPhotoIndex, setActionPhotoIndex] = useState<number | undefined>(undefined);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [replyPhotoIndex, setReplyPhotoIndex] = useState<number | undefined>(undefined);
+  // Non-null while the composer is fixing a sent message's text instead of
+  // writing a new one — draft is seeded with the current text on entry.
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   // Measured, not assumed — the composer's real on-screen height (it grows
@@ -142,11 +152,39 @@ export default function Thread() {
 
   const conversation = conversationFor(id);
   const messages = useMemo(() => (id ? messagesFor(id) : []), [id, messagesFor]);
-  const others = conversation ? otherIds(conversation) : [];
+  const others = useMemo(() => (conversation ? otherIds(conversation) : []), [conversation, otherIds]);
+  const { pinnedMessageId, pin, unpin } = useMessagePins(id);
+  const pinnedMessage = pinnedMessageId ? messageById(pinnedMessageId) : undefined;
+  const pinnedPreview = pinnedMessage
+    ? resolveQuote(pinnedMessage, undefined, orders, platos, restaurantFor)
+    : undefined;
   const isRequest = conversation?.participants.find((p) => p.userId === currentUser.id)?.state === 'request';
   const title = conversation
     ? conversationTitle(conversation, others, (u) => userFor(u).name)
     : 'Conversation';
+
+  // An `@` still being typed at the very end of the draft — only the
+  // trailing position is supported (not one mid-sentence), the same
+  // simplification most composers make since that's where you're actually
+  // typing.
+  const mentionQuery = draft.match(/(?:^|\s)@([a-zA-Z0-9_.]{0,30})$/)?.[1] ?? null;
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return others.map(userFor).filter((u) => u.handle.toLowerCase().startsWith(q)).slice(0, 5);
+  }, [mentionQuery, others, userFor]);
+  const insertMention = (handle: string) => {
+    tapLight();
+    setDraft((d) => d.replace(/(?:^|\s)@([a-zA-Z0-9_.]{0,30})$/, (m) => `${m.startsWith(' ') ? ' ' : ''}@${handle} `));
+  };
+
+  // Captured once, at mount, before `markRead` below has a chance to stamp
+  // it forward to "now" — this is the cursor the unread divider needs to
+  // know where "new" started, and it would evaporate immediately if read
+  // fresh on every render instead of snapshotted like a lazy-init ref.
+  const [readCursor] = useState(
+    () => conversation?.participants.find((p) => p.userId === currentUser.id)?.lastReadAt ?? null,
+  );
 
   const { typingUserIds, notifyTyping, notifyStopped } = useTypingPresence(id, currentUser.id);
 
@@ -187,25 +225,38 @@ export default function Thread() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [othersKey]);
 
+  // Skips a divider on a conversation that's never been opened before
+  // (`lastReadAt` still at its DB-default epoch) — pointing out that
+  // *everything* is new the very first time you open a thread is noise,
+  // not a useful cursor.
+  const readCursorMs = readCursor ? +new Date(readCursor) : NaN;
+  const showUnreadDivider = Number.isFinite(readCursorMs) && readCursorMs > 0;
+
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     let currentDay = '';
+    let dividerPlaced = !showUnreadDivider;
     messages.forEach((m, i) => {
       const label = dayLabel(m.createdAt);
       if (label !== currentDay) {
         currentDay = label;
         out.push({ type: 'day', key: `day-${label}-${m.id}`, label });
       }
+      if (!dividerPlaced && m.senderId !== currentUser.id && +new Date(m.createdAt) > readCursorMs) {
+        dividerPlaced = true;
+        out.push({ type: 'unread-divider', key: `unread-${m.id}` });
+      }
       out.push({
         type: 'message',
         key: m.id,
         message: m,
-        // The avatar + name lead a run, not every line in it.
-        showAuthor: !sameRun(messages[i - 1], m) || out[out.length - 1]?.type === 'day',
+        // The avatar + name lead a run, not every line in it — a day label
+        // or the unread divider both break a run the same way a real gap would.
+        showAuthor: !sameRun(messages[i - 1], m) || out[out.length - 1]?.type !== 'message',
       });
     });
     return out;
-  }, [messages]);
+  }, [messages, showUnreadDivider, readCursorMs, currentUser.id]);
 
   const scrollToEnd = useCallback(() => {
     listRef.current?.scrollToEnd({ animated: true });
@@ -229,6 +280,10 @@ export default function Thread() {
     },
     [rows],
   );
+
+  const onJumpToPinned = useCallback(() => {
+    if (pinnedMessage) scrollToMessage(pinnedMessage.id);
+  }, [pinnedMessage, scrollToMessage]);
 
   // Jump straight to the message a global inbox search matched on, once —
   // depending only on `messageId` (not `scrollToMessage`, which changes
@@ -269,6 +324,12 @@ export default function Thread() {
     if (!id || !draft.trim()) return;
     tapLight();
     const text = draft;
+    if (editingMessage) {
+      editMessage(editingMessage.id, text);
+      setDraft('');
+      setEditingMessage(null);
+      return;
+    }
     const answering = replyTo?.id;
     const answeringIndex = replyPhotoIndex;
     setDraft('');
@@ -321,6 +382,16 @@ export default function Thread() {
     setDraft('');
   };
 
+  // A GIF/sticker sends as an ordinary image message — Giphy already hosts
+  // the asset, so unlike a photo picked from the library there's no upload
+  // step, just the URL straight through.
+  const onPickGif = (url: string) => {
+    if (!id) return;
+    setAttachOpen(false);
+    tapLight();
+    sendMessage(id, { kind: 'image', attachmentIds: [url] }).catch(() => {});
+  };
+
   const { current: streakCount } = useConversationStreak(conversation ? id : undefined);
 
   if (!conversation) {
@@ -363,6 +434,20 @@ export default function Thread() {
         }
       />
 
+      {pinnedMessage && pinnedPreview && (
+        <Pressable
+          onPress={onJumpToPinned}
+          style={[styles.pinBanner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="pin" size={14} color={colors.accent} />
+          <Text style={[styles.pinBannerText, { color: colors.text }]} numberOfLines={1}>
+            {pinnedPreview.text}
+          </Text>
+          <Pressable onPress={unpin} hitSlop={8}>
+            <Ionicons name="close" size={16} color={colors.textMuted} />
+          </Pressable>
+        </Pressable>
+      )}
+
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <FlatList
           ref={listRef}
@@ -371,6 +456,12 @@ export default function Thread() {
           renderItem={({ item }) =>
             item.type === 'day' ? (
               <Text style={[styles.day, { color: colors.textMuted }]}>{item.label}</Text>
+            ) : item.type === 'unread-divider' ? (
+              <View style={styles.unreadDivider}>
+                <View style={[styles.unreadDividerLine, { backgroundColor: colors.ratingLow }]} />
+                <Text style={[styles.unreadDividerText, { color: colors.ratingLow }]}>New messages</Text>
+                <View style={[styles.unreadDividerLine, { backgroundColor: colors.ratingLow }]} />
+              </View>
             ) : (
               <MessageBubble
                 message={item.message}
@@ -390,6 +481,10 @@ export default function Thread() {
                   setViewingPhotoIndex(index);
                 }}
                 onJumpToReply={scrollToMessage}
+                onSwipeReply={(m) => {
+                  setReplyTo(m);
+                  setReplyPhotoIndex(undefined);
+                }}
               />
             )
           }
@@ -527,6 +622,46 @@ export default function Thread() {
                 );
               })()}
 
+            {editingMessage && (
+              <View style={[styles.replyBanner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <View style={[styles.replyBar, { backgroundColor: colors.accent }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.replyWho, { color: colors.accent }]} numberOfLines={1}>
+                    Editing message
+                  </Text>
+                  <Text style={[styles.replyText, { color: colors.textMuted }]} numberOfLines={1}>
+                    {editingMessage.text}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    setEditingMessage(null);
+                    setDraft('');
+                  }}
+                  hitSlop={8}>
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
+                </Pressable>
+              </View>
+            )}
+
+            {mentionCandidates.length > 0 ? (
+              <View style={[styles.mentionList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                {mentionCandidates.map((u) => (
+                  <Pressable key={u.id} onPress={() => insertMention(u.handle)} style={styles.mentionRow}>
+                    <Avatar uri={u.avatar} size={26} />
+                    <Text style={[styles.mentionName, { color: colors.text }]} numberOfLines={1}>
+                      {u.name}
+                    </Text>
+                    <Text style={[styles.mentionHandle, { color: colors.textMuted }]} numberOfLines={1}>
+                      @{u.handle}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              !voiceActive && <GifSuggestionRail query={draft} onPick={onPickGif} />
+            )}
+
             <View style={styles.composer}>
             {!voiceActive && (
               <>
@@ -567,7 +702,7 @@ export default function Thread() {
                 pressScale={0.92}
                 onPress={onSend}
                 style={[styles.sendBtn, { backgroundColor: colors.accent }]}>
-                <Ionicons name="arrow-up" size={19} color={colors.accentText} />
+                <Ionicons name={editingMessage ? 'checkmark' : 'arrow-up'} size={19} color={colors.accentText} />
               </AnimatedPressable>
             ) : (
               // The send button becomes the mic when there's nothing typed —
@@ -609,7 +744,12 @@ export default function Thread() {
         />
       )}
 
-      <AttachSheet visible={attachOpen} onClose={() => setAttachOpen(false)} onPick={onShareAttachment} />
+      <AttachSheet
+        visible={attachOpen}
+        onClose={() => setAttachOpen(false)}
+        onPick={onShareAttachment}
+        onPickGif={onPickGif}
+      />
 
       <MessageActionsSheet
         visible={!!actionTarget}
@@ -630,11 +770,35 @@ export default function Thread() {
             react(target.id, emoji);
           }
         }}
+        onCopy={() => {
+          if (actionTarget) Clipboard.setStringAsync(actionTarget.text);
+          tapLight();
+          setActionTarget(null);
+        }}
         onReply={() => {
+          setEditingMessage(null);
           setReplyTo(actionTarget);
           setReplyPhotoIndex(actionPhotoIndex);
           setActionTarget(null);
           setActionPhotoIndex(undefined);
+        }}
+        onEdit={() => {
+          if (actionTarget) {
+            setEditingMessage(actionTarget);
+            setDraft(actionTarget.text);
+            setReplyTo(null);
+            setReplyPhotoIndex(undefined);
+          }
+          setActionTarget(null);
+          setActionPhotoIndex(undefined);
+        }}
+        pinned={!!actionTarget && actionTarget.id === pinnedMessageId}
+        onTogglePin={() => {
+          if (actionTarget) {
+            if (actionTarget.id === pinnedMessageId) unpin();
+            else pin(actionTarget.id);
+          }
+          setActionTarget(null);
         }}
         onForward={() => {
           setForwarding(actionTarget);
@@ -873,8 +1037,8 @@ function SearchOverlay({
  * this" almost always means — anything else is a share from the post itself,
  * which the Send-to sheet already handles.
  */
-type AttachTab = 'Plates' | 'Platos' | 'Restaurants';
-const ATTACH_TABS: AttachTab[] = ['Plates', 'Platos', 'Restaurants'];
+type AttachTab = 'Plates' | 'Platos' | 'Restaurants' | 'GIFs';
+const ATTACH_TABS: AttachTab[] = ['Plates', 'Platos', 'Restaurants', 'GIFs'];
 const ALL_COLLECTIONS = 'All';
 
 /**
@@ -891,10 +1055,13 @@ function AttachSheet({
   visible,
   onClose,
   onPick,
+  onPickGif,
 }: {
   visible: boolean;
   onClose: () => void;
   onPick: (kind: 'plate' | 'plato' | 'restaurant', attachmentId: string) => void;
+  /** A GIF/sticker sends immediately as an ordinary `kind: 'image'` message — Giphy already hosts the asset, so there's no upload step. */
+  onPickGif: (url: string) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -962,7 +1129,7 @@ function AttachSheet({
             />
           </View>
 
-          {collectionNames.length > 0 && (
+          {tab !== 'GIFs' && collectionNames.length > 0 && (
             <View style={styles.attachFilterRow}>
               <UnderlineTabs
                 tabs={[ALL_COLLECTIONS, ...collectionNames]}
@@ -973,7 +1140,11 @@ function AttachSheet({
             </View>
           )}
 
-          {empty ? (
+          {tab === 'GIFs' ? (
+            <View style={{ height: 420, marginTop: 8 }}>
+              <GifPicker onPick={onPickGif} />
+            </View>
+          ) : empty ? (
             <Text style={[styles.blank, { color: colors.textMuted }]}>
               {tab === 'Plates'
                 ? 'You haven’t posted or saved a plate yet.'
@@ -1152,6 +1323,33 @@ const styles = StyleSheet.create({
   searchResultText: { fontSize: 14, fontWeight: '500', lineHeight: 19 },
   searchResultTime: { fontSize: 11, fontWeight: '600' },
   day: { textAlign: 'center', fontSize: 11, fontWeight: '700', marginVertical: 12 },
+  unreadDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginVertical: 12,
+    paddingHorizontal: spacing.lg,
+  },
+  unreadDividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  unreadDividerText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
+  pinBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  pinBannerText: { flex: 1, fontSize: 13, fontWeight: '600' },
+  mentionList: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  mentionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  mentionName: { fontSize: 13, fontWeight: '700' },
+  mentionHandle: { fontSize: 12, fontWeight: '500', flexShrink: 1 },
   blank: { textAlign: 'center', marginTop: 40, fontSize: 14, fontWeight: '500' },
   seenLabel: {
     textAlign: 'right',

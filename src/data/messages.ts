@@ -49,6 +49,8 @@ export interface Message {
    */
   replyToIndex?: number;
   createdAt: string;
+  /** Set once the text has been edited — the bubble shows an "Edited" label. */
+  editedAt?: string;
   /** Set on optimistic bubbles until the insert comes back. */
   pending?: boolean;
   /** The write failed — the bubble offers a retry instead of lying. */
@@ -78,6 +80,18 @@ export const UNSEND_WINDOW_MS = 3 * 60_000;
 
 export function canUnsend(message: Message, now = Date.now()): boolean {
   return now - +new Date(message.createdAt) < UNSEND_WINDOW_MS;
+}
+
+/**
+ * How long after sending you can still fix a typo. Longer than the unsend
+ * window on purpose — taking a message back for everyone is a bigger promise
+ * than correcting it, so it gets a shorter leash. Mirrored in 0059's UPDATE
+ * policy — same "client hides the button, the database actually refuses" split.
+ */
+export const EDIT_WINDOW_MS = 15 * 60_000;
+
+export function canEdit(message: Message, now = Date.now()): boolean {
+  return message.kind === 'text' && now - +new Date(message.createdAt) < EDIT_WINDOW_MS;
 }
 
 export interface ConversationParticipant {

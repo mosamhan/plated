@@ -3,15 +3,26 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 import { Avatar } from '@/components/Avatar';
+import { LinkPreviewCard } from '@/components/LinkPreviewCard';
 import { PhotoAlbumCarousel } from '@/components/PhotoAlbumCarousel';
 import { SharedItemCard, sharedItemHref } from '@/components/SharedItemCard';
 import { VoiceNote } from '@/components/VoiceNote';
 import { ZoomableImage } from '@/components/ZoomableImage';
 import { HEART_EMOJI, Message } from '@/data/messages';
+import { isBigEmojiMessage } from '@/lib/emoji';
 import { tapLight, tapMedium } from '@/lib/haptics';
+import { extractFirstUrl, useLinkPreview } from '@/lib/linkPreview';
 import { resolveQuote } from '@/lib/quotePreview';
 import { useData } from '@/store/DataContext';
 import { useMessages } from '@/store/MessagesContext';
@@ -20,6 +31,35 @@ import { radius } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 const DOUBLE_TAP_MS = 260;
+// Rubber-band the drag past this point rather than following the finger
+// 1:1 — the same "still moves, just slower" feedback iMessage/WhatsApp give
+// once you've clearly dragged far enough to commit.
+const REPLY_MAX = 76;
+// How far a swipe has to travel before release commits to replying, instead
+// of just springing back.
+const REPLY_TRIGGER = 52;
+
+const MENTION = /(@[a-zA-Z0-9_.]{2,30})/g;
+
+/**
+ * Splits a message's text on `@handle` tokens, styling each one — purely
+ * presentational (no check against who's actually in the thread; the
+ * composer's own autocomplete is what keeps a real mention accurate, this
+ * just has to render whatever text comes back the same way on every device).
+ *
+ * On a received (surface-colored) bubble, the accent color reads clearly
+ * against it. On your own bubble, the bubble *is* the accent color, so the
+ * same tint would vanish into the background — underline instead, same as
+ * how a mine-colored link would have to be told apart from its surroundings.
+ */
+function renderWithMentions(text: string, mine: boolean, accentColor: string) {
+  const parts = text.split(MENTION);
+  if (parts.length === 1) return text;
+  const mentionStyle = mine
+    ? { fontWeight: '800' as const, textDecorationLine: 'underline' as const }
+    : { fontWeight: '800' as const, color: accentColor };
+  return parts.map((part, i) => (part.startsWith('@') ? <Text key={i} style={mentionStyle}>{part}</Text> : part));
+}
 
 /** Where a message sits on screen, in window coordinates. */
 export interface MessageAnchor {
@@ -64,6 +104,7 @@ export function MessageBubble({
   onLongPress,
   onOpenPhoto,
   onJumpToReply,
+  onSwipeReply,
   /**
    * Hides this bubble's content (opacity 0, not unmounted — the row keeps
    * its layout space so nothing else in the list shifts) while its floating
@@ -91,6 +132,11 @@ export function MessageBubble({
   onOpenPhoto?: (message: Message, index: number) => void;
   /** Tapping this message's reply-quote strip — scrolls the thread to whatever it answers. */
   onJumpToReply?: (messageId: string) => void;
+  /**
+   * Swipe-to-reply, like every other social/messaging app: drag a received
+   * message right, or your own message left, past a threshold and release.
+   */
+  onSwipeReply?: (message: Message) => void;
   hidden?: boolean;
   highlighted?: boolean;
 }) {
@@ -174,6 +220,42 @@ export function MessageBubble({
     });
   };
 
+  // Received messages drag right, sent messages drag left — always away
+  // from the edge the bubble already sits against, toward the middle of
+  // the screen, the same direction WhatsApp/Telegram/Instagram all use.
+  const dragX = useSharedValue(0);
+  const crossed = useSharedValue(false);
+  const commitReply = () => {
+    if (message.pending || message.failed) return;
+    onSwipeReply?.(message);
+  };
+  const swipe = Gesture.Pan()
+    .enabled(!!onSwipeReply && canReact)
+    .activeOffsetX(mine ? -10 : 10)
+    .failOffsetX(mine ? 10 : -10)
+    .failOffsetY([-10, 10])
+    .onUpdate((e) => {
+      const raw = mine ? Math.min(0, e.translationX) : Math.max(0, e.translationX);
+      const magnitude = Math.abs(raw);
+      const eased = magnitude <= REPLY_MAX ? magnitude : REPLY_MAX + (magnitude - REPLY_MAX) * 0.25;
+      dragX.value = mine ? -eased : eased;
+      const nowCrossed = eased > REPLY_TRIGGER;
+      if (nowCrossed !== crossed.value) {
+        crossed.value = nowCrossed;
+        if (nowCrossed) runOnJS(tapLight)();
+      }
+    })
+    .onEnd(() => {
+      if (crossed.value) runOnJS(commitReply)();
+      crossed.value = false;
+      dragX.value = withSpring(0, { damping: 18, stiffness: 180 });
+    });
+  const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateX: dragX.value }] }));
+  const replyIconStyle = useAnimatedStyle(() => {
+    const progress = Math.min(1, Math.abs(dragX.value) / REPLY_TRIGGER);
+    return { opacity: progress, transform: [{ scale: 0.5 + 0.5 * progress }] };
+  });
+
   return (
     <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs]}>
       {!mine && <View style={styles.gutter}>{showSenderAvatar && <Avatar uri={sender.avatar} size={28} />}</View>}
@@ -185,39 +267,54 @@ export function MessageBubble({
           </Text>
         )}
 
-        <Pressable
-          ref={bodyRef}
-          onPress={onTap}
-          onLongPress={openActions}
-          delayLongPress={280}
-          style={[
-            mine ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' },
-            message.pending && { opacity: 0.6 },
-            // Room for the reaction pill to hang off the bottom edge without
-            // colliding with the next message.
-            reactions.length > 0 && { marginBottom: 16 },
-            // The floating duplicate in the long-press menu takes over —
-            // opacity, not unmount, so the row keeps its layout space and
-            // nothing else in the list shifts while the menu is open.
-            hidden && { opacity: 0 },
-          ]}>
-          {highlighted && (
+        <View style={styles.swipeWrap}>
+          {onSwipeReply && (
             <Animated.View
               pointerEvents="none"
-              entering={FadeIn.duration(150)}
-              exiting={FadeOut.duration(400)}
-              style={[styles.highlight, { backgroundColor: colors.accentSoft }]}
-            />
+              style={[styles.replyIconWrap, mine ? { right: 2 } : { left: 2 }, replyIconStyle]}>
+              <View style={[styles.replyIconCircle, { backgroundColor: colors.surface }]}>
+                <Ionicons name="arrow-undo-outline" size={15} color={colors.textMuted} />
+              </View>
+            </Animated.View>
           )}
-          <MessageBubbleContent
-            message={message}
-            mine={mine}
-            onAlbumIndexChange={(i) => {
-              albumIndex.current = i;
-            }}
-            onJumpTo={onJumpToReply}
-          />
-        </Pressable>
+          <GestureDetector gesture={swipe}>
+            <Animated.View style={dragStyle}>
+              <Pressable
+                ref={bodyRef}
+                onPress={onTap}
+                onLongPress={openActions}
+                delayLongPress={280}
+                style={[
+                  mine ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' },
+                  message.pending && { opacity: 0.6 },
+                  // Room for the reaction pill to hang off the bottom edge without
+                  // colliding with the next message.
+                  reactions.length > 0 && { marginBottom: 16 },
+                  // The floating duplicate in the long-press menu takes over —
+                  // opacity, not unmount, so the row keeps its layout space and
+                  // nothing else in the list shifts while the menu is open.
+                  hidden && { opacity: 0 },
+                ]}>
+                {highlighted && (
+                  <Animated.View
+                    pointerEvents="none"
+                    entering={FadeIn.duration(150)}
+                    exiting={FadeOut.duration(400)}
+                    style={[styles.highlight, { backgroundColor: colors.accentSoft }]}
+                  />
+                )}
+                <MessageBubbleContent
+                  message={message}
+                  mine={mine}
+                  onAlbumIndexChange={(i) => {
+                    albumIndex.current = i;
+                  }}
+                  onJumpTo={onJumpToReply}
+                />
+              </Pressable>
+            </Animated.View>
+          </GestureDetector>
+        </View>
 
         {message.failed && (
           <Pressable onPress={onRetry} hitSlop={8} style={styles.retry}>
@@ -272,6 +369,12 @@ export function MessageBubbleContent({
   // muted/pinned) — falls back to the theme's own accent when unset.
   const myBubbleColor = mine ? (bubbleColorFor(message.conversationId) ?? colors.accent) : undefined;
   const hasText = message.text.trim().length > 0;
+  // A caption on a shared plate/photo stays normal size — only a message
+  // that's *nothing but* a couple of emoji gets the oversized, bubble-free
+  // treatment (iMessage/Instagram convention).
+  const bigEmoji = message.kind === 'text' && isBigEmojiMessage(message.text);
+  const linkUrl = message.kind === 'text' && !bigEmoji ? extractFirstUrl(message.text) : null;
+  const linkPreview = useLinkPreview(linkUrl);
   const quoted = message.replyTo ? messageById(message.replyTo) : undefined;
   const quotePreview = quoted ? resolveQuote(quoted, message.replyToIndex, orders, platos, restaurantFor) : undefined;
   const reactions = reactionsFor(message.id);
@@ -340,7 +443,11 @@ export function MessageBubbleContent({
         <SharedItemCard kind={message.kind} attachmentId={message.attachmentId} attachmentIndex={message.attachmentIndex} />
       )}
 
-      {hasText && (
+      {hasText && bigEmoji && (
+        <Text style={styles.bigEmoji}>{message.text.trim()}</Text>
+      )}
+
+      {hasText && !bigEmoji && (
         <View
           style={[
             styles.bubble,
@@ -357,10 +464,16 @@ export function MessageBubbleContent({
             message.failed && { backgroundColor: colors.card, borderColor: colors.ratingLow, borderWidth: 1 },
           ]}>
           <Text style={[styles.text, { color: mine && !message.failed ? colors.accentText : colors.text }]}>
-            {message.text}
+            {renderWithMentions(message.text, mine, colors.accent)}
           </Text>
         </View>
       )}
+
+      {hasText && !!message.editedAt && (
+        <Text style={[styles.edited, { color: colors.textMuted }]}>Edited</Text>
+      )}
+
+      {linkPreview && <LinkPreviewCard preview={linkPreview} />}
 
       {reactions.length > 0 && (
         <Animated.View
@@ -392,6 +505,20 @@ const styles = StyleSheet.create({
   gutter: { width: 28 },
   stack: { maxWidth: '86%' },
   author: { fontSize: 11, fontWeight: '700', marginBottom: 3, marginLeft: 4 },
+  // Establishes the fixed (untransformed) box the reply icon anchors
+  // against — the Animated.View inside only moves visually (transform),
+  // so this box's layout never actually changes size or position.
+  swipeWrap: { position: 'relative' },
+  replyIconWrap: { position: 'absolute', top: 0, bottom: 0, justifyContent: 'center' },
+  replyIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bigEmoji: { fontSize: 52, lineHeight: 60 },
+  edited: { fontSize: 10, fontWeight: '600', marginTop: 2, marginHorizontal: 4 },
   bubble: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: radius.lg },
   voiceBubble: { paddingHorizontal: 12, paddingVertical: 10, minWidth: 232 },
   image: { width: 220, height: 220, borderRadius: radius.lg },

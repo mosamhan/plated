@@ -262,6 +262,7 @@ export function mapMessage(row: any): Message {
     replyTo: row.reply_to ?? undefined,
     replyToIndex: row.reply_to_index ?? undefined,
     createdAt: row.created_at,
+    editedAt: row.edited_at ?? undefined,
   };
 }
 
@@ -293,6 +294,7 @@ export function mapNotification(row: any): AppNotification {
     userId: row.actor_id ?? undefined,
     orderId: row.order_id ?? undefined,
     platoId: row.plato_id ?? undefined,
+    conversationId: row.conversation_id ?? undefined,
     text: row.text,
     createdAt: row.created_at,
     read: !!row.read,

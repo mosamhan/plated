@@ -22,6 +22,7 @@ const KIND_ICON: Record<NotificationKind, keyof typeof Ionicons.glyphMap> = {
   collab: 'people-circle',
   message: 'chatbubble-ellipses',
   reaction: 'happy',
+  mention: 'at',
 };
 
 /**
@@ -37,6 +38,9 @@ const KIND_ICON: Record<NotificationKind, keyof typeof Ionicons.glyphMap> = {
 const SECTIONS: { title: string; kinds: NotificationKind[] }[] = [
   { title: 'Likes', kinds: ['like'] },
   { title: 'Comments', kinds: ['comment'] },
+  // A mention is a direct ask for attention in a thread — unlike routine DM
+  // traffic (message/reaction, excluded below), it belongs here.
+  { title: 'Mentions', kinds: ['mention'] },
   { title: 'Follows', kinds: ['follow'] },
   { title: 'Reorders', kinds: ['reorder'] },
   { title: 'Collabs', kinds: ['collab'] },
@@ -169,6 +173,7 @@ function NotificationRow({
     // A collab notification is a question, not a link — route to where it can
     // be answered rather than to the post itself.
     if (n.kind === 'collab' && pendingCollab) router.push('/collabs');
+    else if (n.conversationId) router.push(`/messages/${n.conversationId}`);
     else if (n.platoId) router.push(`/plato/${n.platoId}`);
     else if (n.orderId) router.push(`/order/${n.orderId}`);
     else if (n.userId) router.push(`/user/${n.userId}`);

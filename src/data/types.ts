@@ -184,7 +184,9 @@ export type NotificationKind =
   | 'collab'
   /** A direct message, or a reaction to one of yours (0025 triggers). */
   | 'message'
-  | 'reaction';
+  | 'reaction'
+  /** Someone @mentioned you in a thread you're both in (0062). */
+  | 'mention';
 
 export interface AppNotification {
   id: string;
@@ -195,6 +197,8 @@ export interface AppNotification {
   orderId?: string;
   /** Related Plato, when the notification is about a reel rather than a plate. */
   platoId?: string;
+  /** The thread a 'mention' (or 'message'/'reaction') notification is about. */
+  conversationId?: string;
   text: string;
   createdAt: string;
   read: boolean;

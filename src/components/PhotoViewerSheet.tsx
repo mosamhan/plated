@@ -32,6 +32,20 @@ function timestampLabel(iso: string): string {
   return `${dayLabel(iso)} ${time}`;
 }
 
+/**
+ * The real extension a chat image's own URL ends in — a photo from the
+ * library uploads as `.jpg` (`uploadAsset`'s own fixed mime type), but a
+ * GIF sent via the Giphy picker is a genuine `https://...giphy.com/.../*.gif`
+ * URL, and `saveToLibraryAsync` needs the local file's extension to
+ * actually match its bytes. Falls back to jpg for anything unrecognized
+ * (a query string, no extension at all) rather than guessing further.
+ */
+function imageExtension(uri: string): string {
+  const match = uri.split('?')[0].match(/\.([a-zA-Z0-9]+)$/);
+  const ext = match?.[1]?.toLowerCase();
+  return ext && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].includes(ext) ? ext : 'jpg';
+}
+
 // The two fastest reactions, for the quick-tap row — same set QUICK_REACTIONS
 // already leads with, not a new curated list.
 const QUICK_PICKS = QUICK_REACTIONS.slice(0, 2);
@@ -120,7 +134,14 @@ export function PhotoViewerSheet({
         return;
       }
       const remoteUri = uris[index];
-      const target = `${FileSystem.cacheDirectory}${Date.now()}.jpg`;
+      // Not always a jpg: a GIF sent via the Giphy picker (AttachSheet's
+      // "GIFs" tab / the predictive suggestion rail) is a real .gif URL, and
+      // writing its bytes to a file *named* .jpg is exactly the kind of
+      // mismatch that makes MediaLibrary.saveToLibraryAsync silently fail or
+      // import a file iOS Photos can't actually open — the extension has to
+      // match what's really being downloaded, not assume every chat image
+      // is a JPEG.
+      const target = `${FileSystem.cacheDirectory}${Date.now()}.${imageExtension(remoteUri)}`;
       const { uri: localUri } = await FileSystem.downloadAsync(remoteUri, target);
       await MediaLibrary.saveToLibraryAsync(localUri);
       success();
