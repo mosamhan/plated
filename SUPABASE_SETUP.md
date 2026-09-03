@@ -9,11 +9,14 @@ in a local `.env` file. **Never commit `.env`** — it's gitignored.
 2. Name it `plated`, pick a strong DB password (save it), choose the region closest to you,
    and create. Wait ~2 min for it to provision.
 3. **Run the schema:** apply every file in [`supabase/migrations/`](supabase/migrations/) in
-   numeric order (`0001_init.sql` → `0002_platos.sql` → … → `0005_collections.sql`). Two ways:
-   - **SQL Editor** (simplest): sidebar → **SQL Editor** → **+ New query** → paste each file's
-     contents in order → **Run** (expect "Success. No rows returned." each time). `0002`+ are
-     idempotent, so re-running a file is safe.
-   - **Supabase CLI** (if you use it): `supabase link` then `supabase db push`.
+   numeric order — don't hardcode a range here, the directory is the source of truth and grows
+   every week. Two ways:
+   - **Supabase CLI** (recommended — this is how the rest of this repo's migrations get applied):
+     `supabase link` then `supabase db push`. Add `--include-all` if the CLI reports local
+     migrations it thinks predate the last-applied remote one.
+   - **SQL Editor** (manual fallback): sidebar → **SQL Editor** → **+ New query** → paste each
+     file's contents in numeric order → **Run** (expect "Success. No rows returned." each time).
+     Every migration after `0001_init.sql` is idempotent, so re-running one is always safe.
 4. **Get your keys:** sidebar → **Project Settings** → **API**. Copy:
    - **Project URL** → `EXPO_PUBLIC_SUPABASE_URL`
    - **anon public** key → `EXPO_PUBLIC_SUPABASE_ANON_KEY`
@@ -43,7 +46,30 @@ supabase functions deploy places
 > this project, and the public anon key is such a token. The function calls `getUser()` to tell a
 > real user from the anon key.
 
-## 3. Wire it up
+## 3. The rest of the Edge Functions
+
+`places` above is the template every other function follows: a billable/sensitive key lives as a
+function secret, never in the app bundle, and the client only ever reaches it through a
+signed-in-user-gated proxy. Deploy each function the app calls, in the same shape:
+
+```bash
+supabase secrets set <NAME>=your-key    # only for functions that need one — see below
+supabase functions deploy <function-name>
+```
+
+| Function | Needs a secret? | What it's for |
+|---|---|---|
+| `giphy` | `GIPHY_KEY` | GIF/sticker search in the messaging composer |
+| `directions` | `GOOGLE_DIRECTIONS_KEY` | in-app directions, kept separate from the Maps SDK key — see `DEPLOYMENT.md` §8 |
+| `link-preview` | — | scrapes Open Graph tags for a pasted URL in a message (SSRF-guarded, no upstream key) |
+| `push` | — | Expo push delivery, called only by the database itself |
+| `share-preview` | — | public link-unfurling for `plateLink`/`platoLink`/etc. |
+| everything else under `supabase/functions/` | — (or check its own header) | monetization, business/restaurant claiming, etc. |
+
+Each function's own header comment documents its exact auth shape and any secret it needs — treat
+that comment as the source of truth if this table drifts.
+
+## 4. Wire it up
 
 Create a `.env` file in the project root (copy `.env.example`) and paste your three values:
 
@@ -62,7 +88,7 @@ The app detects the keys automatically (`isSupabaseConfigured`) and switches fro
 real backend. Until keys are present, it keeps running on the seeded mock data so development never
 blocks.
 
-## 4. Seed your launch city (optional)
+## 5. Seed your launch city (optional)
 
 To avoid a cold-start empty feed, we can seed a handful of real restaurants + sample plates in one
 city. Ask and I'll generate a seed script you run once in the SQL Editor.

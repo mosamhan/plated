@@ -33,7 +33,7 @@ update these BEFORE the first store upload.
 - [x] FTC 16 CFR 465 (Reviews Rule) compliance: commission labels on creator content,
       disclosure before order hand-off, earnings decoupled from rating sentiment
 
-## 3. Legal web presence (required even with no backend)
+## 3. Legal web presence (independent of the backend going live)
 
 - [ ] Static site with `/privacy`, `/terms`, `/delete-account` (public HTTPS, no login —
       Play Data Safety requires the deletion URL). Mirror the in-app drafts in `src/app/legal/`.
@@ -128,7 +128,13 @@ JS path but not the native one. Two Console steps close it for good:
 
 ## Known deferrals (intentional)
 
-- FlashList v2 — pointless at mock-data scale; adopt when real data ships.
-- expo-symbols (SF Symbols) — Ionicons + Reanimated effects cover the demo cross-platform.
+- FlashList v2 — the backend is live, but real usage is still low-volume; revisit once a feed at
+  actual scale makes the migration worth it.
+- expo-symbols (SF Symbols) — Ionicons + Reanimated effects cover the app cross-platform.
 - expo-router formSheet for the order sheet — current Modal works on all targets incl. web preview.
-- Canonical dish picker in create flow — needs a real dish data model; next phase with backend.
+- Canonical dish picker in create flow — needs a real dish taxonomy, not just a data model; the
+  backend already supports it, this is a product-scope decision, not a technical blocker.
+- Per-conversation alert tones (a custom notification sound per thread/group) — deferred pending
+  bundled audio to choose from. Chat bubble color, group invite links/QR, and in-thread search
+  have since shipped; see the doc comment on `messages/group-info/[id].tsx` for current status
+  rather than repeating it here, since it's the thing most likely to drift out of sync.

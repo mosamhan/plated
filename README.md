@@ -18,9 +18,10 @@ and hand off to DoorDash / Uber Eats / pickup to order the specific dish — not
 
 </div>
 
-> **Status:** working prototype, ~100% TypeScript, runs on iOS / Android / web from one codebase.
-> "Plated" is a working codename pending trademark clearance. Built as a portfolio project that
-> demonstrates production-grade mobile architecture, design systems, and app-store/FTC compliance.
+> **Status:** live Supabase backend (Postgres + RLS + Realtime + Edge Functions), ~100%
+> TypeScript, runs on iOS / Android / web from one codebase. "Plated" is a working codename
+> pending trademark clearance. Built to demonstrate production-grade mobile architecture, design
+> systems, and app-store/FTC compliance — not a static demo.
 
 ---
 
@@ -60,6 +61,9 @@ and unlocks features a venue-rating app structurally can't offer:
   (decoupled from rating sentiment — FTC 16 CFR 465 compliant), with a full earnings dashboard.
 - **🛵 Order hand-off, not payments** — a provider sheet deep-links to DoorDash / Uber Eats /
   pickup. Discovery is the product; logistics stay a commodity.
+- **💬 Real-time messaging** — 1:1 and group chats over Supabase Realtime: voice notes, photo
+  albums, GIF search (Giphy), rich link previews for pasted URLs, @mentions, message
+  edit/pin/reply, typing presence, read receipts, and per-conversation streaks.
 
 ---
 
@@ -70,7 +74,8 @@ and unlocks features a venue-rating app structurally can't offer:
 | Framework | **Expo SDK 56 + React Native 0.85** (New Architecture) | One codebase → iOS, Android, web |
 | Routing | **Expo Router v6** (file-based) | Typed, deep-linkable, native stack + custom tab bar |
 | Language | **TypeScript** (strict) | End-to-end type safety, zero `any` in domain code |
-| State | **React Context** stores (`DataContext`, `AuthContext`) | Selector-based; swappable for a real backend |
+| Backend | **Supabase** (Postgres + RLS + Realtime + Edge Functions) | Auth, live data, and >60 migrations under `supabase/migrations/`; see [`SUPABASE_SETUP.md`](SUPABASE_SETUP.md) |
+| State | **React Context** stores (`DataContext`, `AuthContext`, `MessagesContext`, …) | Selector-based, backed by Supabase; falls back to seeded mock data with no keys configured |
 | Animation | **Reanimated 4** + **Gesture Handler** | 60fps entrance/press/like micro-interactions on the UI thread |
 | Theming | Custom token system + `useTheme()` | **5 palettes**, persisted via AsyncStorage, instant app-wide switch |
 | Vectors | **react-native-svg** | The logo mark renders identically to the app icon at any size |
@@ -91,15 +96,20 @@ src/
 │   ├── (tabs)/               # home · explore · leaderboard · profile + custom tab bar
 │   ├── order/[id].tsx        # plate detail + comments + order hand-off
 │   ├── restaurant/[id].tsx   # "Plated's Rating" + plates here
+│   ├── messages/              # inbox, thread, group/chat info, invite links
 │   ├── creator.tsx           # creator earnings dashboard
 │   ├── report.tsx            # UGC reporting (Apple 1.2)
 │   ├── legal/                # terms (CSAE/zero-tolerance) + privacy
 │   └── settings/             # appearance (themes), blocked users, delete account
-├── components/               # PlateCard, OrderProviderSheet, RatingBadge, PlatedMark, …
+├── components/               # PlateCard, OrderProviderSheet, RatingBadge, MessageBubble, …
 ├── theme/                    # palettes (5), ThemeContext, fonts, rating logic
-├── store/                    # DataContext (selectors + mutations), AuthContext
-├── lib/                      # haptics, cross-platform dialogs, invite/FTC helpers
-└── data/                     # typed mock data (users, restaurants, orders, social)
+├── store/                    # DataContext, AuthContext, MessagesContext, PlatosContext, …
+├── lib/                      # haptics, cross-platform dialogs, invite/FTC helpers, Giphy/link-preview clients
+└── data/                     # typed domain models + seeded mock data (used when no backend keys are set)
+
+supabase/
+├── migrations/                # sequential, idempotent — see CONTRIBUTING.md
+└── functions/                 # Edge Functions proxying billable keys (Foursquare, Giphy, Google) and scraping link previews
 ```
 
 ---
@@ -139,11 +149,16 @@ This prototype was built to a shippable bar, not just a demo:
 
 ## 🗺️ Roadmap
 
-- [ ] **Backend** — real auth, persistence, and live restaurant data (Places/Yelp ingestion)
+- [x] **Backend** — Supabase (Postgres + RLS + Realtime), live restaurant data (Foursquare Places)
+- [x] Push notifications & real-time messaging (1:1, groups, mentions, link previews, GIFs)
+- [ ] Real device-contact-graph friend discovery — "In your contacts" matching currently runs
+      against seeded mock contacts (`src/data/contacts.ts`), not a real `expo-contacts` permission
+      request against the device's address book
 - [ ] Real affiliate attribution for order hand-offs (Impact.com → DoorDash/Uber Eats)
-- [ ] Push notifications & contact-graph friend discovery
-- [ ] TestFlight → App Store / Google Play submission
+- [ ] TestFlight → App Store / Google Play submission — see [`DEPLOYMENT.md`](DEPLOYMENT.md)
 - [ ] Trademark clearance & final brand name
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how new work gets branched, committed, and documented.
 
 ---
 

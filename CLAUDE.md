@@ -1,4 +1,10 @@
 @AGENTS.md
+@CONTRIBUTING.md
+
+Plated is App Store– and Play Store–bound. Follow `CONTRIBUTING.md` for every non-trivial
+change: branch naming, commit message shape, migration idempotency/overload rules, and which docs
+need updating alongside a given change. Don't treat that file as optional context — it's the
+process this repo actually runs on.
 
 ## OpenClaw integration
 
