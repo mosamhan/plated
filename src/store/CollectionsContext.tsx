@@ -37,6 +37,15 @@ export interface Collection {
   /** Private lists are yours alone; public ones show on your profile to anyone. */
   isPrivate: boolean;
   items: SavedItem[];
+  /**
+   * Set when this list is owned by a conversation rather than one person —
+   * any member of that conversation can add to it, and it's visible to all
+   * of them regardless of `isPrivate` (which still governs whether *outsiders*
+   * can see it, e.g. once the creator makes it public).
+   */
+  conversationId?: string;
+  /** Who created it — the only member who can rename/delete/change its privacy. */
+  creatorId?: string;
 }
 
 interface CollectionsContextValue {
@@ -50,6 +59,9 @@ interface CollectionsContextValue {
   toggleInCollection: (collectionId: string, item: SavedItem) => void;
   /** Create a new named list; optionally seed it with one item. Returns its id. */
   createCollection: (name: string, firstItem?: SavedItem) => Promise<string | null>;
+  /** Create a list owned by a conversation instead of you alone — every
+   *  member can add to it. Returns its id. */
+  createSharedCollection: (conversationId: string, name: string) => Promise<string | null>;
   /** Rename / delete a list. */
   renameCollection: (collectionId: string, name: string) => void;
   deleteCollection: (collectionId: string) => void;
@@ -83,12 +95,29 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState<boolean>(live);
   const [saveTarget, setSaveTarget] = useState<SavedItem | null>(null);
 
-  // ── Load from Supabase (collections + their items in two reads) ─────────────
+  const COLLECTION_SELECT = 'id, name, is_private, user_id, conversation_id, created_at, collection_items(item_type, item_id)';
+  const mapCollectionRow = (c: any): Collection => ({
+    id: c.id,
+    name: c.name,
+    isPrivate: c.is_private ?? true,
+    conversationId: c.conversation_id ?? undefined,
+    creatorId: c.user_id ?? undefined,
+    items: (c.collection_items ?? []).map((it: any) => ({
+      type: it.item_type as SavedItemType,
+      id: it.item_id,
+    })),
+  });
+
+  // ── Load from Supabase: your own lists, plus any shared list tied to a
+  // conversation you're a member of (0067). Two reads because "which
+  // conversations am I in" has to come from conversation_participants
+  // directly — CollectionsProvider sits outside MessagesProvider in the tree
+  // (see _layout.tsx), so it can't reach useMessages() for that.
   const loadFromSupabase = useCallback(async (uid: string) => {
     setLoading(true);
     const { data: cols, error } = await supabase
       .from('collections')
-      .select('id, name, is_private, created_at, collection_items(item_type, item_id)')
+      .select(COLLECTION_SELECT)
       // Scoped to the owner on purpose: since 0008 the select policy also
       // exposes other people's public lists, so an unfiltered read would mix
       // strangers' collections into your own Save-to picker.
@@ -101,17 +130,22 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
       setLoading(false);
       return;
     }
-    setCollections(
-      cols.map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        isPrivate: c.is_private ?? true,
-        items: (c.collection_items ?? []).map((it: any) => ({
-          type: it.item_type as SavedItemType,
-          id: it.item_id,
-        })),
-      })),
-    );
+
+    const { data: memberRows } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', uid)
+      .eq('state', 'accepted');
+    const conversationIds = (memberRows ?? []).map((r) => r.conversation_id);
+    const { data: sharedCols } = conversationIds.length
+      ? await supabase.from('collections').select(COLLECTION_SELECT).in('conversation_id', conversationIds)
+      : { data: [] as any[] };
+
+    // A shared collection you created yourself matches both queries — dedupe
+    // by id rather than assuming the two result sets are disjoint.
+    const byId = new Map<string, Collection>();
+    for (const row of [...cols, ...(sharedCols ?? [])]) byId.set(row.id, mapCollectionRow(row));
+    setCollections([...byId.values()]);
     setLoading(false);
   }, []);
 
@@ -235,6 +269,31 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
     [live, userId, toggleInCollection],
   );
 
+  const createSharedCollection = useCallback(
+    async (conversationId: string, name: string): Promise<string | null> => {
+      const trimmed = name.trim();
+      if (!trimmed || !live || !userId) return null;
+
+      const { data, error } = await supabase
+        .from('collections')
+        .insert({ user_id: userId, name: trimmed, conversation_id: conversationId })
+        .select('id')
+        .single();
+      if (error || !data) {
+        if (__DEV__) console.warn('[Plated] create shared collection failed', error);
+        showAlert('Could not create list', 'Something went wrong — please try again.');
+        return null;
+      }
+      const id = data.id as string;
+      setCollections((prev) => [
+        ...prev,
+        { id, name: trimmed, isPrivate: true, items: [], conversationId, creatorId: userId },
+      ]);
+      return id;
+    },
+    [live, userId],
+  );
+
   const renameCollection = useCallback(
     (collectionId: string, name: string) => {
       const trimmed = name.trim();
@@ -315,6 +374,7 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
       isSaved,
       toggleInCollection,
       createCollection,
+      createSharedCollection,
       renameCollection,
       deleteCollection,
       setCollectionPrivacy,
@@ -322,7 +382,7 @@ export function CollectionsProvider({ children }: { children: React.ReactNode })
       openSaveSheet,
       closeSaveSheet,
     }),
-    [collections, loading, collectionsWith, isSaved, toggleInCollection, createCollection, renameCollection, deleteCollection, setCollectionPrivacy, saveTarget, openSaveSheet, closeSaveSheet],
+    [collections, loading, collectionsWith, isSaved, toggleInCollection, createCollection, createSharedCollection, renameCollection, deleteCollection, setCollectionPrivacy, saveTarget, openSaveSheet, closeSaveSheet],
   );
 
   return (

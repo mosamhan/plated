@@ -524,11 +524,20 @@ export function CollectionRow({
           <Text style={[styles.collectionName, { color: colors.text }]} numberOfLines={1}>
             {collection.name}
           </Text>
+          {/* Owned by a conversation rather than you alone — every member can
+              add to it. Distinct from the public/private pill below: a shared
+              list can still be members-only or opened up to everyone. */}
+          {!!collection.conversationId && (
+            <View style={[styles.sharedPill, { backgroundColor: colors.accentSoft }]}>
+              <Ionicons name="people-outline" size={11} color={colors.accent} />
+              <Text style={[styles.sharedPillText, { color: colors.accent }]}>Shared</Text>
+            </View>
+          )}
           {/* Which lists are visible to other people is worth seeing at a glance. */}
           {showPrivacy && !collection.isPrivate && (
             <View style={[styles.sharedPill, { backgroundColor: colors.accentSoft }]}>
               <Ionicons name="globe-outline" size={11} color={colors.accent} />
-              <Text style={[styles.sharedPillText, { color: colors.accent }]}>Shared</Text>
+              <Text style={[styles.sharedPillText, { color: colors.accent }]}>Public</Text>
             </View>
           )}
         </View>
