@@ -47,6 +47,13 @@ interface PlatosContextValue {
   setPlatoVisibility: (id: string, visibility: 'public' | 'friends' | 'private') => void;
   /** Archive/unarchive your Plato — hidden from everyone but you when archived. */
   setPlatoArchived: (id: string, archived: boolean) => void;
+  /**
+   * "Do not include in taste profile" — a viewer excluding someone else's
+   * Plato from their own feed. Private to the viewer; the creator never sees
+   * it. Removes it from the feed immediately and records the signal for a
+   * future taste-profile feature.
+   */
+  excludePlato: (id: string) => void;
   /** Every Plato whose dish name matches `query`, ranked nearby-first. For the multi-entity search screen. */
   searchPlatos: (query: string) => PlatoVideo[];
 }
@@ -110,8 +117,12 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
           seedFromDemo();
           return;
         }
-        const likesRes = await supabase.from('plato_likes').select('plato_id').eq('user_id', uid);
-        setPlatos(shuffle(data.map(mapPlato)));
+        const [likesRes, exclusionsRes] = await Promise.all([
+          supabase.from('plato_likes').select('plato_id').eq('user_id', uid),
+          supabase.from('plato_taste_exclusions').select('plato_id').eq('user_id', uid),
+        ]);
+        const excluded = new Set((exclusionsRes.data ?? []).map((r) => r.plato_id));
+        setPlatos(shuffle(data.filter((row) => !excluded.has(row.id)).map(mapPlato)));
         setCommentsByPlato({});
         setLoadedComments(new Set());
         setLiked(new Set((likesRes.data ?? []).map((r) => r.plato_id)));
@@ -397,6 +408,21 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     [live],
   );
 
+  const excludePlato = useCallback(
+    (id: string) => {
+      setPlatos((p) => p.filter((x) => x.id !== id));
+      if (live && userId) {
+        supabase
+          .from('plato_taste_exclusions')
+          .insert({ plato_id: id, user_id: userId })
+          .then(({ error }) => {
+            if (error) console.warn('[platos] taste exclusion insert failed:', error.message);
+          });
+      }
+    },
+    [live, userId],
+  );
+
   // Every Plato whose dish name matches, ranked nearby-first — search screen.
   // Scores the best-matching dish (headline or any other plate in a multi-dish
   // Plato), same idea as DataContext's searchPlates.
@@ -430,8 +456,8 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, searchPlatos }),
-    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, searchPlatos],
+    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos }),
+    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;

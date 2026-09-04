@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
@@ -17,14 +19,17 @@ import Animated, {
 
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { PlatoCommentsSheet } from '@/components/PlatoCommentsSheet';
+import { PlatoControlsSheet } from '@/components/PlatoControlsSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { SendToSheet } from '@/components/SendToSheet';
 import { VideoScrubber } from '@/components/VideoScrubber';
 import { formatCount } from '@/components/StatPill';
 import { PlatoVideo } from '@/data/platos';
 import { collabLabel } from '@/lib/collabs';
-import { tapLight, tapMedium } from '@/lib/haptics';
+import { showAlert } from '@/lib/dialog';
+import { success, tapLight, tapMedium, warn } from '@/lib/haptics';
 import { buildPlatoShareMessage, platoLink } from '@/lib/invite';
+import { usePlatoPlaybackSettings } from '@/lib/platoPlaybackSettings';
 import { useCollections } from '@/store/CollectionsContext';
 import { useData } from '@/store/DataContext';
 import { usePlatos } from '@/store/PlatosContext';
@@ -45,16 +50,19 @@ interface Props {
    * name, so there is nothing to open and the line stays plain text.
    */
   onRestaurantPress?: (restaurantId: string) => void;
+  /** Auto-scroll (from the long-press controls sheet) reached the end of this reel. */
+  onEnded?: () => void;
 }
 
-export function PlatoReel({ video, active, height, bottomInset, onRestaurantPress }: Props) {
+export function PlatoReel({ video, active, height, bottomInset, onRestaurantPress, onEnded }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
-  const { isLiked, toggleLike, recordView } = usePlatos();
+  const { isLiked, toggleLike, recordView, excludePlato } = usePlatos();
   const { userFor, restaurantFor } = useData();
   const platoRestaurant = video.restaurantId ? restaurantFor(video.restaurantId) : undefined;
   const collabs = collabLabel(video.collaborators, (id) => userFor(id).handle);
   const { openSaveSheet, isSaved } = useCollections();
+  const { speed, autoScroll } = usePlatoPlaybackSettings();
   const player = useVideoPlayer(video.videoUrl, (p) => {
     p.loop = true;
     p.muted = false;
@@ -63,6 +71,11 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  // "Clear display" from the long-press sheet — stays hidden until the next
+  // single tap on the video, the same way TikTok's own clear-display works.
+  const [manualClear, setManualClear] = useState(false);
   // The plates this one video covers. Swiping the label moves between them; the
   // video keeps playing. Falls back to the single dish for legacy Platos.
   const plates = video.plates?.length ? video.plates : [{ dishName: video.dishName, rating: video.rating }];
@@ -74,7 +87,7 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
   // Holding a two-finger pinch clears everything, including the scrubber —
   // unlike scrubbing, there's nothing left to interact with while zoomed.
   const [zooming, setZooming] = useState(false);
-  const chromeHidden = scrubbing || zooming;
+  const chromeHidden = scrubbing || zooming || manualClear;
   const [burst, setBurst] = useState(false);
   const lastTap = useRef(0);
   const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,6 +123,8 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
         singleTapTimer.current = null;
         lastTap.current = 0;
         setPaused((p) => !p);
+        // A tap after "Clear display" brings the chrome back, same as TikTok.
+        setManualClear(false);
       }, DOUBLE_TAP_MS);
     }
   };
@@ -171,6 +186,31 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
     if (active) recordView(video.id);
   }, [active, video.id, recordView]);
 
+  // Speed and auto-scroll are global preferences (the controls sheet's own
+  // Speed/Auto scroll rows), applied to whichever reel is mounted. `player`
+  // is expo-video's own imperative handle — setting its properties directly
+  // is the documented way to control it, not React state the immutability
+  // rule can see through.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
+    player.playbackRate = speed;
+  }, [player, speed]);
+
+  // With auto-scroll on, the reel should hand off to the next one instead of
+  // looping — `loop` has to come off for `playToEnd` to mean "really done"
+  // rather than "about to silently restart".
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
+    player.loop = !autoScroll;
+  }, [player, autoScroll]);
+
+  useEffect(() => {
+    const subscription = player.addListener('playToEnd', () => {
+      if (autoScroll) onEnded?.();
+    });
+    return () => subscription.remove();
+  }, [player, autoScroll, onEnded]);
+
   // Send-to first — a Plato is the most "you have to watch this" thing in the
   // app. The system share sheet is one tap inside it.
   const onShare = () => {
@@ -186,6 +226,46 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
     earns: video.monetizable,
   });
 
+  // Long-press controls sheet actions.
+  const onAddToStoryFromControls = () => {
+    tapLight();
+    router.push({ pathname: '/create-story', params: { platoId: video.id } });
+  };
+
+  const onDownloadVideo = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const perm = await MediaLibrary.requestPermissionsAsync();
+      if (!perm.granted) {
+        showAlert(
+          'Photo library access needed',
+          "Plated can't save this video without permission — enable it in Settings and try again.",
+        );
+        return;
+      }
+      const target = `${FileSystem.cacheDirectory}${Date.now()}.mp4`;
+      const { uri: localUri } = await FileSystem.downloadAsync(video.videoUrl, target);
+      await MediaLibrary.saveToLibraryAsync(localUri);
+      success();
+    } catch (e) {
+      if (__DEV__) console.warn('[Plated] plato download failed', e);
+      showAlert('Couldn’t save that video', 'Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const onExcludeFromTasteProfile = () => {
+    tapLight();
+    excludePlato(video.id);
+  };
+
+  const onReportPlato = () => {
+    warn();
+    router.push(`/report?targetType=plato&targetId=${video.id}`);
+  };
+
   const railBtn = (icon: keyof typeof Ionicons.glyphMap, label: string, onPress: () => void, tint?: string) => (
     <Pressable style={styles.railBtn} onPress={onPress} hitSlop={6}>
       <Ionicons name={icon} size={30} color={tint ?? '#fff'} />
@@ -199,8 +279,16 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
       <Image source={{ uri: video.poster }} style={StyleSheet.absoluteFill} contentFit="cover" />
 
       {/* Single tap → play/pause; double tap → like (with heart burst); a
-          two-finger pinch held anywhere on the video zooms it in place. */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={onTapVideo}>
+          two-finger pinch held anywhere on the video zooms it in place; a
+          long press opens the controls sheet (speed, auto scroll, report,
+          download, …) — TikTok's own long-press-to-open-menu gesture. */}
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onTapVideo}
+        onLongPress={() => {
+          tapMedium();
+          setControlsOpen(true);
+        }}>
         <GestureDetector gesture={zoomGesture}>
           <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>
             <VideoView
@@ -364,6 +452,16 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
           link: platoLink(video.id),
           label: `@${video.creatorHandle}’s Plato`,
         }}
+      />
+
+      <PlatoControlsSheet
+        visible={controlsOpen}
+        onClose={() => setControlsOpen(false)}
+        onAddToStory={onAddToStoryFromControls}
+        onDownload={onDownloadVideo}
+        onExclude={onExcludeFromTasteProfile}
+        onReport={onReportPlato}
+        onClearDisplay={() => setManualClear(true)}
       />
     </View>
   );

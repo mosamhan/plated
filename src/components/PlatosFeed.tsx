@@ -97,6 +97,11 @@ export function PlatosFeed({
                 height={containerH}
                 bottomInset={bottomInset}
                 onRestaurantPress={onRestaurantPress}
+                onEnded={() => {
+                  if (index < items.length - 1) {
+                    listRef.current?.scrollToOffset({ offset: containerH * (index + 1), animated: true });
+                  }
+                }}
               />
             ) : (
               <SponsoredReelCard placement={item.placement} height={containerH} bottomInset={bottomInset} />
