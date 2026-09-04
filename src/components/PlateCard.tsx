@@ -197,9 +197,6 @@ export function PlateCard({
                 {collabs ? ` · with ${collabs}` : ''}
               </Text>
             </Pressable>
-            <Text style={[styles.time, { color: colors.textMuted }]} numberOfLines={1}>
-              {formatRelativeDate(order.createdAt)}
-            </Text>
           </Pressable>
         </View>
         {/* A feed bump, not a badge the poster earns — reads as an ad
@@ -324,6 +321,13 @@ export function PlateCard({
           <Text style={[styles.orderText, { color: colors.orderCtaText }]}>Order</Text>
         </AnimatedPressable>
       </View>
+
+      {/* Under the controls, not the header — the header is "who/where," this
+          is "when," and grouping it with the actions row keeps the header
+          focused on identity while every post still shows its age at a glance. */}
+      <Text style={[styles.time, styles.timeUnderActions, { color: colors.textMuted }]} numberOfLines={1}>
+        {formatRelativeDate(order.createdAt)}
+      </Text>
 
       <OrderProviderSheet
         visible={sheet}
@@ -463,6 +467,7 @@ const styles = StyleSheet.create({
   },
   action: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   actionText: { fontSize: 13, fontWeight: '600' },
+  timeUnderActions: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, marginTop: -spacing.sm },
   orderBtn: {
     flexDirection: 'row',
     alignItems: 'center',
