@@ -64,6 +64,10 @@ and unlocks features a venue-rating app structurally can't offer:
 - **💬 Real-time messaging** — 1:1 and group chats over Supabase Realtime: voice notes, photo
   albums, GIF search (Giphy), rich link previews for pasted URLs, @mentions, message
   edit/pin/reply, typing presence, read receipts, and per-conversation streaks.
+- **🗂️ Shared collections** — a collection owned by a conversation instead of one person: any
+  member (group or 1:1) can add plates/Platos/restaurants to it from anywhere in the app, the same
+  way they'd save to their own list. It shows up in each member's profile as **Shared**, private to
+  the conversation until its creator opens it up publicly.
 
 ---
 
