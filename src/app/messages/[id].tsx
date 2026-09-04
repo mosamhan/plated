@@ -24,6 +24,7 @@ import { GifSuggestionRail } from '@/components/GifSuggestionRail';
 import { MessageActionsSheet } from '@/components/MessageActionsSheet';
 import { PhotoPickerSheet } from '@/components/PhotoPickerSheet';
 import { PhotoViewerSheet } from '@/components/PhotoViewerSheet';
+import { VideoViewerSheet } from '@/components/VideoViewerSheet';
 import { StreakUnlockModal } from '@/components/StreakUnlockModal';
 import { SendToSheet } from '@/components/SendToSheet';
 import { VoiceComposer } from '@/components/VoiceComposer';
@@ -143,6 +144,7 @@ export default function Thread() {
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<Message | null>(null);
   const [viewingPhotoIndex, setViewingPhotoIndex] = useState(0);
+  const [viewingVideo, setViewingVideo] = useState<Message | null>(null);
   // Briefly flashed on the message a reply-quote tap just scrolled back to —
   // the scroll alone can land you among several visually similar bubbles.
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -373,6 +375,13 @@ export default function Thread() {
     sendMessage(id, { kind: 'image', attachmentIds: urls, replyTo: photoReplyTo, replyToIndex: photoReplyToIndex }).catch(() => {});
   };
 
+  // A video is its own message the moment it's picked — one clip, no album,
+  // same "picking it sends it" pattern as a GIF.
+  const onVideoSelected = (url: string) => {
+    if (!id) return;
+    sendMessage(id, { kind: 'video', attachmentId: url, replyTo: photoReplyTo, replyToIndex: photoReplyToIndex }).catch(() => {});
+  };
+
   // Plates, Platos and restaurants all share this shape once picked — the
   // attach sheet only needs to say which kind and which id.
   const onShareAttachment = (kind: 'plate' | 'plato' | 'restaurant', attachmentId: string) => {
@@ -477,6 +486,7 @@ export default function Thread() {
                   setActionTarget(m);
                   setActionPhotoIndex(photoIndex);
                 }}
+                onOpenVideo={(m) => setViewingVideo(m)}
                 onOpenPhoto={(m, index) => {
                   setViewingPhoto(m);
                   setViewingPhotoIndex(index);
@@ -670,65 +680,81 @@ export default function Thread() {
             )}
 
             <View style={styles.composer}>
-            {!voiceActive && (
-              <>
+              {/* The one button that keeps its own bubble — sharing a plate/
+                  Plato/restaurant is a distinct action from composing a
+                  message, the same way Instagram's camera button sits
+                  outside its own message pill rather than inside it. */}
+              {!voiceActive && (
                 <Pressable
                   onPress={() => {
                     tapLight();
                     setAttachOpen(true);
                   }}
                   hitSlop={8}
-                  style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  style={[styles.standaloneAttachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Ionicons name="restaurant-outline" size={19} color={colors.accent} />
                 </Pressable>
-                <Pressable
-                  onPress={onOpenPhotoPicker}
-                  hitSlop={8}
-                  style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Ionicons name="image-outline" size={19} color={colors.accent} />
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    tapLight();
-                    setGifOpen(true);
-                  }}
-                  hitSlop={8}
-                  style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Ionicons name="happy-outline" size={19} color={colors.accent} />
-                </Pressable>
-                <TextInput
-                  value={draft}
-                  onChangeText={(t) => {
-                    setDraft(t);
-                    if (t.trim()) notifyTyping();
-                    else notifyStopped();
-                  }}
-                  placeholder="Message"
-                  placeholderTextColor={colors.textMuted}
-                  multiline
-                  style={[
-                    styles.input,
-                    { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
-                  ]}
-                />
-              </>
-            )}
-            {draft.trim() ? (
-              <AnimatedPressable
-                pressScale={0.92}
-                onPress={onSend}
-                style={[styles.sendBtn, { backgroundColor: colors.accent }]}>
-                <Ionicons name={editingMessage ? 'checkmark' : 'arrow-up'} size={19} color={colors.accentText} />
-              </AnimatedPressable>
-            ) : (
-              // The send button becomes the mic when there's nothing typed —
-              // the two are never both useful, and the composer stays one row.
-              // While actively recording, this is the row's only child (the
-              // attach/photo/text-input siblings above are hidden), so its
-              // own flex:1 gets the whole bar to lay out trash/waveform/lock
-              // controls in, instead of being squeezed into a leftover sliver.
-              <VoiceComposer onRecorded={onVoice} onActiveChange={setVoiceActive} />
-            )}
+              )}
+
+              {/* Everything else lives inside one pill — bare icons sitting
+                  directly on its background, not each in their own bubble.
+                  The text field takes the remaining space; photo/sticker/mic
+                  cluster together at the pill's trailing edge, in that order
+                  — matching Instagram's own message bar. Photo drops out
+                  once there's something typed (it's "attach a photo instead
+                  of typing," not a persistent control); the sticker button
+                  never does, since reaching for one is just as likely
+                  mid-sentence as before typing anything. */}
+              <View style={[styles.pill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                {!voiceActive && (
+                  <>
+                    <TextInput
+                      value={draft}
+                      onChangeText={(t) => {
+                        setDraft(t);
+                        if (t.trim()) notifyTyping();
+                        else notifyStopped();
+                      }}
+                      placeholder="Message"
+                      placeholderTextColor={colors.textMuted}
+                      multiline
+                      style={[styles.pillInput, { color: colors.text }]}
+                    />
+                    {!draft.trim() && (
+                      <Pressable onPress={onOpenPhotoPicker} hitSlop={8} style={styles.pillIconBtn}>
+                        <Ionicons name="image-outline" size={19} color={colors.accent} />
+                      </Pressable>
+                    )}
+                    <Pressable
+                      onPress={() => {
+                        tapLight();
+                        setGifOpen(true);
+                      }}
+                      hitSlop={8}
+                      style={styles.pillIconBtn}>
+                      <Ionicons name="happy-outline" size={19} color={colors.accent} />
+                    </Pressable>
+                  </>
+                )}
+                {/* The mic lives here too (bare, idle) — VoiceComposer itself
+                    reports back when a hold has turned into an actual
+                    recording, at which point its sibling photo/text/sticker
+                    above hide and it becomes this pill's only child, free to
+                    lay out the trash/waveform/lock controls across the whole
+                    width instead of a leftover sliver. Never rendered once
+                    there's a draft to send instead — the send button (below,
+                    outside the pill) takes over that slot. */}
+                {!draft.trim() && <VoiceComposer onRecorded={onVoice} onActiveChange={setVoiceActive} />}
+              </View>
+
+              {draft.trim() ? (
+                <AnimatedPressable
+                  pressScale={0.92}
+                  onPress={onSend}
+                  style={[styles.sendBtn, { backgroundColor: colors.accent }]}>
+                  <Ionicons name={editingMessage ? 'checkmark' : 'arrow-up'} size={19} color={colors.accentText} />
+                </AnimatedPressable>
+              ) : null}
             </View>
           </View>
         )}
@@ -857,6 +883,7 @@ export default function Thread() {
         visible={photoPickerOpen}
         onClose={() => setPhotoPickerOpen(false)}
         onSend={onPhotosSelected}
+        onSendVideo={onVideoSelected}
       />
 
       <PhotoViewerSheet
@@ -865,6 +892,15 @@ export default function Thread() {
         onClose={() => setViewingPhoto(null)}
         onForward={(m) => {
           setViewingPhoto(null);
+          setForwarding(m);
+        }}
+      />
+
+      <VideoViewerSheet
+        message={viewingVideo}
+        onClose={() => setViewingVideo(null)}
+        onForward={(m) => {
+          setViewingVideo(null);
           setForwarding(m);
         }}
       />
@@ -1413,7 +1449,7 @@ const styles = StyleSheet.create({
   replyIcon: { alignItems: 'center', justifyContent: 'center' },
   replyWho: { fontSize: 11, fontWeight: '800' },
   replyText: { fontSize: 12, fontWeight: '500', marginTop: 1 },
-  attachBtn: {
+  standaloneAttachBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -1421,18 +1457,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
   },
-  input: {
+  // The one wide pill housing photo/text/sticker/mic — bare icons sit
+  // directly on it rather than each getting their own bubble.
+  pill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 38,
+    maxHeight: 120,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingLeft: 14,
+    paddingRight: 6,
+    gap: 2,
+  },
+  pillInput: {
     flex: 1,
     minHeight: 38,
     maxHeight: 120,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingTop: 9,
-    paddingBottom: 9,
+    paddingVertical: 9,
     fontSize: 15,
     fontWeight: '500',
   },
+  // No background/border — the pill itself already provides both; this is
+  // just a big-enough hit target for a bare glyph.
+  pillIconBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   sendBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   requestBar: { paddingHorizontal: spacing.lg, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
   requestText: { fontSize: 13, fontWeight: '600', textAlign: 'center' },

@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, StyleProp, Text, View, ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   FadeIn,
@@ -103,6 +104,7 @@ export function MessageBubble({
   onRetry,
   onLongPress,
   onOpenPhoto,
+  onOpenVideo,
   onJumpToReply,
   onSwipeReply,
   /**
@@ -130,6 +132,8 @@ export function MessageBubble({
   onLongPress?: (message: Message, anchor: MessageAnchor, photoIndex?: number) => void;
   /** Opens the full-screen photo viewer, on whichever album page is showing. */
   onOpenPhoto?: (message: Message, index: number) => void;
+  /** Opens the full-screen video viewer — a video message is always one clip. */
+  onOpenVideo?: (message: Message) => void;
   /** Tapping this message's reply-quote strip — scrolls the thread to whatever it answers. */
   onJumpToReply?: (messageId: string) => void;
   /**
@@ -153,6 +157,7 @@ export function MessageBubble({
   const albumIndex = useRef(0);
 
   const isImage = message.kind === 'image';
+  const isVideo = message.kind === 'video';
   const imageUris = isImage
     ? message.attachmentIds?.length
       ? message.attachmentIds
@@ -193,6 +198,15 @@ export function MessageBubble({
         openTimer.current = null;
         lastTap.current = 0;
         onOpenPhoto?.(message, albumIndex.current);
+      }, DOUBLE_TAP_MS);
+      return;
+    }
+    if (isVideo && message.attachmentId) {
+      if (openTimer.current) clearTimeout(openTimer.current);
+      openTimer.current = setTimeout(() => {
+        openTimer.current = null;
+        lastTap.current = 0;
+        onOpenVideo?.(message);
       }, DOUBLE_TAP_MS);
       return;
     }
@@ -356,6 +370,7 @@ export function MessageBubbleContent({
 
   const isVoice = message.kind === 'voice';
   const isImage = message.kind === 'image';
+  const isVideo = message.kind === 'video';
   const imageUris = isImage
     ? message.attachmentIds?.length
       ? message.attachmentIds
@@ -363,7 +378,7 @@ export function MessageBubbleContent({
         ? [message.attachmentId]
         : []
     : [];
-  const hasAttachment = message.kind !== 'text' && !isVoice && !isImage && !!message.attachmentId;
+  const hasAttachment = message.kind !== 'text' && !isVoice && !isImage && !isVideo && !!message.attachmentId;
   // A per-chat "Chat bubble" color override — only ever applies to bubbles
   // *you* sent, and only in this one conversation (self-scoped, like
   // muted/pinned) — falls back to the theme's own accent when unset.
@@ -439,6 +454,10 @@ export function MessageBubbleContent({
         <PhotoAlbumCarousel uris={imageUris} style={styles.image} onIndexChange={onAlbumIndexChange} />
       )}
 
+      {isVideo && !!message.attachmentId && (
+        <VideoBubbleThumb uri={message.attachmentId} style={styles.image} />
+      )}
+
       {hasAttachment && (
         <SharedItemCard kind={message.kind} attachmentId={message.attachmentId} attachmentIndex={message.attachmentIndex} />
       )}
@@ -497,6 +516,29 @@ export function MessageBubbleContent({
   );
 }
 
+/**
+ * A video bubble's paused first-frame preview + play glyph — there's no
+ * poster-frame pipeline (no server-side thumbnail generation for chat
+ * videos), so this is a real, paused `VideoView` rather than a still image.
+ * Muted so a thread full of paused clips never plays audio; tapping the
+ * bubble (handled by the parent `Pressable`, not this component) is what
+ * actually opens `VideoViewerSheet` to watch it with sound.
+ */
+function VideoBubbleThumb({ uri, style }: { uri: string; style?: StyleProp<ViewStyle> }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = false;
+    p.muted = true;
+  });
+  return (
+    <View style={style}>
+      <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
+      <View style={styles.videoPlayOverlay} pointerEvents="none">
+        <Ionicons name="play" size={22} color="#fff" />
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 6, paddingHorizontal: 12 },
   rowMine: { justifyContent: 'flex-end' },
@@ -521,7 +563,17 @@ const styles = StyleSheet.create({
   edited: { fontSize: 10, fontWeight: '600', marginTop: 2, marginHorizontal: 4 },
   bubble: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: radius.lg },
   voiceBubble: { paddingHorizontal: 12, paddingVertical: 10, minWidth: 232 },
-  image: { width: 220, height: 220, borderRadius: radius.lg },
+  image: { width: 220, height: 220, borderRadius: radius.lg, overflow: 'hidden' },
+  videoPlayOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
   quote: {
     flexDirection: 'row',
     alignItems: 'center',

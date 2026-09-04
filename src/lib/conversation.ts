@@ -58,6 +58,7 @@ export function messagePreview(
     message.kind === 'plate' ||
     message.kind === 'plato' ||
     message.kind === 'image' ||
+    message.kind === 'video' ||
     message.kind === 'story_reply' ||
     message.kind === 'restaurant' ||
     message.kind === 'voice';
@@ -71,11 +72,13 @@ export function messagePreview(
           ? `Replied to a story${message.text ? `: ${message.text}` : ''}`
           : message.kind === 'image'
             ? '📷 Photo'
-            : message.kind === 'restaurant'
-              ? '📍 Shared a restaurant'
-              : message.kind === 'voice'
-                ? '🎙 Voice message'
-                : message.text;
+            : message.kind === 'video'
+              ? '📹 Video'
+              : message.kind === 'restaurant'
+                ? '📍 Shared a restaurant'
+                : message.kind === 'voice'
+                  ? '🎙 Voice message'
+                  : message.text;
 
   if (opts.mine && !richContent) return statusTimeLabel(message.createdAt, !!opts.seen);
 

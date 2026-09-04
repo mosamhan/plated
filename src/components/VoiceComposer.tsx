@@ -373,11 +373,7 @@ export function VoiceComposer({
               <Ionicons name="chevron-up" size={12} color={pastLock ? '#fff' : colors.textMuted} />
             </Animated.View>
           )}
-          <View
-            style={[
-              styles.mic,
-              { backgroundColor: colors.surface, borderColor: colors.border, opacity: disabled ? 0.5 : 1 },
-            ]}>
+          <View style={[styles.mic, { opacity: disabled ? 0.5 : 1 }]}>
             <Ionicons name="mic-outline" size={19} color={colors.accent} />
           </View>
         </View>
@@ -387,14 +383,9 @@ export function VoiceComposer({
 }
 
 const styles = StyleSheet.create({
-  mic: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
+  // Bare — sits directly inside the composer's message pill, not its own
+  // bubble, matching every other idle icon in that pill.
+  mic: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   composerRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   trashBtn: {
     width: 34,

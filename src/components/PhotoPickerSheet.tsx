@@ -9,14 +9,15 @@ import { Image } from 'expo-image';
 // the main entry point emits for them.
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library/legacy';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
 import { showAlert } from '@/lib/dialog';
 import { tapLight, tick } from '@/lib/haptics';
-import { uploadAsset } from '@/lib/upload';
+import { formatDuration } from '@/components/VoiceNote';
+import { uploadAsset, uploadVideo } from '@/lib/upload';
 import { useAuth } from '@/store/AuthContext';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing } from '@/theme/palettes';
@@ -25,12 +26,15 @@ import { useTheme } from '@/theme/ThemeContext';
 const COLUMNS = 3;
 const CELL_GAP = 3;
 const PAGE_SIZE = 60;
-/**
- * Smart albums that are all-video or mixed-in-a-way-that's-never-photos —
- * scoping the grid to one of these with `mediaType: 'photo'` still applied
- * would just return an empty grid, a dead end the picker shouldn't offer.
- */
-const VIDEO_ONLY_ALBUMS = new Set(['Videos', 'Slo-mo', 'Time-lapse', 'Cinematic']);
+/** `MediaLibrary.Asset` has no mimeType field — inferred from the filename
+ *  extension for `uploadVideo`'s content-type header. Falls back to mp4,
+ *  the common case, for anything unrecognized rather than guessing wrong. */
+function videoMimeFromFilename(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  if (ext === 'mov') return 'video/quicktime';
+  if (ext === 'm4v') return 'video/x-m4v';
+  return 'video/mp4';
+}
 
 /**
  * Plated's own multi-select photo grid — replaces `expo-image-picker`'s
@@ -44,11 +48,20 @@ export function PhotoPickerSheet({
   visible,
   onClose,
   onSend,
+  onSendVideo,
 }: {
   visible: boolean;
   onClose: () => void;
   /** Called with the uploaded public URLs, in the order they were tapped. */
   onSend: (urls: string[]) => void;
+  /**
+   * A video sends the moment it's tapped — like the GIF picker, not folded
+   * into the multi-select photo batch above, since one video is already its
+   * own whole message (kind: 'video'), not a page in a photo album. Omit
+   * this prop to keep a picker photo-only (e.g. Plate/Plato comments, which
+   * never allow video) — video assets then simply won't send when tapped.
+   */
+  onSendVideo?: (url: string) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -63,25 +76,37 @@ export function PhotoPickerSheet({
   const [ready, setReady] = useState(false);
   const [selected, setSelected] = useState<string[]>([]); // asset ids, in tap order
   const [sending, setSending] = useState(false);
+  const [sendingVideoId, setSendingVideoId] = useState<string | null>(null);
   const [albums, setAlbums] = useState<MediaLibrary.Album[]>([]);
   // null = the whole library ("Recents", matching the native picker's default).
   const [selectedAlbum, setSelectedAlbum] = useState<MediaLibrary.Album | null>(null);
   const [albumPickerOpen, setAlbumPickerOpen] = useState(false);
 
-  const loadFirstPage = useCallback(async (album: MediaLibrary.Album | null) => {
-    setReady(false);
-    setSelected([]);
-    const page = await MediaLibrary.getAssetsAsync({
-      mediaType: 'photo',
-      sortBy: 'creationTime',
-      first: PAGE_SIZE,
-      ...(album ? { album } : {}),
-    });
-    setAssets(page.assets);
-    setAfter(page.endCursor);
-    setHasMore(page.hasNextPage);
-    setReady(true);
-  }, []);
+  // Video assets show at all only where the caller actually wants them —
+  // comments never pass `onSendVideo`, so their grid stays photo-only exactly
+  // as it always has, with no dead "can't tap this" cells.
+  const mediaType = useMemo<MediaLibrary.MediaTypeValue | MediaLibrary.MediaTypeValue[]>(
+    () => (onSendVideo ? ['photo', 'video'] : 'photo'),
+    [onSendVideo],
+  );
+
+  const loadFirstPage = useCallback(
+    async (album: MediaLibrary.Album | null) => {
+      setReady(false);
+      setSelected([]);
+      const page = await MediaLibrary.getAssetsAsync({
+        mediaType,
+        sortBy: 'creationTime',
+        first: PAGE_SIZE,
+        ...(album ? { album } : {}),
+      });
+      setAssets(page.assets);
+      setAfter(page.endCursor);
+      setHasMore(page.hasNextPage);
+      setReady(true);
+    },
+    [mediaType],
+  );
 
   // `onClose` is a fresh closure from the parent on every one of its
   // renders (`onClose={() => setPhotoPickerOpen(false)}`) — read it through
@@ -116,7 +141,12 @@ export function PhotoPickerSheet({
       }
       const albumList = await MediaLibrary.getAlbumsAsync({ includeSmartAlbums: true });
       if (cancelled) return;
-      setAlbums(albumList.filter((a) => a.assetCount > 0 && !VIDEO_ONLY_ALBUMS.has(a.title)));
+      // An all-video smart album (Videos, Slo-mo, …) used to be a dead end
+      // here — `mediaType: 'photo'` alone would show it empty. Now that video
+      // is included whenever the caller allows it, every non-empty album is
+      // worth listing; a photo-only caller (comments) just won't populate
+      // those albums' grids, same as before.
+      setAlbums(albumList.filter((a) => a.assetCount > 0));
       await loadFirstPage(null);
     })();
     return () => {
@@ -136,7 +166,7 @@ export function PhotoPickerSheet({
     if (!ready || loadingMore || !hasMore) return;
     setLoadingMore(true);
     const page = await MediaLibrary.getAssetsAsync({
-      mediaType: 'photo',
+      mediaType,
       sortBy: 'creationTime',
       first: PAGE_SIZE,
       after,
@@ -146,11 +176,36 @@ export function PhotoPickerSheet({
     setAfter(page.endCursor);
     setHasMore(page.hasNextPage);
     setLoadingMore(false);
-  }, [ready, loadingMore, hasMore, after, selectedAlbum]);
+  }, [ready, loadingMore, hasMore, after, selectedAlbum, mediaType]);
 
   const toggle = (id: string) => {
     tapLight();
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const sendVideo = async (asset: MediaLibrary.Asset) => {
+    if (!userId || sendingVideoId) return;
+    setSendingVideoId(asset.id);
+    try {
+      const info = await MediaLibrary.getAssetInfoAsync(asset);
+      const localUri = info.localUri ?? asset.uri;
+      const url = await uploadVideo(
+        userId,
+        { uri: localUri, mimeType: videoMimeFromFilename(asset.filename) },
+        'chat-media',
+      );
+      if (!url) {
+        showAlert('Couldn’t send that video', 'Please try again.');
+        return;
+      }
+      onSendVideo?.(url);
+      onClose();
+    } catch (e) {
+      if (__DEV__) console.warn('[Plated] video read/upload failed', e);
+      showAlert('Couldn’t send that video', 'Please try again.');
+    } finally {
+      setSendingVideoId(null);
+    }
   };
 
   const send = async () => {
@@ -260,8 +315,15 @@ export function PhotoPickerSheet({
             renderItem={({ item }) => {
               const order = selected.indexOf(item.id);
               const isSelected = order >= 0;
+              const isVideo = item.mediaType === 'video';
+              // A video is its own message the instant it's tapped — never
+              // added to the multi-select batch, so it gets no number badge,
+              // just the play glyph + length every gallery uses for this.
               return (
-                <Pressable onPress={() => toggle(item.id)} style={{ width: cellSize, height: cellSize }}>
+                <Pressable
+                  onPress={() => (isVideo ? sendVideo(item) : toggle(item.id))}
+                  disabled={isVideo && sendingVideoId === item.id}
+                  style={{ width: cellSize, height: cellSize }}>
                   <Image
                     source={{ uri: item.uri }}
                     recyclingKey={item.id}
@@ -277,16 +339,33 @@ export function PhotoPickerSheet({
                     style={styles.thumb}
                     contentFit="cover"
                   />
-                  <View
-                    style={[
-                      styles.badge,
-                      {
-                        backgroundColor: isSelected ? colors.accent : 'rgba(0,0,0,0.35)',
-                        borderColor: '#fff',
-                      },
-                    ]}>
-                    {isSelected && <Text style={styles.badgeText}>{order + 1}</Text>}
-                  </View>
+                  {isVideo ? (
+                    <>
+                      <View style={styles.videoDuration}>
+                        <Text style={styles.videoDurationText}>{formatDuration(item.duration * 1000)}</Text>
+                      </View>
+                      {sendingVideoId === item.id ? (
+                        <View style={styles.videoPlayBadge}>
+                          <ActivityIndicator size="small" color="#fff" />
+                        </View>
+                      ) : (
+                        <View style={styles.videoPlayBadge}>
+                          <Ionicons name="play" size={13} color="#fff" />
+                        </View>
+                      )}
+                    </>
+                  ) : (
+                    <View
+                      style={[
+                        styles.badge,
+                        {
+                          backgroundColor: isSelected ? colors.accent : 'rgba(0,0,0,0.35)',
+                          borderColor: '#fff',
+                        },
+                      ]}>
+                      {isSelected && <Text style={styles.badgeText}>{order + 1}</Text>}
+                    </View>
+                  )}
                 </Pressable>
               );
             }}
@@ -376,6 +455,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  videoDuration: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  videoDurationText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  videoPlayBadge: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginTop: -14,
+    marginLeft: -14,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
   sendBar: {
     position: 'absolute',
     left: 0,

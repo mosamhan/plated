@@ -11,7 +11,7 @@ import { CURRENT_USER_ID } from '@/data/users';
  * same way ORDERS/PLATOS work.
  */
 
-export type MessageKind = 'text' | 'plate' | 'plato' | 'story_reply' | 'voice' | 'image' | 'restaurant';
+export type MessageKind = 'text' | 'plate' | 'plato' | 'story_reply' | 'voice' | 'image' | 'video' | 'restaurant';
 
 export interface Message {
   id: string;
