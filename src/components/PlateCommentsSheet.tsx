@@ -1,6 +1,5 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { Image } from 'expo-image';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -9,15 +8,15 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
+import { CommentComposer } from '@/components/CommentComposer';
 import { Comment } from '@/data/types';
-import { tapLight, tapMedium } from '@/lib/haptics';
+import { tapMedium } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
 import { useSettings } from '@/store/SettingsContext';
 import { displayFont } from '@/theme/fonts';
@@ -59,21 +58,11 @@ export function PlateCommentsSheet({
   const { height } = useWindowDimensions();
   const { commentsFor, addComment, userFor, orders } = useData();
   const { isHidden } = useSettings();
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef<TextInput>(null);
 
   const order = orders.find((o) => o.id === orderId);
   // Hidden-words filtering is applied here rather than in the context: the
   // list is the author's own setting, and it only governs what *they* see.
   const comments = commentsFor(orderId).filter((c) => !isHidden(c.text));
-
-  const submit = () => {
-    const text = draft.trim();
-    if (!text) return;
-    addComment(orderId, text);
-    setDraft('');
-    tapLight();
-  };
 
   const report = (c: Comment) => {
     tapMedium();
@@ -125,7 +114,10 @@ export function PlateCommentsSheet({
                           {timeAgo(c.createdAt)}
                         </Text>
                       </View>
-                      <Text style={[styles.text, { color: colors.text }]}>{c.text}</Text>
+                      {!!c.text && <Text style={[styles.text, { color: colors.text }]}>{c.text}</Text>}
+                      {c.imageUrl && (
+                        <Image source={{ uri: c.imageUrl }} style={styles.commentImage} contentFit="cover" />
+                      )}
                     </View>
                   </Pressable>
                 );
@@ -142,34 +134,7 @@ export function PlateCommentsSheet({
 
             {!order?.commentsDisabled && (
               <View style={[styles.composer, { borderTopColor: colors.border }]}>
-                <TextInput
-                  ref={inputRef}
-                  value={draft}
-                  onChangeText={setDraft}
-                  placeholder="Add a comment…"
-                  placeholderTextColor={colors.textMuted}
-                  onSubmitEditing={submit}
-                  returnKeyType="send"
-                  multiline
-                  style={[
-                    styles.input,
-                    { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
-                  ]}
-                />
-                <Pressable
-                  onPress={submit}
-                  disabled={!draft.trim()}
-                  hitSlop={6}
-                  style={[
-                    styles.send,
-                    { backgroundColor: draft.trim() ? colors.accent : colors.border },
-                  ]}>
-                  <Ionicons
-                    name="arrow-up"
-                    size={18}
-                    color={draft.trim() ? colors.accentText : colors.textMuted}
-                  />
-                </Pressable>
+                <CommentComposer onSubmit={(text, imageUrl) => addComment(orderId, text, imageUrl)} />
               </View>
             )}
           </Pressable>
@@ -196,25 +161,7 @@ const styles = StyleSheet.create({
   name: { fontSize: 14, fontWeight: '800' },
   time: { fontSize: 12, fontWeight: '600' },
   text: { fontSize: 14, fontWeight: '500', lineHeight: 19, marginTop: 2 },
+  commentImage: { width: 140, height: 140, borderRadius: radius.md, marginTop: 6 },
   blank: { fontSize: 14, fontWeight: '500', paddingVertical: 8 },
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  input: {
-    flex: 1,
-    minHeight: 40,
-    maxHeight: 110,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 10,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  send: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  composer: { paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
 });

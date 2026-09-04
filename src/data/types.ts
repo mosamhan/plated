@@ -170,6 +170,8 @@ export interface Comment {
   orderId: string;
   userId: string;
   text: string;
+  /** A single attached photo or sticker/GIF — same shape either way, just a URL. */
+  imageUrl?: string;
   createdAt: string;
 }
 

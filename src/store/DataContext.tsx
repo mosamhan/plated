@@ -124,7 +124,7 @@ interface DataContextValue {
 
   // comments
   commentsFor: (orderId: string) => Comment[];
-  addComment: (orderId: string, text: string) => void;
+  addComment: (orderId: string, text: string, imageUrl?: string) => void;
 
   // notifications
   notifications: AppNotification[];
@@ -744,15 +744,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [comments, blocked],
   );
   const addComment = useCallback(
-    (orderId: string, text: string) => {
+    (orderId: string, text: string, imageUrl?: string) => {
       const tempId = `c${Date.now()}`;
-      const optimistic: Comment = { id: tempId, orderId, userId: currentUserId, text, createdAt: new Date().toISOString() };
+      const optimistic: Comment = {
+        id: tempId,
+        orderId,
+        userId: currentUserId,
+        text,
+        imageUrl,
+        createdAt: new Date().toISOString(),
+      };
       setComments((p) => [...p, optimistic]);
       adjustOrderCount(orderId, 'comments', 1);
       if (live && userId) {
-        supabase.from('comments').insert({ order_id: orderId, user_id: userId, text }).select().single().then(({ data }) => {
-          if (data) setComments((p) => p.map((c) => (c.id === tempId ? mapComment(data) : c)));
-        });
+        supabase
+          .from('comments')
+          .insert({ order_id: orderId, user_id: userId, text, image_url: imageUrl ?? null })
+          .select()
+          .single()
+          .then(({ data }) => {
+            if (data) setComments((p) => p.map((c) => (c.id === tempId ? mapComment(data) : c)));
+          });
       }
     },
     [currentUserId, live, userId],

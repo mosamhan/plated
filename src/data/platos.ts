@@ -58,6 +58,8 @@ export interface PlatoComment {
   handle: string;
   avatar: string;
   text: string;
+  /** A single attached photo or sticker/GIF — same shape either way, just a URL. */
+  imageUrl?: string;
   likes: number;
   createdAt: string;
 }

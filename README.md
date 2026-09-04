@@ -61,13 +61,16 @@ and unlocks features a venue-rating app structurally can't offer:
   (decoupled from rating sentiment — FTC 16 CFR 465 compliant), with a full earnings dashboard.
 - **🛵 Order hand-off, not payments** — a provider sheet deep-links to DoorDash / Uber Eats /
   pickup. Discovery is the product; logistics stay a commodity.
-- **💬 Real-time messaging** — 1:1 and group chats over Supabase Realtime: voice notes, photo
-  albums, GIF search (Giphy), rich link previews for pasted URLs, @mentions, message
+- **💬 Real-time messaging** — 1:1 and group chats over Supabase Realtime: voice notes, photo and
+  video albums, GIF/sticker search (Giphy), rich link previews for pasted URLs, @mentions, message
   edit/pin/reply, typing presence, read receipts, and per-conversation streaks.
 - **🗂️ Shared collections** — a collection owned by a conversation instead of one person: any
   member (group or 1:1) can add plates/Platos/restaurants to it from anywhere in the app, the same
   way they'd save to their own list. It shows up in each member's profile as **Shared**, private to
   the conversation until its creator opens it up publicly.
+- **💭 Comment attachments & mentions** — Plate/Plato comments carry a photo or sticker alongside
+  text, and @mentioning a friend (scoped to who you follow, not the whole app) notifies them so
+  they can see the post you wanted to show them.
 
 ---
 
