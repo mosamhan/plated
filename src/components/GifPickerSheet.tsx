@@ -12,8 +12,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
-import { SegmentedPill } from '@/components/discover/SegmentedPill';
-import { GifResult, searchGifs } from '@/lib/giphy';
+import { GifResult, searchStickers } from '@/lib/giphy';
 import { tapLight } from '@/lib/haptics';
 import { displayFont } from '@/theme/fonts';
 import { radius, spacing } from '@/theme/palettes';
@@ -21,14 +20,9 @@ import { useTheme } from '@/theme/ThemeContext';
 
 const COLUMNS = 3;
 const CELL_GAP = 3;
-const KINDS = [
-  { key: 'gifs', label: 'GIFs' },
-  { key: 'stickers', label: 'Stickers' },
-] as const;
-type GifKind = (typeof KINDS)[number]['key'];
 
 /**
- * The manual browse/search grid behind the composer's dedicated GIF/sticker
+ * The manual browse/search grid behind the composer's dedicated Stickers
  * button — the fallback for browsing on your own terms (trending, a specific
  * search) alongside the predictive `GifSuggestionRail`, which only ever shows
  * matches for what's already being typed. Visually modeled on
@@ -38,46 +32,49 @@ type GifKind = (typeof KINDS)[number]['key'];
  * the device's photo library, and a debounced search bar stands in for the
  * album dropdown.
  *
+ * One mixed feed of Giphy GIFs and Giphy stickers (`searchStickers`) rather
+ * than a GIFs/Stickers toggle — they're the same kind of thing to a user
+ * reaching for a reaction, and splitting them into two tabs the user had to
+ * switch between was a UI step without a real distinction.
+ *
  * Used two ways: `GifPicker` is the bare grid (reused wherever it needs to
  * render inline), and `GifPickerModal` wraps it in its own sheet — a
  * dedicated composer icon, not a tab buried inside the general attach/share
- * sheet, since GIFs/stickers are used often enough to earn their own button
- * (matching Instagram/iMessage's own composer row).
+ * sheet, since it's used often enough to earn its own button (matching
+ * Instagram/iMessage's own composer row).
  */
 export function GifPicker({ onPick }: { onPick: (url: string) => void }) {
   const { colors } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const cellSize = (windowWidth - spacing.lg * 2 - (COLUMNS - 1) * CELL_GAP) / COLUMNS;
 
-  const [kind, setKind] = useState<GifKind>('gifs');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GifResult[]>([]);
   const [loading, setLoading] = useState(true);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const search = useCallback(async (q: string, k: GifKind) => {
+  const search = useCallback(async (q: string) => {
     setLoading(true);
-    const r = await searchGifs(q, k);
+    const r = await searchStickers(q);
     setLoading(false);
     setResults(r);
   }, []);
 
-  // Trending the moment this tab opens or you switch GIFs/Stickers. `search`
-  // only sets state after awaiting the network — the rule can't see past the
-  // function call, same as this codebase's other load-on-mount effects
-  // (conversationStreak.ts, useMessagePins.ts).
+  // Trending the moment this sheet opens — `search` only sets state after
+  // awaiting the network, so the rule can't see past the function call, same
+  // as this codebase's other load-on-mount effects (conversationStreak.ts,
+  // useMessagePins.ts).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    search(query, kind);
-    // Only kind changing (not query) should re-trigger immediately — typing
-    // is debounced separately below.
+    search(query);
+    // Runs once on mount only — typing is debounced separately below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, search]);
+  }, [search]);
 
   const onChangeQuery = (q: string) => {
     setQuery(q);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => search(q, kind), 350);
+    debounceTimer.current = setTimeout(() => search(q), 350);
   };
 
   useEffect(
@@ -94,12 +91,11 @@ export function GifPicker({ onPick }: { onPick: (url: string) => void }) {
           <TextInput
             value={query}
             onChangeText={onChangeQuery}
-            placeholder={`Search ${kind === 'gifs' ? 'GIFs' : 'stickers'}`}
+            placeholder="Search stickers"
             placeholderTextColor={colors.textMuted}
             style={[styles.searchInput, { color: colors.text }]}
           />
         </View>
-        <SegmentedPill value={kind} onChange={setKind} options={[...KINDS]} minWidth={0} fontSize={13} compact />
       </View>
 
       {loading && results.length === 0 ? (
@@ -109,7 +105,7 @@ export function GifPicker({ onPick }: { onPick: (url: string) => void }) {
       ) : (
         <FlatList
           data={results}
-          keyExtractor={(g) => g.id}
+          keyExtractor={(g) => `${g.kind}-${g.id}`}
           numColumns={COLUMNS}
           contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: 8, paddingBottom: 24 }}
           columnWrapperStyle={{ gap: CELL_GAP }}
@@ -128,7 +124,7 @@ export function GifPicker({ onPick }: { onPick: (url: string) => void }) {
               style={{ width: cellSize, height: cellSize }}>
               <Image
                 source={{ uri: item.previewUrl }}
-                recyclingKey={item.id}
+                recyclingKey={`${item.kind}-${item.id}`}
                 cachePolicy="memory-disk"
                 transition={0}
                 style={styles.thumb}
@@ -143,10 +139,10 @@ export function GifPicker({ onPick }: { onPick: (url: string) => void }) {
 }
 
 /**
- * The composer's dedicated GIF/sticker sheet — its own bottom sheet (same
- * shell as `AttachSheet`/`SendToSheet`: transparent `Modal`, backdrop-tap to
- * close, slide-up sheet) rather than a tab living inside the general
- * plate/plato/restaurant share sheet, since reaching for a GIF is common
+ * The composer's dedicated Stickers sheet — its own bottom sheet (same shell
+ * as `AttachSheet`/`SendToSheet`: transparent `Modal`, backdrop-tap to close,
+ * slide-up sheet) rather than a tab living inside the general
+ * plate/plato/restaurant share sheet, since reaching for a sticker is common
  * enough in a chat composer to earn a one-tap button of its own.
  */
 export function GifPickerModal({
@@ -169,7 +165,7 @@ export function GifPickerModal({
           style={[styles.modalSheet, { backgroundColor: colors.card, height: sheetHeight }]}
           onPress={(e) => e.stopPropagation()}>
           <View style={[styles.grabber, { backgroundColor: colors.border }]} />
-          <Text style={[styles.modalTitle, { color: colors.text, fontFamily: displayFont }]}>GIFs & stickers</Text>
+          <Text style={[styles.modalTitle, { color: colors.text, fontFamily: displayFont }]}>Stickers</Text>
           <GifPicker
             onPick={(url) => {
               onPick(url);
