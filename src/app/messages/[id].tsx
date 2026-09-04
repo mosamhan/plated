@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { GifPicker } from '@/components/GifPickerSheet';
+import { GifPickerModal } from '@/components/GifPickerSheet';
 import { GifSuggestionRail } from '@/components/GifSuggestionRail';
 import { MessageActionsSheet } from '@/components/MessageActionsSheet';
 import { PhotoPickerSheet } from '@/components/PhotoPickerSheet';
@@ -101,6 +101,7 @@ export default function Thread() {
 
   const [draft, setDraft] = useState('');
   const [attachOpen, setAttachOpen] = useState(false);
+  const [gifOpen, setGifOpen] = useState(false);
   // The message the long-press menu is acting on, and the one being replied to.
   const [actionTarget, setActionTarget] = useState<Message | null>(null);
   const [actionAnchor, setActionAnchor] = useState<MessageAnchor | null>(null);
@@ -387,7 +388,7 @@ export default function Thread() {
   // step, just the URL straight through.
   const onPickGif = (url: string) => {
     if (!id) return;
-    setAttachOpen(false);
+    setGifOpen(false);
     tapLight();
     sendMessage(id, { kind: 'image', attachmentIds: [url] }).catch(() => {});
   };
@@ -492,6 +493,12 @@ export default function Thread() {
           // hangs below its bubble — isn't clipped by the composer.
           contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xl }}
           showsVerticalScrollIndicator={false}
+          // Dragging down over the conversation dismisses the keyboard in step
+          // with the finger (iOS) — the same "pull the keyboard away to see more
+          // of the thread" feel as Messages/Instagram DMs. Android has no
+          // interactive-tracking keyboard mode, so it falls back to dismissing
+          // as soon as the drag starts.
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           onContentSizeChange={scrollToEnd}
           onScroll={onListScroll}
           scrollEventThrottle={100}
@@ -680,6 +687,15 @@ export default function Thread() {
                   style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Ionicons name="image-outline" size={19} color={colors.accent} />
                 </Pressable>
+                <Pressable
+                  onPress={() => {
+                    tapLight();
+                    setGifOpen(true);
+                  }}
+                  hitSlop={8}
+                  style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Ionicons name="happy-outline" size={19} color={colors.accent} />
+                </Pressable>
                 <TextInput
                   value={draft}
                   onChangeText={(t) => {
@@ -744,12 +760,9 @@ export default function Thread() {
         />
       )}
 
-      <AttachSheet
-        visible={attachOpen}
-        onClose={() => setAttachOpen(false)}
-        onPick={onShareAttachment}
-        onPickGif={onPickGif}
-      />
+      <AttachSheet visible={attachOpen} onClose={() => setAttachOpen(false)} onPick={onShareAttachment} />
+
+      <GifPickerModal visible={gifOpen} onClose={() => setGifOpen(false)} onPick={onPickGif} />
 
       <MessageActionsSheet
         visible={!!actionTarget}
@@ -1037,8 +1050,8 @@ function SearchOverlay({
  * this" almost always means — anything else is a share from the post itself,
  * which the Send-to sheet already handles.
  */
-type AttachTab = 'Plates' | 'Platos' | 'Restaurants' | 'GIFs';
-const ATTACH_TABS: AttachTab[] = ['Plates', 'Platos', 'Restaurants', 'GIFs'];
+type AttachTab = 'Plates' | 'Platos' | 'Restaurants';
+const ATTACH_TABS: AttachTab[] = ['Plates', 'Platos', 'Restaurants'];
 const ALL_COLLECTIONS = 'All';
 
 /**
@@ -1055,13 +1068,10 @@ function AttachSheet({
   visible,
   onClose,
   onPick,
-  onPickGif,
 }: {
   visible: boolean;
   onClose: () => void;
   onPick: (kind: 'plate' | 'plato' | 'restaurant', attachmentId: string) => void;
-  /** A GIF/sticker sends immediately as an ordinary `kind: 'image'` message — Giphy already hosts the asset, so there's no upload step. */
-  onPickGif: (url: string) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -1129,7 +1139,7 @@ function AttachSheet({
             />
           </View>
 
-          {tab !== 'GIFs' && collectionNames.length > 0 && (
+          {collectionNames.length > 0 && (
             <View style={styles.attachFilterRow}>
               <UnderlineTabs
                 tabs={[ALL_COLLECTIONS, ...collectionNames]}
@@ -1140,11 +1150,7 @@ function AttachSheet({
             </View>
           )}
 
-          {tab === 'GIFs' ? (
-            <View style={{ height: 420, marginTop: 8 }}>
-              <GifPicker onPick={onPickGif} />
-            </View>
-          ) : empty ? (
+          {empty ? (
             <Text style={[styles.blank, { color: colors.textMuted }]}>
               {tab === 'Plates'
                 ? 'You haven’t posted or saved a plate yet.'

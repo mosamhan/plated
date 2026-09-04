@@ -1,11 +1,22 @@
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
 import { SegmentedPill } from '@/components/discover/SegmentedPill';
 import { GifResult, searchGifs } from '@/lib/giphy';
 import { tapLight } from '@/lib/haptics';
-import { spacing } from '@/theme/palettes';
+import { displayFont } from '@/theme/fonts';
+import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 const COLUMNS = 3;
@@ -17,19 +28,21 @@ const KINDS = [
 type GifKind = (typeof KINDS)[number]['key'];
 
 /**
- * The manual "GIFs" tab inside the composer's Share sheet (`AttachSheet` in
- * `messages/[id].tsx`) — the fallback for browsing/searching on your own
- * terms (trending, a specific search) alongside the predictive
- * `GifSuggestionRail`, which only ever shows matches for what's already
- * being typed. Visually modeled on `PhotoPickerSheet`'s own grid
- * (virtualized FlatList, `recyclingKey`/`cachePolicy` on every cell since
- * these thumbnails are heavier than a static photo), but the data comes from
- * the `giphy` Edge Function instead of the device's photo library, and a
- * debounced search bar stands in for the album dropdown.
+ * The manual browse/search grid behind the composer's dedicated GIF/sticker
+ * button — the fallback for browsing on your own terms (trending, a specific
+ * search) alongside the predictive `GifSuggestionRail`, which only ever shows
+ * matches for what's already being typed. Visually modeled on
+ * `PhotoPickerSheet`'s own grid (virtualized FlatList, `recyclingKey`/
+ * `cachePolicy` on every cell since these thumbnails are heavier than a
+ * static photo), but the data comes from the `giphy` Edge Function instead of
+ * the device's photo library, and a debounced search bar stands in for the
+ * album dropdown.
  *
- * Not its own `Modal` — it renders inline inside the AttachSheet that's
- * already open, the same way the Plates/Platos/Restaurants tabs render
- * inline content rather than each opening a separate sheet.
+ * Used two ways: `GifPicker` is the bare grid (reused wherever it needs to
+ * render inline), and `GifPickerModal` wraps it in its own sheet — a
+ * dedicated composer icon, not a tab buried inside the general attach/share
+ * sheet, since GIFs/stickers are used often enough to earn their own button
+ * (matching Instagram/iMessage's own composer row).
  */
 export function GifPicker({ onPick }: { onPick: (url: string) => void }) {
   const { colors } = useTheme();
@@ -129,6 +142,46 @@ export function GifPicker({ onPick }: { onPick: (url: string) => void }) {
   );
 }
 
+/**
+ * The composer's dedicated GIF/sticker sheet — its own bottom sheet (same
+ * shell as `AttachSheet`/`SendToSheet`: transparent `Modal`, backdrop-tap to
+ * close, slide-up sheet) rather than a tab living inside the general
+ * plate/plato/restaurant share sheet, since reaching for a GIF is common
+ * enough in a chat composer to earn a one-tap button of its own.
+ */
+export function GifPickerModal({
+  visible,
+  onClose,
+  onPick,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onPick: (url: string) => void;
+}) {
+  const { colors } = useTheme();
+  const { height: windowHeight } = useWindowDimensions();
+  const sheetHeight = Math.round(windowHeight * 0.72);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable
+          style={[styles.modalSheet, { backgroundColor: colors.card, height: sheetHeight }]}
+          onPress={(e) => e.stopPropagation()}>
+          <View style={[styles.grabber, { backgroundColor: colors.border }]} />
+          <Text style={[styles.modalTitle, { color: colors.text, fontFamily: displayFont }]}>GIFs & stickers</Text>
+          <GifPicker
+            onPick={(url) => {
+              onPick(url);
+              onClose();
+            }}
+          />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: spacing.lg, paddingBottom: 8 },
   searchWrap: { flex: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12 },
@@ -136,4 +189,8 @@ const styles = StyleSheet.create({
   loadingFill: { paddingVertical: 60, alignItems: 'center', justifyContent: 'center' },
   thumb: { width: '100%', height: '100%', borderRadius: 6 },
   blank: { fontSize: 14, fontWeight: '500', textAlign: 'center', marginTop: 40, width: '100%' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalSheet: { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, paddingTop: 10 },
+  grabber: { width: 40, height: 5, borderRadius: 3, alignSelf: 'center', marginBottom: 10 },
+  modalTitle: { fontSize: 17, fontWeight: '800', textAlign: 'center', marginBottom: 10 },
 });
