@@ -85,6 +85,122 @@ export function affinityFor(scores: TasteAffinity, type: PlaceType): number {
  * landing in the same order every time, which is what a plain sort by score
  * alone would otherwise do.
  */
+/**
+ * The taste-profile dashboard's "progress names" — a fun, escalating ladder
+ * so a category's score reads as a level-up rather than a bare number.
+ * Thresholds are paced against TASTE_WEIGHTS above: picking a category at
+ * onboarding alone (4) doesn't clear Fan on its own — one more real signal
+ * (a reorder, a couple of likes) does, so the first level-up feels earned
+ * by using the app, not just by ticking a box once.
+ */
+export const TASTE_TIERS = [
+  { min: 0, name: 'Curious' },
+  { min: 5, name: 'Fan' },
+  { min: 12, name: 'Regular' },
+  { min: 22, name: 'Enthusiast' },
+  { min: 35, name: 'Connoisseur' },
+  { min: 55, name: 'Legend' },
+] as const;
+
+export interface TasteTierProgress {
+  tier: string;
+  /** Absent on the top tier — there's nothing further to climb toward. */
+  nextTier?: string;
+  /** 0–1 progress toward nextTier; 1 (maxed) when already on the top tier. */
+  progress: number;
+}
+
+export function tierProgress(score: number): TasteTierProgress {
+  let current: (typeof TASTE_TIERS)[number] = TASTE_TIERS[0];
+  let next: (typeof TASTE_TIERS)[number] | undefined;
+  for (let i = 0; i < TASTE_TIERS.length; i++) {
+    if (score >= TASTE_TIERS[i].min) current = TASTE_TIERS[i];
+    else {
+      next = TASTE_TIERS[i];
+      break;
+    }
+  }
+  if (!next) return { tier: current.name, progress: 1 };
+  const span = next.min - current.min;
+  return { tier: current.name, nextTier: next.name, progress: span > 0 ? (score - current.min) / span : 1 };
+}
+
+export interface CategoryRank {
+  type: PlaceType;
+  score: number;
+  tier: string;
+  nextTier?: string;
+  progress: number;
+}
+
+/**
+ * The dashboard's ranked list — every category with a real signal, plus any
+ * onboarding pick even at a low score (the user told us directly; a 0.25-
+ * point view shouldn't be the only thing deciding whether it's worth
+ * showing), minus anything muted as "not really me". Muting is a hard
+ * filter here, on top of the heavy negative weight it already carries in
+ * computeTasteAffinity — dismissed is dismissed, not just downweighted.
+ */
+export function rankCategories(
+  affinity: TasteAffinity,
+  onboarding: PlaceType[],
+  muted: PlaceType[],
+): CategoryRank[] {
+  const mutedSet = new Set(muted);
+  const types = new Set<PlaceType>([...Object.keys(affinity) as PlaceType[], ...onboarding]);
+  const ranked: CategoryRank[] = [];
+  for (const type of types) {
+    if (!SCORABLE(type) || mutedSet.has(type)) continue;
+    const score = affinityFor(affinity, type);
+    if (score <= 0 && !onboarding.includes(type)) continue;
+    ranked.push({ type, score, ...tierProgress(score) });
+  }
+  return ranked.sort((a, b) => b.score - a.score);
+}
+
+/** The dashboard's headline — "The Pizza Enthusiast" for a real top category, a plain invitation before there's enough signal to say anything. */
+export function archetypeTitle(ranked: CategoryRank[], labelOf: (type: PlaceType) => string): string {
+  if (ranked.length === 0 || ranked[0].score <= 0) return 'Just Getting Started';
+  return `The ${labelOf(ranked[0].type)} ${ranked[0].tier}`;
+}
+
+/** One weighted, dated interaction — a like, a save, a reorder, a share, or
+ *  an onboarding pick — feeding the "how this developed over time" chart. */
+export interface TasteEvent {
+  createdAt: string;
+  type: PlaceType;
+  weight: number;
+}
+
+export interface TasteHistoryPoint {
+  weekStart: string;
+  /** Cumulative total across every category up to and including this week. */
+  total: number;
+}
+
+/**
+ * Buckets dated interactions into weekly cumulative totals for a simple
+ * growth sparkline — deliberately one combined total rather than a line per
+ * category (this codebase hand-rolls small charts rather than pulling in a
+ * charting library; a multi-series chart isn't worth that trade-off here).
+ * `baseline` is added to every point — the onboarding picks' weight, which
+ * has no single interaction timestamp of its own (only "current picks as of
+ * now"), so it reads as a floor under the real, dated activity rather than
+ * a dated event that would otherwise have to be pinned to some arbitrary day.
+ */
+export function buildTasteHistory(events: TasteEvent[], baseline: number, weeks = 8): TasteHistoryPoint[] {
+  const now = Date.now();
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const points: TasteHistoryPoint[] = [];
+  const sorted = [...events].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
+  for (let w = weeks - 1; w >= 0; w--) {
+    const cutoff = now - w * WEEK_MS;
+    const total = sorted.reduce((sum, e) => (+new Date(e.createdAt) <= cutoff ? sum + e.weight : sum), baseline);
+    points.push({ weekStart: new Date(cutoff).toISOString(), total });
+  }
+  return points;
+}
+
 export function rankByAffinity<T>(
   items: T[],
   idOf: (item: T) => string,

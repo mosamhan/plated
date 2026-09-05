@@ -27,6 +27,8 @@ export interface User {
   tasteCategories?: string[];
   /** False until the "choose your interests" step has been completed once. Optional — treated as already-done (true) when absent, so mock/offline data never shows the picker. */
   tasteOnboarded?: boolean;
+  /** PlaceType keys dismissed as "not really me" from the taste-profile dashboard — see 0072_taste_profile_muted.sql. Optional — absent (empty) for mock/offline data. */
+  tasteMuted?: string[];
 }
 
 export interface RestaurantRequestInput {

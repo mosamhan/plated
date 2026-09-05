@@ -107,6 +107,7 @@ export default function Settings() {
       { section: 'How you use Plated', icon: 'location-outline', label: 'Location', value: location.label, route: '/settings/location' },
       { section: 'How you use Plated', icon: 'bicycle-outline', label: 'Preferred delivery app', value: ORDER_PROVIDER_LABELS[settings.preferredOrderProvider], onPress: () => setOrderProviderSheetOpen(true), keywords: 'doordash ubereats delivery order' },
       { section: 'How you use Plated', icon: 'map-outline', label: 'Preferred maps app', value: MAPS_APP_LABELS[settings.preferredMapsApp], onPress: () => setMapsAppSheetOpen(true), keywords: 'apple google directions navigation' },
+      { section: 'How you use Plated', icon: 'restaurant-outline', label: 'Taste Profile', route: '/taste-profile', keywords: 'algorithm recommendations personalization interests categories' },
 
       // ── Who can see your content ──────────────────────────────────────────
       { section: 'Who can see your content', icon: 'lock-closed-outline', label: 'Account privacy', value: settings.privateAccount ? 'Private' : 'Public', route: '/settings/privacy' },

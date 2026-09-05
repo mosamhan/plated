@@ -37,6 +37,7 @@ export function mapProfile(row: any): User {
     dateOfBirth: row.date_of_birth ?? undefined,
     tasteCategories: row.taste_categories ?? [],
     tasteOnboarded: !!row.taste_onboarded,
+    tasteMuted: row.taste_muted ?? [],
   };
 }
 
