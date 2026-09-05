@@ -85,6 +85,18 @@ export function PlatosFeed({
           showsVerticalScrollIndicator={false}
           decelerationRate="fast"
           onMomentumScrollEnd={onScrollEnd}
+          // Each row here is a full-screen `PlatoReel`, and every mounted one
+          // spins up a real native video decoder the instant it mounts —
+          // RN's own defaults (windowSize 21, initialNumToRender 10) would
+          // keep upwards of a dozen of those alive at once around a fast
+          // scroll, all competing for a phone's handful of hardware decode
+          // paths. Capped to roughly "current reel plus one neighbor each
+          // side" instead — still enough to preload the next reel for a
+          // smooth swipe, the same way TikTok/Instagram do it, just not
+          // twenty of them.
+          initialNumToRender={2}
+          maxToRenderPerBatch={2}
+          windowSize={3}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" colors={['#fff']} />
           }

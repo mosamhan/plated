@@ -442,8 +442,14 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
 
       {/* TikTok-style seek bar, flush to the bottom of the reel — hidden
           entirely while zoomed, unlike scrubbing, since there's nothing to
-          drag while both hands are busy pinching. */}
-      {!zooming && (
+          drag while both hands are busy pinching. Also gated on `active`:
+          it polls the player 4x/sec for as long as it's mounted, and with
+          several reels kept mounted around the current one for smooth
+          swiping (see PlatosFeed's windowSize), an unconditional scrubber
+          meant every one of those off-screen reels kept polling and
+          re-rendering forever — real, needless work piling up during a
+          scroll and a contributor to the freezing/stutter this fixes. */}
+      {active && !zooming && (
         <VideoScrubber player={player} bottom={bottomInset} onScrubbingChange={setScrubbing} />
       )}
 
