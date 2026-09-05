@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -84,6 +85,9 @@ export default function Thread() {
   const {
     conversationFor,
     messagesFor,
+    loadOlderMessages,
+    hasMoreOlderMessages,
+    loadingOlderMessages,
     otherIds,
     markRead,
     sendMessage,
@@ -265,6 +269,32 @@ export default function Thread() {
     listRef.current?.scrollToEnd({ animated: true });
   }, []);
 
+  // Scrolling up to reveal older messages grows the list's content height
+  // exactly like a new message arriving does — the difference is where the
+  // growth lands (the top, not the bottom), and a jump-to-bottom on every
+  // content-size change would otherwise yank the view back down the instant
+  // the older page prepends. These two refs let onContentSizeChange tell the
+  // two cases apart: `preservingScroll` marks that the *next* size change is
+  // from a prepend, and `anchorOffset`/`prevContentHeight` are what it needs
+  // to re-anchor the viewport on the same message instead of scrolling to end.
+  const preservingScroll = useRef(false);
+  const anchorOffset = useRef(0);
+  const prevContentHeight = useRef(0);
+
+  const onContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      if (preservingScroll.current) {
+        preservingScroll.current = false;
+        const delta = height - prevContentHeight.current;
+        if (delta > 0) listRef.current?.scrollToOffset({ offset: anchorOffset.current + delta, animated: false });
+      } else {
+        scrollToEnd();
+      }
+      prevContentHeight.current = height;
+    },
+    [scrollToEnd],
+  );
+
   // Cleared on unmount so a delayed flash never fires into a screen that's
   // moved on to a different thread.
   useEffect(() => () => {
@@ -312,15 +342,23 @@ export default function Thread() {
 
   // Inverted-free FlatList: content grows downward like any normal list, so
   // "near the bottom" means the remaining scrollable distance below the
-  // viewport is small, not that contentOffset itself is near zero.
+  // viewport is small, not that contentOffset itself is near zero. Symmetrically,
+  // "near the top" — where scrolling up should fetch older history — really is
+  // contentOffset.y itself being small, since the top of the content is index 0.
   const JUMP_THRESHOLD = 400;
+  const LOAD_OLDER_THRESHOLD = 300;
   const onListScroll = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
       const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
       setShowJumpToLatest(distanceFromBottom > JUMP_THRESHOLD);
+      if (id && contentOffset.y < LOAD_OLDER_THRESHOLD && hasMoreOlderMessages(id) && !loadingOlderMessages(id)) {
+        anchorOffset.current = contentOffset.y;
+        preservingScroll.current = true;
+        loadOlderMessages(id);
+      }
     },
-    [],
+    [id, hasMoreOlderMessages, loadingOlderMessages, loadOlderMessages],
   );
 
   const onSend = () => {
@@ -509,7 +547,7 @@ export default function Thread() {
           // interactive-tracking keyboard mode, so it falls back to dismissing
           // as soon as the drag starts.
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          onContentSizeChange={scrollToEnd}
+          onContentSizeChange={onContentSizeChange}
           onScroll={onListScroll}
           scrollEventThrottle={100}
           onScrollToIndexFailed={onScrollToIndexFailed}
@@ -526,6 +564,18 @@ export default function Thread() {
             ) : null
           }
         />
+
+        {id && loadingOlderMessages(id) && (
+          // An overlay, not a ListHeaderComponent — a header row would itself
+          // change the FlatList's content height the moment it appears, which
+          // is exactly the signal onContentSizeChange uses to decide whether
+          // to preserve scroll position vs. jump to the end (see
+          // preservingScroll above). Layering it on top instead means the
+          // spinner's own appearance never touches content size at all.
+          <View pointerEvents="none" style={styles.historySpinner}>
+            <ActivityIndicator size="small" color={colors.textMuted} />
+          </View>
+        )}
 
         {showJumpToLatest && (
           // A full-bleed, untouchable layer that only aligns its one real
@@ -1313,6 +1363,7 @@ function RestaurantRow({ restaurant, onPress }: { restaurant: RestaurantWithRati
 }
 
 const styles = StyleSheet.create({
+  historySpinner: { position: 'absolute', top: 8, left: 0, right: 0, alignItems: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

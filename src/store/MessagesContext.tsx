@@ -65,6 +65,11 @@ interface MessagesContextValue {
   messagesFor: (conversationId: string) => Message[];
   lastMessageFor: (conversationId: string) => Message | undefined;
   unreadFor: (conversationId: string) => number;
+  /** Fetch the next page of history further back than what's currently loaded. */
+  loadOlderMessages: (conversationId: string) => Promise<void>;
+  /** False once a fetch for this thread came back short of a full page. */
+  hasMoreOlderMessages: (conversationId: string) => boolean;
+  loadingOlderMessages: (conversationId: string) => boolean;
   /** Everyone in the thread but you. */
   otherIds: (conversation: Conversation) => string[];
 
@@ -168,6 +173,8 @@ const EPOCH = '1970-01-01T00:00:00.000Z';
 // screen. Older messages are still in the table; a thread that outgrows this
 // wants proper windowed loading, which nothing in the UI needs yet.
 const MESSAGE_LIMIT = 600;
+// How many older messages a single "scroll up" fetches for one thread.
+const MESSAGE_PAGE_SIZE = 40;
 
 const byOldestFirst = (a: Message, b: Message) => +new Date(a.createdAt) - +new Date(b.createdAt);
 
@@ -195,6 +202,20 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     knownConversations.current = new Set(conversations.map((c) => c.id));
   }, [conversations]);
+
+  // Per-thread "scroll up for more" cursor. A ref, not state: it's read and
+  // written synchronously inside loadOlderMessages (both to decide whether to
+  // fetch at all and to guard against firing twice for the same thread while
+  // the first request is still in flight) and refs are the only thing that's
+  // never stale across the rapid-fire scroll events that trigger it.
+  const oldestByConversation = useRef<Record<string, string>>({});
+  const loadingOlderRef = useRef<Record<string, boolean>>({});
+  const [olderLoading, setOlderLoading] = useState<Record<string, boolean>>({});
+  // Absent (undefined) reads as "maybe more" — only an explicit `false`, set
+  // once a fetch comes back shorter than a full page, means a thread is
+  // exhausted. That way a thread nobody has paginated yet doesn't need its
+  // own bookkeeping before the first scroll-up.
+  const [olderExhausted, setOlderExhausted] = useState<Record<string, boolean>>({});
 
   // ── Load ────────────────────────────────────────────────────────────────────
   const loadFromSupabase = useCallback(async (uid: string) => {
@@ -239,6 +260,19 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     setConversations((convsRes.data ?? []).map(mapConversation));
     setMessages(loaded);
 
+    // The oldest message loaded so far per thread — where loadOlderMessages
+    // resumes from. A thread that got none of this bootstrap's budget (an
+    // inactive one, crowded out by busier threads sharing MESSAGE_LIMIT) has
+    // no cursor yet; its first "scroll up" simply has nothing to page from
+    // until it's opened, which re-runs this same bootstrap read.
+    const oldestMap: Record<string, string> = {};
+    for (const m of loaded) {
+      if (!oldestMap[m.conversationId] || m.createdAt < oldestMap[m.conversationId]) {
+        oldestMap[m.conversationId] = m.createdAt;
+      }
+    }
+    oldestByConversation.current = oldestMap;
+
     // Reactions are keyed to messages, so they can only be fetched once we know
     // which messages came back.
     if (loaded.length > 0) {
@@ -256,6 +290,59 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(false);
   }, []);
+
+  // Scroll-up pagination for one open thread. The bootstrap load above already
+  // pulled each thread's most recent slice; this resumes further back from
+  // whatever's oldest so far, prepending rather than replacing.
+  const loadOlderMessages = useCallback(
+    async (conversationId: string) => {
+      if (!live || !userId) return;
+      if (loadingOlderRef.current[conversationId] || olderExhausted[conversationId]) return;
+      const cursor = oldestByConversation.current[conversationId];
+      if (!cursor) return;
+      loadingOlderRef.current[conversationId] = true;
+      setOlderLoading((p) => ({ ...p, [conversationId]: true }));
+
+      const { data } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .lt('created_at', cursor)
+        .order('created_at', { ascending: false })
+        .limit(MESSAGE_PAGE_SIZE);
+      const older = (data ?? []).map(mapMessage);
+
+      if (older.length > 0) {
+        oldestByConversation.current[conversationId] = older[older.length - 1].createdAt;
+        setMessages((prev) => {
+          const ids = new Set(prev.map((m) => m.id));
+          const fresh = older.filter((m) => !ids.has(m.id));
+          return fresh.length ? [...fresh, ...prev].sort(byOldestFirst) : prev;
+        });
+        const { data: reactionsData } = await supabase
+          .from('message_reactions')
+          .select('message_id, user_id, emoji')
+          .in('message_id', older.map((m) => m.id));
+        if (reactionsData?.length) {
+          setReactions((prev) => [...prev, ...reactionsData.map(mapReaction)]);
+        }
+      }
+
+      if (older.length < MESSAGE_PAGE_SIZE) setOlderExhausted((p) => ({ ...p, [conversationId]: true }));
+      loadingOlderRef.current[conversationId] = false;
+      setOlderLoading((p) => ({ ...p, [conversationId]: false }));
+    },
+    [live, userId, olderExhausted],
+  );
+
+  const hasMoreOlderMessages = useCallback(
+    (conversationId: string) => live && !olderExhausted[conversationId],
+    [live, olderExhausted],
+  );
+  const loadingOlderMessages = useCallback(
+    (conversationId: string) => !!olderLoading[conversationId],
+    [olderLoading],
+  );
 
   useEffect(() => {
     if (!live) {
@@ -1236,6 +1323,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       messagesFor,
       lastMessageFor,
       unreadFor,
+      loadOlderMessages,
+      hasMoreOlderMessages,
+      loadingOlderMessages,
       seenBy,
       otherIds,
       reactionsFor,
@@ -1273,7 +1363,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       privacy,
       setPrivacy,
     }),
-    [accepted, requests, loading, unreadCount, conversationFor, messagesFor, lastMessageFor, unreadFor, seenBy, otherIds, reactionsFor, myReaction, react, incoming, clearIncoming, leaveThread, isMuted, toggleMute, isPinned, togglePin, bubbleColorFor, setBubbleColor, markUnread, hideMessage, unsendMessage, editMessage, messageById, markRead, sendMessage, retryMessage, startDirect, createGroup, sendTo, acceptRequest, leaveConversation, renameGroup, setGroupPhoto, addParticipants, removeParticipant, getInviteCode, getInvitePreview, joinViaInvite, privacy, setPrivacy],
+    [accepted, requests, loading, unreadCount, conversationFor, messagesFor, lastMessageFor, unreadFor, loadOlderMessages, hasMoreOlderMessages, loadingOlderMessages, seenBy, otherIds, reactionsFor, myReaction, react, incoming, clearIncoming, leaveThread, isMuted, toggleMute, isPinned, togglePin, bubbleColorFor, setBubbleColor, markUnread, hideMessage, unsendMessage, editMessage, messageById, markRead, sendMessage, retryMessage, startDirect, createGroup, sendTo, acceptRequest, leaveConversation, renameGroup, setGroupPhoto, addParticipants, removeParticipant, getInviteCode, getInvitePreview, joinViaInvite, privacy, setPrivacy],
   );
 
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
