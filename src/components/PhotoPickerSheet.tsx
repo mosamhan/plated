@@ -94,9 +94,18 @@ export function PhotoPickerSheet({
   // Video assets show at all only where the caller actually wants them —
   // comments never pass `onSendVideo`, so their grid stays photo-only exactly
   // as it always has, with no dead "can't tap this" cells.
+  //
+  // Keyed off *whether* a callback was passed, not the callback itself: the
+  // messaging thread's `onSendVideo={onVideoSelected}` is a fresh closure on
+  // every one of the thread's own renders (a new message arriving, someone
+  // typing, anything), and depending on the function reference here would
+  // recompute `mediaType` → `loadFirstPage` → re-run the mount effect below
+  // on every single one of those — the exact "flashes back to loading"
+  // flicker `onCloseRef` already exists to dodge for `onClose`.
+  const allowsVideo = !!onSendVideo;
   const mediaType = useMemo<MediaLibrary.MediaTypeValue | MediaLibrary.MediaTypeValue[]>(
-    () => (onSendVideo ? ['photo', 'video'] : 'photo'),
-    [onSendVideo],
+    () => (allowsVideo ? ['photo', 'video'] : 'photo'),
+    [allowsVideo],
   );
 
   const loadFirstPage = useCallback(
