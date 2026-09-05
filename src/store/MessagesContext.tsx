@@ -50,6 +50,10 @@ export interface MessageDraft {
   replyTo?: string;
   /** Which photo of `replyTo`'s album this points at — see Message.replyToIndex. */
   replyToIndex?: number;
+  /** For `plate_comment`/`plato_comment` — see Message's fields of the same name. */
+  commentPostId?: string;
+  commentAuthorId?: string;
+  commentText?: string;
 }
 
 interface MessagesContextValue {
@@ -900,6 +904,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
           duration_ms: draft.durationMs ?? null,
           reply_to: draft.replyTo ?? null,
           reply_to_index: draft.replyToIndex ?? null,
+          comment_post_id: draft.commentPostId ?? null,
+          comment_author_id: draft.commentAuthorId ?? null,
+          comment_text: draft.commentText ?? null,
         })
         .select('*')
         .single();
@@ -941,6 +948,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
         durationMs: draft.durationMs,
         replyTo: draft.replyTo,
         replyToIndex: draft.replyToIndex,
+        commentPostId: draft.commentPostId,
+        commentAuthorId: draft.commentAuthorId,
+        commentText: draft.commentText,
         createdAt: now,
         pending: true,
       };

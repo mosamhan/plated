@@ -165,7 +165,7 @@ export function MessageBubble({
         ? [message.attachmentId]
         : []
     : [];
-  const href = sharedItemHref(message.kind, message.attachmentId);
+  const href = sharedItemHref(message.kind, message.attachmentId, message.commentPostId);
 
   const reactions = reactionsFor(message.id);
 
@@ -459,7 +459,13 @@ export function MessageBubbleContent({
       )}
 
       {hasAttachment && (
-        <SharedItemCard kind={message.kind} attachmentId={message.attachmentId} attachmentIndex={message.attachmentIndex} />
+        <SharedItemCard
+          kind={message.kind}
+          attachmentId={message.attachmentId}
+          attachmentIndex={message.attachmentIndex}
+          commentAuthorId={message.commentAuthorId}
+          commentText={message.commentText}
+        />
       )}
 
       {hasText && bigEmoji && (

@@ -52,9 +52,23 @@ interface Props {
   onRestaurantPress?: (restaurantId: string) => void;
   /** Auto-scroll (from the long-press controls sheet) reached the end of this reel. */
   onEnded?: () => void;
+  /**
+   * Arriving from a shared-comment card (see SharedItemCard) rather than the
+   * reel itself — opens the comments sheet automatically and points it at
+   * this one comment to scroll to and highlight.
+   */
+  autoOpenCommentId?: string;
 }
 
-export function PlatoReel({ video, active, height, bottomInset, onRestaurantPress, onEnded }: Props) {
+export function PlatoReel({
+  video,
+  active,
+  height,
+  bottomInset,
+  onRestaurantPress,
+  onEnded,
+  autoOpenCommentId,
+}: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const { isLiked, toggleLike, recordView, excludePlato } = usePlatos();
@@ -68,7 +82,7 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
     p.muted = false;
   });
   const [paused, setPaused] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(!!autoOpenCommentId);
   const [sheet, setSheet] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
@@ -477,6 +491,7 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
         platoId={video.id}
         visible={commentsOpen}
         onClose={() => setCommentsOpen(false)}
+        highlightCommentId={autoOpenCommentId}
       />
 
       <SendToSheet

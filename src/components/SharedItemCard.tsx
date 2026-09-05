@@ -42,7 +42,9 @@ const PLATO_WIDTH = 208;
  * tap opens, double tap reacts, long press opens the emoji bar), and a nested
  * Pressable here would swallow the taps before the bubble ever saw them.
  */
-export function sharedItemHref(kind: MessageKind, attachmentId?: string): string | null {
+export function sharedItemHref(kind: MessageKind, attachmentId?: string, commentPostId?: string): string | null {
+  if (kind === 'plate_comment') return commentPostId ? `/order/${commentPostId}?commentId=${attachmentId}` : null;
+  if (kind === 'plato_comment') return commentPostId ? `/plato/${commentPostId}?commentId=${attachmentId}` : null;
   if (!attachmentId) return null;
   if (kind === 'plate') return `/order/${attachmentId}`;
   if (kind === 'plato') return `/plato/${attachmentId}`;
@@ -59,15 +61,26 @@ export function SharedItemCard({
   attachmentIndex,
   /** Tint for text drawn on the sender's own (accent) bubble. */
   onAccent,
+  /** For `plate_comment`/`plato_comment` — see Message's fields of the same name. */
+  commentAuthorId,
+  commentText,
 }: {
   kind: MessageKind;
   attachmentId?: string;
   attachmentIndex?: number;
   onAccent?: boolean;
+  commentAuthorId?: string;
+  commentText?: string;
 }) {
   const { colors } = useTheme();
   const { orders, restaurantFor, restaurantWithRating, userFor } = useData();
   const { platos } = usePlatos();
+
+  if (kind === 'plate_comment' || kind === 'plato_comment') {
+    return (
+      <SharedCommentCard authorId={commentAuthorId} text={commentText} onAccent={onAccent} />
+    );
+  }
 
   if (!attachmentId) return null;
 
@@ -214,6 +227,58 @@ export function SharedItemCard({
   // one attachment that routinely resolves to nothing — and saying "that story
   // has expired" is the honest, useful version of that.
   return <StoryReplyCard storyId={attachmentId} onAccent={onAccent} />;
+}
+
+/**
+ * A shared comment — the commenter's avatar and what they said, denormalized
+ * onto the message itself (see 0070_comment_share.sql) rather than resolved
+ * live. `author` still comes from `userFor`, live: profiles are globally
+ * loaded already, and showing a stale name/avatar for a comment that's
+ * otherwise still perfectly readable would be a strange inconsistency to
+ * preserve on purpose.
+ */
+function SharedCommentCard({
+  authorId,
+  text,
+  onAccent,
+}: {
+  authorId?: string;
+  text?: string;
+  onAccent?: boolean;
+}) {
+  const { colors } = useTheme();
+  const { userFor } = useData();
+  const author = authorId ? userFor(authorId) : undefined;
+
+  const titleColor = onAccent ? colors.accentText : colors.text;
+  const metaColor = onAccent ? 'rgba(255,255,255,0.78)' : colors.textMuted;
+  const frame = [
+    styles.storyReply,
+    {
+      backgroundColor: onAccent ? 'rgba(255,255,255,0.14)' : colors.surface,
+      borderColor: onAccent ? 'rgba(255,255,255,0.22)' : colors.border,
+    },
+  ];
+
+  return (
+    <View style={frame}>
+      {author ? (
+        <Avatar uri={author.avatar} size={34} />
+      ) : (
+        <View style={[styles.storyGone, { backgroundColor: 'rgba(128,128,128,0.18)' }]}>
+          <Ionicons name="chatbubble-ellipses-outline" size={16} color={metaColor} />
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.storyTitle, { color: titleColor }]} numberOfLines={1}>
+          {author ? `${author.name}'s comment` : 'A comment'}
+        </Text>
+        <Text style={[styles.storyMeta, { color: metaColor }]} numberOfLines={2}>
+          {text || 'Tap to view'}
+        </Text>
+      </View>
+    </View>
+  );
 }
 
 function StoryReplyCard({ storyId, onAccent }: { storyId: string; onAccent?: boolean }) {

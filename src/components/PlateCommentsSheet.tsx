@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
+import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -14,9 +15,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
+import { CommentActionsSheet } from '@/components/CommentActionsSheet';
 import { CommentComposer } from '@/components/CommentComposer';
+import { SendToSheet, SharePayload } from '@/components/SendToSheet';
 import { Comment } from '@/data/types';
 import { tapMedium } from '@/lib/haptics';
+import { plateLink } from '@/lib/invite';
 import { useData } from '@/store/DataContext';
 import { useSettings } from '@/store/SettingsContext';
 import { displayFont } from '@/theme/fonts';
@@ -56,18 +60,42 @@ export function PlateCommentsSheet({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height } = useWindowDimensions();
-  const { commentsFor, addComment, userFor, orders } = useData();
+  const { commentsFor, addComment, deleteComment, userFor, currentUser, orders } = useData();
   const { isHidden } = useSettings();
+  const [actionTarget, setActionTarget] = useState<Comment | null>(null);
+  const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
 
   const order = orders.find((o) => o.id === orderId);
   // Hidden-words filtering is applied here rather than in the context: the
   // list is the author's own setting, and it only governs what *they* see.
   const comments = commentsFor(orderId).filter((c) => !isHidden(c.text));
 
-  const report = (c: Comment) => {
+  const openActions = (c: Comment) => {
     tapMedium();
-    onClose();
-    router.push(`/report?targetType=comment&targetId=${c.id}`);
+    setActionTarget(c);
+  };
+
+  const onDelete = () => {
+    if (actionTarget) deleteComment(actionTarget.id, orderId);
+  };
+
+  const onReport = () => {
+    if (actionTarget) router.push(`/report?targetType=comment&targetId=${actionTarget.id}`);
+  };
+
+  const onShare = () => {
+    if (!actionTarget) return;
+    const author = userFor(actionTarget.userId);
+    setSharePayload({
+      kind: 'plate_comment',
+      attachmentId: actionTarget.id,
+      commentPostId: orderId,
+      commentAuthorId: actionTarget.userId,
+      commentText: actionTarget.text,
+      label: `${author.name}'s comment`,
+      shareMessage: `${author.name} commented: "${actionTarget.text}"`,
+      link: plateLink(orderId),
+    });
   };
 
   // Tall enough to be a real reading surface, short enough that the post behind
@@ -85,7 +113,7 @@ export function PlateCommentsSheet({
             <Text style={[styles.title, { color: colors.text, fontFamily: displayFont }]}>
               {comments.length > 0 ? `${comments.length} comments` : 'Comments'}
             </Text>
-            <Text style={[styles.hint, { color: colors.textMuted }]}>Hold a comment to report it.</Text>
+            <Text style={[styles.hint, { color: colors.textMuted }]}>Hold a comment for more options.</Text>
 
             <ScrollView
               style={{ maxHeight: sheetMax }}
@@ -97,7 +125,7 @@ export function PlateCommentsSheet({
                 return (
                   <Pressable
                     key={c.id}
-                    onLongPress={() => report(c)}
+                    onLongPress={() => openActions(c)}
                     delayLongPress={350}
                     style={styles.row}>
                     <Pressable
@@ -140,6 +168,16 @@ export function PlateCommentsSheet({
           </Pressable>
         </KeyboardAvoidingView>
       </Pressable>
+
+      <CommentActionsSheet
+        visible={!!actionTarget}
+        onClose={() => setActionTarget(null)}
+        mine={actionTarget?.userId === currentUser.id}
+        onDelete={onDelete}
+        onReport={onReport}
+        onShare={onShare}
+      />
+      <SendToSheet visible={!!sharePayload} onClose={() => setSharePayload(null)} payload={sharePayload} />
     </Modal>
   );
 }

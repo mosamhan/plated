@@ -265,6 +265,9 @@ export function mapMessage(row: any): Message {
     replyToIndex: row.reply_to_index ?? undefined,
     createdAt: row.created_at,
     editedAt: row.edited_at ?? undefined,
+    commentPostId: row.comment_post_id ?? undefined,
+    commentAuthorId: row.comment_author_id ?? undefined,
+    commentText: row.comment_text ?? undefined,
   };
 }
 

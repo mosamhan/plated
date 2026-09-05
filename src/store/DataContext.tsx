@@ -127,6 +127,8 @@ interface DataContextValue {
   // comments
   commentsFor: (orderId: string) => Comment[];
   addComment: (orderId: string, text: string, imageUrl?: string) => void;
+  /** Author only — the row's own RLS policy is what actually enforces that. */
+  deleteComment: (commentId: string, orderId: string) => void;
 
   // notifications
   notifications: AppNotification[];
@@ -839,6 +841,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     },
     [currentUserId, live, userId],
   );
+  // RLS (0001) already restricts the delete to the caller's own row — this
+  // only ever removes optimistically what the author was allowed to remove
+  // for real.
+  const deleteComment = useCallback(
+    (commentId: string, orderId: string) => {
+      setComments((p) => p.filter((c) => c.id !== commentId));
+      adjustOrderCount(orderId, 'comments', -1);
+      if (live && userId) supabase.from('comments').delete().eq('id', commentId).then(() => {});
+    },
+    [live, userId],
+  );
 
   // Messages and reactions get their own badge on the chat icon (unread
   // conversations, via MessagesContext) and never surface as rows on the
@@ -1228,6 +1241,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       markReordered,
       commentsFor,
       addComment,
+      deleteComment,
       notifications,
       unreadCount,
       markAllNotificationsRead,
@@ -1260,7 +1274,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       updateProfile,
       updateRestaurantPage,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, loadMoreOrders, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
+    [orders, restaurantMap, currentUser, loading, refresh, loadMoreOrders, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, deleteComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

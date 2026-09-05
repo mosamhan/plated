@@ -40,6 +40,8 @@ interface PlatosContextValue {
   loadComments: (id: string) => void;
   /** parentId set → this is a threaded reply to that top-level comment. */
   addComment: (id: string, text: string, parentId?: string, imageUrl?: string) => void;
+  /** Author only — the row's own RLS policy is what actually enforces that. */
+  deleteComment: (platoId: string, commentId: string) => void;
   isCommentLiked: (commentId: string) => boolean;
   toggleCommentLike: (platoId: string, commentId: string) => void;
   addPlato: (input: NewPlatoInput) => Promise<PlatoVideo | null>;
@@ -331,6 +333,25 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     [currentUser, live, userId],
   );
 
+  // RLS (0002) already restricts the delete to the caller's own row. Replies
+  // to the deleted comment cascade in the DB (parent_id references ... on
+  // delete cascade, 0004) — mirrored here so the optimistic removal doesn't
+  // leave orphaned replies visible until the next refetch.
+  const deleteComment = useCallback(
+    (platoId: string, commentId: string) => {
+      const list = commentsByPlato[platoId] ?? [];
+      const removedCount = list.filter((c) => c.id === commentId || c.parentId === commentId).length;
+      if (removedCount === 0) return;
+      setCommentsByPlato((m) => ({
+        ...m,
+        [platoId]: (m[platoId] ?? []).filter((c) => c.id !== commentId && c.parentId !== commentId),
+      }));
+      adjustCount(platoId, 'comments', -removedCount);
+      if (live && userId) supabase.from('plato_comments').delete().eq('id', commentId).then(() => {});
+    },
+    [commentsByPlato, live, userId],
+  );
+
   const isCommentLiked = useCallback((commentId: string) => likedComments.has(commentId), [likedComments]);
   const toggleCommentLike = useCallback(
     (platoId: string, commentId: string) => {
@@ -506,8 +527,8 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos }),
-    [platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos],
+    () => ({ platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos }),
+    [platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;

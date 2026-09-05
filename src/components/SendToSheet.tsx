@@ -30,7 +30,7 @@ import { useTheme } from '@/theme/ThemeContext';
 
 export interface SharePayload {
   /** What kind of card the recipients will see in their thread. */
-  kind: Extract<MessageKind, 'plate' | 'plato'>;
+  kind: Extract<MessageKind, 'plate' | 'plato' | 'plate_comment' | 'plato_comment'>;
   attachmentId: string;
   /** Which plate of a multi-plate post — the one the sender swiped to. */
   attachmentIndex?: number;
@@ -40,6 +40,10 @@ export interface SharePayload {
   link: string;
   /** Shown at the top so it's obvious what's being sent. */
   label: string;
+  /** For `plate_comment`/`plato_comment` — see Message's fields of the same name. */
+  commentPostId?: string;
+  commentAuthorId?: string;
+  commentText?: string;
 }
 
 /** One recipient row — either an existing thread (1:1 or group) or a person
@@ -190,6 +194,9 @@ export function SendToSheet({
           kind: payload!.kind,
           attachmentId: payload!.attachmentId,
           attachmentIndex: payload!.attachmentIndex,
+          commentPostId: payload!.commentPostId,
+          commentAuthorId: payload!.commentAuthorId,
+          commentText: payload!.commentText,
           text: note.trim(),
         };
 
@@ -442,7 +449,7 @@ export function SendToSheet({
                 showsHorizontalScrollIndicator={false}
                 style={[styles.actionsRail, { borderTopColor: colors.border }]}
                 contentContainerStyle={[styles.actions, { paddingBottom: insets.bottom + 8 }]}>
-                {payload && (
+                {payload && (payload.kind === 'plate' || payload.kind === 'plato') && (
                   <ShareAction icon="add-circle-outline" label="Add to story" onPress={onAddToStory} />
                 )}
                 <ShareAction
