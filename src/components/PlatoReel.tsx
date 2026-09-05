@@ -204,9 +204,40 @@ export function PlatoReel({ video, active, height, bottomInset, onRestaurantPres
     player.loop = !autoScroll;
   }, [player, autoScroll]);
 
+  // Guards against advancing on whatever position happened to be left when
+  // Auto scroll was turned on mid-loop — flipping `loop` off right then
+  // makes the *very next* natural end fire `playToEnd`, which could be only
+  // a few seconds away if the video was already most of the way through its
+  // current pass. "Auto scroll" should mean the reel played all the way
+  // through, not "whatever was left of an already-in-progress loop", so a
+  // `playToEnd` is only honored once playback has actually passed through
+  // the start since auto-scroll became active for this reel.
+  const seenStart = useRef(player.currentTime < 0.5);
+  useEffect(() => {
+    if (autoScroll) seenStart.current = player.currentTime < 0.5;
+  }, [autoScroll, player]);
+  useEffect(() => {
+    const subscription = player.addListener('timeUpdate', ({ currentTime }) => {
+      if (currentTime < 0.5) seenStart.current = true;
+    });
+    return () => subscription.remove();
+  }, [player]);
+
   useEffect(() => {
     const subscription = player.addListener('playToEnd', () => {
-      if (autoScroll) onEnded?.();
+      // `loop` is off whenever autoScroll is on, so nothing restarts this on
+      // its own — if this end doesn't count yet (the partial-remainder
+      // case above), replay it from the top ourselves rather than leaving
+      // the reel frozen on its last frame with no advance and no loop.
+      if (!autoScroll) return;
+      if (seenStart.current) {
+        onEnded?.();
+        seenStart.current = false;
+      } else {
+        player.currentTime = 0;
+        player.play();
+        seenStart.current = true;
+      }
     });
     return () => subscription.remove();
   }, [player, autoScroll, onEnded]);
