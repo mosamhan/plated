@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -19,11 +20,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { GifPicker } from '@/components/GifPickerSheet';
+import { GifPickerModal } from '@/components/GifPickerSheet';
 import { GifSuggestionRail } from '@/components/GifSuggestionRail';
 import { MessageActionsSheet } from '@/components/MessageActionsSheet';
 import { PhotoPickerSheet } from '@/components/PhotoPickerSheet';
 import { PhotoViewerSheet } from '@/components/PhotoViewerSheet';
+import { VideoViewerSheet } from '@/components/VideoViewerSheet';
 import { StreakUnlockModal } from '@/components/StreakUnlockModal';
 import { SendToSheet } from '@/components/SendToSheet';
 import { VoiceComposer } from '@/components/VoiceComposer';
@@ -83,6 +85,9 @@ export default function Thread() {
   const {
     conversationFor,
     messagesFor,
+    loadOlderMessages,
+    hasMoreOlderMessages,
+    loadingOlderMessages,
     otherIds,
     markRead,
     sendMessage,
@@ -101,6 +106,7 @@ export default function Thread() {
 
   const [draft, setDraft] = useState('');
   const [attachOpen, setAttachOpen] = useState(false);
+  const [gifOpen, setGifOpen] = useState(false);
   // The message the long-press menu is acting on, and the one being replied to.
   const [actionTarget, setActionTarget] = useState<Message | null>(null);
   const [actionAnchor, setActionAnchor] = useState<MessageAnchor | null>(null);
@@ -142,6 +148,7 @@ export default function Thread() {
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<Message | null>(null);
   const [viewingPhotoIndex, setViewingPhotoIndex] = useState(0);
+  const [viewingVideo, setViewingVideo] = useState<Message | null>(null);
   // Briefly flashed on the message a reply-quote tap just scrolled back to —
   // the scroll alone can land you among several visually similar bubbles.
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -262,6 +269,32 @@ export default function Thread() {
     listRef.current?.scrollToEnd({ animated: true });
   }, []);
 
+  // Scrolling up to reveal older messages grows the list's content height
+  // exactly like a new message arriving does — the difference is where the
+  // growth lands (the top, not the bottom), and a jump-to-bottom on every
+  // content-size change would otherwise yank the view back down the instant
+  // the older page prepends. These two refs let onContentSizeChange tell the
+  // two cases apart: `preservingScroll` marks that the *next* size change is
+  // from a prepend, and `anchorOffset`/`prevContentHeight` are what it needs
+  // to re-anchor the viewport on the same message instead of scrolling to end.
+  const preservingScroll = useRef(false);
+  const anchorOffset = useRef(0);
+  const prevContentHeight = useRef(0);
+
+  const onContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      if (preservingScroll.current) {
+        preservingScroll.current = false;
+        const delta = height - prevContentHeight.current;
+        if (delta > 0) listRef.current?.scrollToOffset({ offset: anchorOffset.current + delta, animated: false });
+      } else {
+        scrollToEnd();
+      }
+      prevContentHeight.current = height;
+    },
+    [scrollToEnd],
+  );
+
   // Cleared on unmount so a delayed flash never fires into a screen that's
   // moved on to a different thread.
   useEffect(() => () => {
@@ -309,15 +342,23 @@ export default function Thread() {
 
   // Inverted-free FlatList: content grows downward like any normal list, so
   // "near the bottom" means the remaining scrollable distance below the
-  // viewport is small, not that contentOffset itself is near zero.
+  // viewport is small, not that contentOffset itself is near zero. Symmetrically,
+  // "near the top" — where scrolling up should fetch older history — really is
+  // contentOffset.y itself being small, since the top of the content is index 0.
   const JUMP_THRESHOLD = 400;
+  const LOAD_OLDER_THRESHOLD = 300;
   const onListScroll = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
       const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
       setShowJumpToLatest(distanceFromBottom > JUMP_THRESHOLD);
+      if (id && contentOffset.y < LOAD_OLDER_THRESHOLD && hasMoreOlderMessages(id) && !loadingOlderMessages(id)) {
+        anchorOffset.current = contentOffset.y;
+        preservingScroll.current = true;
+        loadOlderMessages(id);
+      }
     },
-    [],
+    [id, hasMoreOlderMessages, loadingOlderMessages, loadOlderMessages],
   );
 
   const onSend = () => {
@@ -372,6 +413,13 @@ export default function Thread() {
     sendMessage(id, { kind: 'image', attachmentIds: urls, replyTo: photoReplyTo, replyToIndex: photoReplyToIndex }).catch(() => {});
   };
 
+  // A video is its own message the moment it's picked — one clip, no album,
+  // same "picking it sends it" pattern as a GIF.
+  const onVideoSelected = (url: string) => {
+    if (!id) return;
+    sendMessage(id, { kind: 'video', attachmentId: url, replyTo: photoReplyTo, replyToIndex: photoReplyToIndex }).catch(() => {});
+  };
+
   // Plates, Platos and restaurants all share this shape once picked — the
   // attach sheet only needs to say which kind and which id.
   const onShareAttachment = (kind: 'plate' | 'plato' | 'restaurant', attachmentId: string) => {
@@ -387,7 +435,7 @@ export default function Thread() {
   // step, just the URL straight through.
   const onPickGif = (url: string) => {
     if (!id) return;
-    setAttachOpen(false);
+    setGifOpen(false);
     tapLight();
     sendMessage(id, { kind: 'image', attachmentIds: [url] }).catch(() => {});
   };
@@ -476,6 +524,7 @@ export default function Thread() {
                   setActionTarget(m);
                   setActionPhotoIndex(photoIndex);
                 }}
+                onOpenVideo={(m) => setViewingVideo(m)}
                 onOpenPhoto={(m, index) => {
                   setViewingPhoto(m);
                   setViewingPhotoIndex(index);
@@ -492,7 +541,13 @@ export default function Thread() {
           // hangs below its bubble — isn't clipped by the composer.
           contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xl }}
           showsVerticalScrollIndicator={false}
-          onContentSizeChange={scrollToEnd}
+          // Dragging down over the conversation dismisses the keyboard in step
+          // with the finger (iOS) — the same "pull the keyboard away to see more
+          // of the thread" feel as Messages/Instagram DMs. Android has no
+          // interactive-tracking keyboard mode, so it falls back to dismissing
+          // as soon as the drag starts.
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          onContentSizeChange={onContentSizeChange}
           onScroll={onListScroll}
           scrollEventThrottle={100}
           onScrollToIndexFailed={onScrollToIndexFailed}
@@ -509,6 +564,18 @@ export default function Thread() {
             ) : null
           }
         />
+
+        {id && loadingOlderMessages(id) && (
+          // An overlay, not a ListHeaderComponent — a header row would itself
+          // change the FlatList's content height the moment it appears, which
+          // is exactly the signal onContentSizeChange uses to decide whether
+          // to preserve scroll position vs. jump to the end (see
+          // preservingScroll above). Layering it on top instead means the
+          // spinner's own appearance never touches content size at all.
+          <View pointerEvents="none" style={styles.historySpinner}>
+            <ActivityIndicator size="small" color={colors.textMuted} />
+          </View>
+        )}
 
         {showJumpToLatest && (
           // A full-bleed, untouchable layer that only aligns its one real
@@ -663,56 +730,81 @@ export default function Thread() {
             )}
 
             <View style={styles.composer}>
-            {!voiceActive && (
-              <>
+              {/* The one button that keeps its own bubble — sharing a plate/
+                  Plato/restaurant is a distinct action from composing a
+                  message, the same way Instagram's camera button sits
+                  outside its own message pill rather than inside it. */}
+              {!voiceActive && (
                 <Pressable
                   onPress={() => {
                     tapLight();
                     setAttachOpen(true);
                   }}
                   hitSlop={8}
-                  style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  style={[styles.standaloneAttachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Ionicons name="restaurant-outline" size={19} color={colors.accent} />
                 </Pressable>
-                <Pressable
-                  onPress={onOpenPhotoPicker}
-                  hitSlop={8}
-                  style={[styles.attachBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Ionicons name="image-outline" size={19} color={colors.accent} />
-                </Pressable>
-                <TextInput
-                  value={draft}
-                  onChangeText={(t) => {
-                    setDraft(t);
-                    if (t.trim()) notifyTyping();
-                    else notifyStopped();
-                  }}
-                  placeholder="Message"
-                  placeholderTextColor={colors.textMuted}
-                  multiline
-                  style={[
-                    styles.input,
-                    { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
-                  ]}
-                />
-              </>
-            )}
-            {draft.trim() ? (
-              <AnimatedPressable
-                pressScale={0.92}
-                onPress={onSend}
-                style={[styles.sendBtn, { backgroundColor: colors.accent }]}>
-                <Ionicons name={editingMessage ? 'checkmark' : 'arrow-up'} size={19} color={colors.accentText} />
-              </AnimatedPressable>
-            ) : (
-              // The send button becomes the mic when there's nothing typed —
-              // the two are never both useful, and the composer stays one row.
-              // While actively recording, this is the row's only child (the
-              // attach/photo/text-input siblings above are hidden), so its
-              // own flex:1 gets the whole bar to lay out trash/waveform/lock
-              // controls in, instead of being squeezed into a leftover sliver.
-              <VoiceComposer onRecorded={onVoice} onActiveChange={setVoiceActive} />
-            )}
+              )}
+
+              {/* Everything else lives inside one pill — bare icons sitting
+                  directly on its background, not each in their own bubble.
+                  The text field takes the remaining space; photo/sticker/mic
+                  cluster together at the pill's trailing edge, in that order
+                  — matching Instagram's own message bar. Photo drops out
+                  once there's something typed (it's "attach a photo instead
+                  of typing," not a persistent control); the sticker button
+                  never does, since reaching for one is just as likely
+                  mid-sentence as before typing anything. */}
+              <View style={[styles.pill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                {!voiceActive && (
+                  <>
+                    <TextInput
+                      value={draft}
+                      onChangeText={(t) => {
+                        setDraft(t);
+                        if (t.trim()) notifyTyping();
+                        else notifyStopped();
+                      }}
+                      placeholder="Message"
+                      placeholderTextColor={colors.textMuted}
+                      multiline
+                      style={[styles.pillInput, { color: colors.text }]}
+                    />
+                    {!draft.trim() && (
+                      <Pressable onPress={onOpenPhotoPicker} hitSlop={8} style={styles.pillIconBtn}>
+                        <Ionicons name="image-outline" size={19} color={colors.accent} />
+                      </Pressable>
+                    )}
+                    <Pressable
+                      onPress={() => {
+                        tapLight();
+                        setGifOpen(true);
+                      }}
+                      hitSlop={8}
+                      style={styles.pillIconBtn}>
+                      <Ionicons name="happy-outline" size={19} color={colors.accent} />
+                    </Pressable>
+                  </>
+                )}
+                {/* The mic lives here too (bare, idle) — VoiceComposer itself
+                    reports back when a hold has turned into an actual
+                    recording, at which point its sibling photo/text/sticker
+                    above hide and it becomes this pill's only child, free to
+                    lay out the trash/waveform/lock controls across the whole
+                    width instead of a leftover sliver. Never rendered once
+                    there's a draft to send instead — the send button (below,
+                    outside the pill) takes over that slot. */}
+                {!draft.trim() && <VoiceComposer onRecorded={onVoice} onActiveChange={setVoiceActive} />}
+              </View>
+
+              {draft.trim() ? (
+                <AnimatedPressable
+                  pressScale={0.92}
+                  onPress={onSend}
+                  style={[styles.sendBtn, { backgroundColor: colors.accent }]}>
+                  <Ionicons name={editingMessage ? 'checkmark' : 'arrow-up'} size={19} color={colors.accentText} />
+                </AnimatedPressable>
+              ) : null}
             </View>
           </View>
         )}
@@ -744,12 +836,9 @@ export default function Thread() {
         />
       )}
 
-      <AttachSheet
-        visible={attachOpen}
-        onClose={() => setAttachOpen(false)}
-        onPick={onShareAttachment}
-        onPickGif={onPickGif}
-      />
+      <AttachSheet visible={attachOpen} onClose={() => setAttachOpen(false)} onPick={onShareAttachment} />
+
+      <GifPickerModal visible={gifOpen} onClose={() => setGifOpen(false)} onPick={onPickGif} />
 
       <MessageActionsSheet
         visible={!!actionTarget}
@@ -844,6 +933,7 @@ export default function Thread() {
         visible={photoPickerOpen}
         onClose={() => setPhotoPickerOpen(false)}
         onSend={onPhotosSelected}
+        onSendVideo={onVideoSelected}
       />
 
       <PhotoViewerSheet
@@ -852,6 +942,15 @@ export default function Thread() {
         onClose={() => setViewingPhoto(null)}
         onForward={(m) => {
           setViewingPhoto(null);
+          setForwarding(m);
+        }}
+      />
+
+      <VideoViewerSheet
+        message={viewingVideo}
+        onClose={() => setViewingVideo(null)}
+        onForward={(m) => {
+          setViewingVideo(null);
           setForwarding(m);
         }}
       />
@@ -1037,8 +1136,8 @@ function SearchOverlay({
  * this" almost always means — anything else is a share from the post itself,
  * which the Send-to sheet already handles.
  */
-type AttachTab = 'Plates' | 'Platos' | 'Restaurants' | 'GIFs';
-const ATTACH_TABS: AttachTab[] = ['Plates', 'Platos', 'Restaurants', 'GIFs'];
+type AttachTab = 'Plates' | 'Platos' | 'Restaurants';
+const ATTACH_TABS: AttachTab[] = ['Plates', 'Platos', 'Restaurants'];
 const ALL_COLLECTIONS = 'All';
 
 /**
@@ -1055,13 +1154,10 @@ function AttachSheet({
   visible,
   onClose,
   onPick,
-  onPickGif,
 }: {
   visible: boolean;
   onClose: () => void;
   onPick: (kind: 'plate' | 'plato' | 'restaurant', attachmentId: string) => void;
-  /** A GIF/sticker sends immediately as an ordinary `kind: 'image'` message — Giphy already hosts the asset, so there's no upload step. */
-  onPickGif: (url: string) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -1129,7 +1225,7 @@ function AttachSheet({
             />
           </View>
 
-          {tab !== 'GIFs' && collectionNames.length > 0 && (
+          {collectionNames.length > 0 && (
             <View style={styles.attachFilterRow}>
               <UnderlineTabs
                 tabs={[ALL_COLLECTIONS, ...collectionNames]}
@@ -1140,11 +1236,7 @@ function AttachSheet({
             </View>
           )}
 
-          {tab === 'GIFs' ? (
-            <View style={{ height: 420, marginTop: 8 }}>
-              <GifPicker onPick={onPickGif} />
-            </View>
-          ) : empty ? (
+          {empty ? (
             <Text style={[styles.blank, { color: colors.textMuted }]}>
               {tab === 'Plates'
                 ? 'You haven’t posted or saved a plate yet.'
@@ -1271,6 +1363,7 @@ function RestaurantRow({ restaurant, onPress }: { restaurant: RestaurantWithRati
 }
 
 const styles = StyleSheet.create({
+  historySpinner: { position: 'absolute', top: 8, left: 0, right: 0, alignItems: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1407,7 +1500,7 @@ const styles = StyleSheet.create({
   replyIcon: { alignItems: 'center', justifyContent: 'center' },
   replyWho: { fontSize: 11, fontWeight: '800' },
   replyText: { fontSize: 12, fontWeight: '500', marginTop: 1 },
-  attachBtn: {
+  standaloneAttachBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -1415,18 +1508,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
   },
-  input: {
+  // The one wide pill housing photo/text/sticker/mic — bare icons sit
+  // directly on it rather than each getting their own bubble.
+  pill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 38,
+    maxHeight: 120,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingLeft: 14,
+    paddingRight: 6,
+    gap: 2,
+  },
+  pillInput: {
     flex: 1,
     minHeight: 38,
     maxHeight: 120,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingTop: 9,
-    paddingBottom: 9,
+    paddingVertical: 9,
     fontSize: 15,
     fontWeight: '500',
   },
+  // No background/border — the pill itself already provides both; this is
+  // just a big-enough hit target for a bare glyph.
+  pillIconBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   sendBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   requestBar: { paddingHorizontal: spacing.lg, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
   requestText: { fontSize: 13, fontWeight: '600', textAlign: 'center' },

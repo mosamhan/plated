@@ -11,7 +11,17 @@ import { CURRENT_USER_ID } from '@/data/users';
  * same way ORDERS/PLATOS work.
  */
 
-export type MessageKind = 'text' | 'plate' | 'plato' | 'story_reply' | 'voice' | 'image' | 'restaurant';
+export type MessageKind =
+  | 'text'
+  | 'plate'
+  | 'plato'
+  | 'story_reply'
+  | 'voice'
+  | 'image'
+  | 'video'
+  | 'restaurant'
+  | 'plate_comment'
+  | 'plato_comment';
 
 export interface Message {
   id: string;
@@ -39,6 +49,21 @@ export interface Message {
   attachmentIndex?: number;
   /** Length of a voice note in milliseconds. */
   durationMs?: number;
+  /**
+   * For `plate_comment`/`plato_comment`: which plate/Plato the comment was
+   * on — `attachmentId` is the comment's own id, not the post's, so this is
+   * what `sharedItemHref` actually routes to.
+   */
+  commentPostId?: string;
+  /** For `plate_comment`/`plato_comment`: who wrote the shared comment. */
+  commentAuthorId?: string;
+  /**
+   * For `plate_comment`/`plato_comment`: the comment's text at share time —
+   * denormalized rather than resolved live, so the card still shows what was
+   * shared even if the comment (or the whole post) is gone by the time it's
+   * opened. See 0070_comment_share.sql.
+   */
+  commentText?: string;
   /** The message this one answers — rendered as a quoted strip above the text. */
   replyTo?: string;
   /**

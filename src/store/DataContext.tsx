@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { CONTACTS } from '@/data/contacts';
 import { foodPhoto } from '@/data/images';
@@ -74,6 +74,8 @@ interface DataContextValue {
   currentUser: User;
   loading: boolean;
   refresh: () => void;
+  /** Fetches the next page of plates — call as the feed nears the end of what's loaded. */
+  loadMoreOrders: () => void;
 
   // lookups (route all user/restaurant resolution through these)
   userFor: (id: string) => User;
@@ -124,7 +126,9 @@ interface DataContextValue {
 
   // comments
   commentsFor: (orderId: string) => Comment[];
-  addComment: (orderId: string, text: string) => void;
+  addComment: (orderId: string, text: string, imageUrl?: string) => void;
+  /** Author only — the row's own RLS policy is what actually enforces that. */
+  deleteComment: (commentId: string, orderId: string) => void;
 
   // notifications
   notifications: AppNotification[];
@@ -214,6 +218,15 @@ export interface RestaurantPagePatch {
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
+const ORDERS_SELECT =
+  '*, likes(count), comments(count), reorders(count), order_items(name, rating, position), collaborators:post_collaborators(user_id, status)';
+
+// The feed used to fetch every plate ever posted on every cold start — fine
+// at demo scale, a real cost once there's enough content that "everything"
+// stops being a small number. Paged instead; `loadMoreOrders` pulls the next
+// page as the feed nears the end of what's loaded.
+const ORDER_PAGE_SIZE = 30;
+
 function platedRatingFor(orders: Order[], restaurantId: string) {
   // Every plate counts, not every post: a post with five dishes contributes
   // five ratings to the restaurant's average, which is what "average of all
@@ -234,6 +247,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const live = isSupabaseConfigured;
 
   const [orders, setOrders] = useState<Order[]>([]);
+  const [orderOffset, setOrderOffset] = useState(0);
+  const [hasMoreOrders, setHasMoreOrders] = useState(true);
+  const [loadingMoreOrders, setLoadingMoreOrders] = useState(false);
+  // Which load-page each order came from — lets `feedOrders` rank *within*
+  // a page by personalization/recency without ever letting a later-loaded
+  // (older) page outrank an earlier one. Without this, appending a page of
+  // older orders during infinite scroll could re-sort content already on
+  // screen out from under the viewer, since personalization scoring is
+  // recomputed over the whole set on every call. A ref, not state — it's
+  // bookkeeping for feedOrders' sort, not something that itself needs to
+  // trigger a render (the orders/visibleOrders state change already does).
+  const orderPageOf = useRef<Map<string, number>>(new Map());
+  const nextOrderPage = useRef(0);
   const [profileMap, setProfileMap] = useState<Record<string, User>>({});
   const [restaurantMap, setRestaurantMap] = useState<Record<string, Restaurant>>({});
   const [comments, setComments] = useState<Comment[]>([]);
@@ -286,7 +312,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           .from('profiles')
           .select('*, followers:follows!follows_following_id_fkey(count), following:follows!follows_follower_id_fkey(count)'),
         supabase.from('restaurants').select('*'),
-        supabase.from('orders').select('*, likes(count), comments(count), reorders(count), order_items(name, rating, position), collaborators:post_collaborators(user_id, status)').order('created_at', { ascending: false }),
+        supabase
+          .from('orders')
+          .select(ORDERS_SELECT)
+          .order('created_at', { ascending: false })
+          .range(0, ORDER_PAGE_SIZE - 1),
         supabase.from('comments').select('*').order('created_at', { ascending: true }),
         supabase.from('likes').select('order_id').eq('user_id', uid),
         supabase.from('saves').select('order_id').eq('user_id', uid),
@@ -317,7 +347,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     setProfileMap(Object.fromEntries((profilesRes.data ?? []).map((r) => [r.id, mapProfile(r)])));
     setRestaurantMap(Object.fromEntries((restaurantsRes.data ?? []).map((r) => [r.id, mapRestaurant(r)])));
-    setOrders((ordersRes.data ?? []).map(mapOrder));
+    const firstOrderPage = ordersRes.data ?? [];
+    orderPageOf.current = new Map(firstOrderPage.map((r) => [r.id, 0]));
+    nextOrderPage.current = 1;
+    setOrders(firstOrderPage.map(mapOrder));
+    setOrderOffset(firstOrderPage.length);
+    setHasMoreOrders(firstOrderPage.length === ORDER_PAGE_SIZE);
     setComments((commentsRes.data ?? []).map(mapComment));
     setLiked(new Set((likesRes.data ?? []).map((r) => r.order_id)));
     setSaved(new Set((savesRes.data ?? []).map((r) => r.order_id)));
@@ -359,6 +394,34 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(() => {
     if (live && userId) loadFromSupabase(userId).catch(() => {});
   }, [live, userId, loadFromSupabase]);
+
+  // Pulls the next page of plates as the feed nears the end of what's
+  // loaded (wired to HomeContent's onEndReached). Appends only — every
+  // order already fetched keeps its position, since `feedOrders` ranks
+  // strictly within a page (see orderPageOf above) rather than re-sorting
+  // the whole accumulated set on every call.
+  const loadMoreOrders = useCallback(async () => {
+    if (!live || !userId || loadingMoreOrders || !hasMoreOrders) return;
+    setLoadingMoreOrders(true);
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(ORDERS_SELECT)
+        .order('created_at', { ascending: false })
+        .range(orderOffset, orderOffset + ORDER_PAGE_SIZE - 1);
+      if (error || !data) {
+        setHasMoreOrders(false);
+        return;
+      }
+      const page = nextOrderPage.current++;
+      for (const r of data) orderPageOf.current.set(r.id, page);
+      setOrders((prev) => [...prev, ...data.map(mapOrder)]);
+      setOrderOffset((o) => o + data.length);
+      setHasMoreOrders(data.length === ORDER_PAGE_SIZE);
+    } finally {
+      setLoadingMoreOrders(false);
+    }
+  }, [live, userId, loadingMoreOrders, hasMoreOrders, orderOffset]);
 
   // ── Lookups ────────────────────────────────────────────────────────────────
   const userFor = useCallback(
@@ -534,6 +597,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const feedOrders = useCallback(
     () =>
       [...visibleOrders].sort((a, b) => {
+        // Ranks *within* a load-page, never across pages — a later (older)
+        // page loaded via infinite scroll can never outrank an earlier one,
+        // no matter how it scores, so appending a page never reorders
+        // content already on screen. An order with no recorded page (a
+        // brand-new post prepended by addOrder, not yet through a fetch)
+        // defaults to page 0, which is exactly where new content belongs.
+        const pageA = orderPageOf.current.get(a.id) ?? 0;
+        const pageB = orderPageOf.current.get(b.id) ?? 0;
+        if (pageA !== pageB) return pageA - pageB;
         const scoreDiff = personalizationScore(b) - personalizationScore(a);
         return scoreDiff !== 0 ? scoreDiff : +new Date(b.createdAt) - +new Date(a.createdAt);
       }),
@@ -744,18 +816,41 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [comments, blocked],
   );
   const addComment = useCallback(
-    (orderId: string, text: string) => {
+    (orderId: string, text: string, imageUrl?: string) => {
       const tempId = `c${Date.now()}`;
-      const optimistic: Comment = { id: tempId, orderId, userId: currentUserId, text, createdAt: new Date().toISOString() };
+      const optimistic: Comment = {
+        id: tempId,
+        orderId,
+        userId: currentUserId,
+        text,
+        imageUrl,
+        createdAt: new Date().toISOString(),
+      };
       setComments((p) => [...p, optimistic]);
       adjustOrderCount(orderId, 'comments', 1);
       if (live && userId) {
-        supabase.from('comments').insert({ order_id: orderId, user_id: userId, text }).select().single().then(({ data }) => {
-          if (data) setComments((p) => p.map((c) => (c.id === tempId ? mapComment(data) : c)));
-        });
+        supabase
+          .from('comments')
+          .insert({ order_id: orderId, user_id: userId, text, image_url: imageUrl ?? null })
+          .select()
+          .single()
+          .then(({ data }) => {
+            if (data) setComments((p) => p.map((c) => (c.id === tempId ? mapComment(data) : c)));
+          });
       }
     },
     [currentUserId, live, userId],
+  );
+  // RLS (0001) already restricts the delete to the caller's own row — this
+  // only ever removes optimistically what the author was allowed to remove
+  // for real.
+  const deleteComment = useCallback(
+    (commentId: string, orderId: string) => {
+      setComments((p) => p.filter((c) => c.id !== commentId));
+      adjustOrderCount(orderId, 'comments', -1);
+      if (live && userId) supabase.from('comments').delete().eq('id', commentId).then(() => {});
+    },
+    [live, userId],
   );
 
   // Messages and reactions get their own badge on the chat icon (unread
@@ -1113,6 +1208,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       currentUser,
       loading,
       refresh,
+      loadMoreOrders,
       userFor,
       ensureProfiles,
       restaurantFor,
@@ -1145,6 +1241,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       markReordered,
       commentsFor,
       addComment,
+      deleteComment,
       notifications,
       unreadCount,
       markAllNotificationsRead,
@@ -1177,7 +1274,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       updateProfile,
       updateRestaurantPage,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
+    [orders, restaurantMap, currentUser, loading, refresh, loadMoreOrders, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, deleteComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

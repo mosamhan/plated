@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -17,21 +18,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
+import { GroupAvatar } from '@/components/GroupAvatar';
 import { Message, MessageKind } from '@/data/messages';
-import { User } from '@/data/types';
 import { showAlert } from '@/lib/dialog';
 import { success, tapLight, tick } from '@/lib/haptics';
 import { useData } from '@/store/DataContext';
-import { useMessages } from '@/store/MessagesContext';
-import { displayFont } from '@/theme/fonts';
+import { MessageDraft, useMessages } from '@/store/MessagesContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
 export interface SharePayload {
   /** What kind of card the recipients will see in their thread. */
-  kind: Extract<MessageKind, 'plate' | 'plato'>;
+  kind: Extract<MessageKind, 'plate' | 'plato' | 'plate_comment' | 'plato_comment'>;
   attachmentId: string;
   /** Which plate of a multi-plate post — the one the sender swiped to. */
   attachmentIndex?: number;
@@ -41,22 +40,46 @@ export interface SharePayload {
   link: string;
   /** Shown at the top so it's obvious what's being sent. */
   label: string;
+  /** For `plate_comment`/`plato_comment` — see Message's fields of the same name. */
+  commentPostId?: string;
+  commentAuthorId?: string;
+  commentText?: string;
 }
 
-const COLUMNS = 3;
+/** One recipient row — either an existing thread (1:1 or group) or a person
+ *  you haven't messaged yet. Recents lead; search reaches past them. */
+interface ShareTarget {
+  key: string;
+  isGroup: boolean;
+  /** Set when this is an existing conversation — send goes straight there. */
+  conversationId?: string;
+  /** Set for anything that resolves to a single person: an existing 1:1's
+   *  other side, or someone with no thread yet. Absent for group targets. */
+  userId?: string;
+  name: string;
+  subtitle: string;
+  avatarUri?: string;
+  memberAvatars?: string[];
+}
 
 /**
- * "Send to" — sharing, in the order people actually use it.
+ * "Send to" — a TikTok-style recipient list: recent threads first (groups
+ * included, not just 1:1s), search reaching past what's shown, and tapping a
+ * row sends immediately — no separate "confirm" step for the common case of
+ * sending to one person or one thread. Picking several people to spin up a
+ * brand-new group lives behind its own explicit "New group" mode, since that
+ * is a different action (create + send) from the default (send to what's
+ * already there).
  *
- * People first, in a grid: sending a plate to a friend inside Plated is the
- * whole point of the button ("you have to try this"), and a grid shows three
- * times as many faces as a row before anyone has to scroll or search. Recent
- * threads lead, then people you follow.
- *
- * The row along the bottom is everything that isn't a person — add it to your
- * story, copy the link, hand it to the system share sheet. It's replaced by
- * the Send button the moment you pick someone, because at that point it's the
- * only action you want.
+ * The row along the bottom is everything that isn't a person: add it to your
+ * story, copy the link, or hand it to a specific outside app. WhatsApp, SMS,
+ * and Mail get real one-tap deep links (all three have a documented,
+ * key-free share URL scheme). Facebook opens its own web sharer, which is
+ * the only prefilled-content path Facebook exposes without their SDK.
+ * Instagram Direct and Snapchat don't expose *any* deep link for prefilled
+ * text/link content without registering for their respective developer
+ * kits — for those, "Share to…" (the system sheet) is the honest answer,
+ * not a button that quietly does nothing.
  */
 export function SendToSheet({
   visible,
@@ -78,72 +101,87 @@ export function SendToSheet({
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
-  const { followingUsers, followerUsers, topCreators, currentUser, isBlocked } = useData();
-  const { sendTo, conversations, otherIds } = useMessages();
+  const { height } = useWindowDimensions();
+  const { followingUsers, followerUsers, topCreators, currentUser, isBlocked, userFor } = useData();
+  const { conversations, otherIds, sendMessage, startDirect, createGroup } = useMessages();
 
   const [query, setQuery] = useState('');
-  const [picked, setPicked] = useState<string[]>([]);
   const [note, setNote] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sentCount, setSentCount] = useState(0);
+  const [groupMode, setGroupMode] = useState(false);
+  const [groupPicked, setGroupPicked] = useState<string[]>([]);
+  const [sendingKey, setSendingKey] = useState<string | null>(null);
+  const [sentKeys, setSentKeys] = useState<Set<string>>(new Set());
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Recent threads first: whoever you last talked to is who you're most likely
-  // sending this to. Everyone else follows in the order People already uses.
-  const people = useMemo(() => {
-    const pool = new Map<string, User>();
-    for (const u of [...followingUsers(), ...followerUsers(), ...topCreators()]) {
-      if (u.id === currentUser.id || isBlocked(u.id) || pool.has(u.id)) continue;
-      pool.set(u.id, u);
-    }
-    const out: User[] = [];
-    const taken = new Set<string>();
-    // conversations arrive newest-activity-first from the context.
-    for (const id of conversations.filter((c) => !c.isGroup).flatMap(otherIds)) {
-      const u = pool.get(id);
-      if (u && !taken.has(id)) {
-        taken.add(id);
-        out.push(u);
+  // One list, recents-first: every conversation you already have (groups
+  // included), then anyone you could message but haven't yet — how search
+  // reaches people who aren't in your recents.
+  const targets = useMemo<ShareTarget[]>(() => {
+    const out: ShareTarget[] = [];
+    const seenUserIds = new Set<string>();
+    for (const c of conversations) {
+      if (c.isGroup) {
+        const others = otherIds(c);
+        out.push({
+          key: c.id,
+          isGroup: true,
+          conversationId: c.id,
+          name: c.title || others.map((o) => userFor(o).name).join(', '),
+          subtitle: `${others.length + 1} members`,
+          avatarUri: c.avatarUrl,
+          memberAvatars: others.map((o) => userFor(o).avatar),
+        });
+      } else {
+        const other = otherIds(c)[0];
+        if (!other || isBlocked(other)) continue;
+        seenUserIds.add(other);
+        const u = userFor(other);
+        out.push({
+          key: c.id,
+          isGroup: false,
+          conversationId: c.id,
+          userId: other,
+          name: u.name,
+          subtitle: `@${u.handle}`,
+          avatarUri: u.avatar,
+        });
       }
     }
-    for (const [id, u] of pool) {
-      if (!taken.has(id)) out.push(u);
+    const pool = new Map<string, ReturnType<typeof userFor>>();
+    for (const u of [...followingUsers(), ...followerUsers(), ...topCreators()]) {
+      if (u.id === currentUser.id || isBlocked(u.id) || seenUserIds.has(u.id) || pool.has(u.id)) continue;
+      pool.set(u.id, u);
+    }
+    for (const u of pool.values()) {
+      out.push({ key: `u:${u.id}`, isGroup: false, userId: u.id, name: u.name, subtitle: `@${u.handle}`, avatarUri: u.avatar });
     }
     return out;
-  }, [conversations, otherIds, followingUsers, followerUsers, topCreators, currentUser.id, isBlocked]);
+  }, [conversations, otherIds, userFor, followingUsers, followerUsers, topCreators, currentUser.id, isBlocked]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter(
-      (u) => u.name.toLowerCase().includes(q) || u.handle.toLowerCase().includes(q),
-    );
-  }, [people, query]);
+    // Picking people for a new group — an existing group thread can't be
+    // folded into a new one, so only person-shaped targets make sense here.
+    const pool = groupMode ? targets.filter((t) => !t.isGroup && t.userId) : targets;
+    if (!q) return pool;
+    return pool.filter((t) => t.name.toLowerCase().includes(q) || t.subtitle.toLowerCase().includes(q));
+  }, [targets, query, groupMode]);
 
-  const cell = (width - spacing.lg * 2) / COLUMNS;
   const sheetHeight = Math.round(height * 0.76);
 
   const close = () => {
     setQuery('');
-    setPicked([]);
     setNote('');
-    setSentCount(0);
+    setGroupMode(false);
+    setGroupPicked([]);
+    setSentKeys(new Set());
     setCopied(false);
     onClose();
   };
 
-  const toggle = (id: string) => {
-    tick();
-    setPicked((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
-  };
-
-  const onSend = async () => {
-    if ((!payload && !forward) || picked.length === 0 || sending) return;
-    setSending(true);
-    // A forward re-sends the original as-is; anything typed here rides along as
-    // a separate line rather than overwriting what's being forwarded.
-    const draft = forward
+  const buildDraft = (): MessageDraft =>
+    forward
       ? {
           kind: forward.kind,
           attachmentId: forward.attachmentId,
@@ -156,18 +194,48 @@ export function SendToSheet({
           kind: payload!.kind,
           attachmentId: payload!.attachmentId,
           attachmentIndex: payload!.attachmentIndex,
+          commentPostId: payload!.commentPostId,
+          commentAuthorId: payload!.commentAuthorId,
+          commentText: payload!.commentText,
           text: note.trim(),
         };
-    const sent = await sendTo(picked, draft);
-    setSending(false);
-    if (sent === 0) {
-      showAlert('Couldn’t send', 'Nothing went out — please try again.');
+
+  const sendToTarget = async (t: ShareTarget) => {
+    if ((!payload && !forward) || sendingKey) return;
+    tapLight();
+    setSendingKey(t.key);
+    const draft = buildDraft();
+    let conversationId = t.conversationId ?? null;
+    if (!conversationId && t.userId) conversationId = await startDirect(t.userId);
+    if (conversationId) {
+      await sendMessage(conversationId, draft).catch(() => {});
+      success();
+      setSentKeys((p) => new Set(p).add(t.key));
+    } else {
+      showAlert('Couldn’t send', 'Please try again.');
+    }
+    setSendingKey(null);
+  };
+
+  const toggleGroupPick = (userId: string) => {
+    tick();
+    setGroupPicked((prev) => (prev.includes(userId) ? prev.filter((p) => p !== userId) : [...prev, userId]));
+  };
+
+  const onCreateGroupAndSend = async () => {
+    if ((!payload && !forward) || creatingGroup || groupPicked.length < 2) return;
+    setCreatingGroup(true);
+    const conversationId = await createGroup(groupPicked);
+    if (!conversationId) {
+      setCreatingGroup(false);
+      showAlert('Couldn’t create group', 'Please try again.');
       return;
     }
+    await sendMessage(conversationId, buildDraft()).catch(() => {});
+    setCreatingGroup(false);
     success();
-    // A brief confirmation beats a sheet that just vanishes: you know it went.
-    setSentCount(sent);
-    setTimeout(close, 900);
+    close();
+    router.push(`/messages/${conversationId}`);
   };
 
   const onCopyLink = async () => {
@@ -195,22 +263,51 @@ export function SendToSheet({
     });
   };
 
+  const shareText = forward ? forward.text : payload?.shareMessage;
+
   const onExternalShare = () => {
-    const message = forward ? forward.text : payload?.shareMessage;
-    if (!message) return;
+    if (!shareText) return;
     tapLight();
     close();
-    // No separate `url` field — on iOS, passing both `message` and `url` to
-    // Share.share makes Messages fetch and attach the page as a raw file
-    // instead of generating a link preview. The message text already embeds
-    // the real link (see lib/invite), which is enough for Messages/etc. to
-    // auto-detect and preview on their own.
-    // iOS can't present the system share sheet while this Modal is still on its
-    // way out — the presentation is swallowed and nothing appears. Wait for the
-    // dismissal to finish first. (Same reason ActionSheet delays its actions.)
+    // iOS can't present the system share sheet while this Modal is still on
+    // its way out — the presentation is swallowed and nothing appears. Wait
+    // for the dismissal to finish first. (Same reason ActionSheet delays.)
     setTimeout(() => {
-      Share.share({ message }).catch(() => {});
+      Share.share({ message: shareText }).catch(() => {});
     }, 400);
+  };
+
+  // WhatsApp/SMS/Mail all have a real, documented, key-free "compose with
+  // this prefilled" URL scheme — Facebook's own sharer.php is the closest
+  // equivalent it offers without its SDK (link only, no custom text; that's
+  // a Facebook restriction, not a shortcut taken here). If the specific app
+  // isn't installed, openURL rejects and this falls back to the system sheet
+  // rather than silently doing nothing.
+  const openOrFallback = async (url: string) => {
+    tapLight();
+    close();
+    setTimeout(async () => {
+      try {
+        await Linking.openURL(url);
+      } catch {
+        Share.share({ message: shareText ?? '' }).catch(() => {});
+      }
+    }, 400);
+  };
+
+  const onWhatsApp = () => shareText && openOrFallback(`whatsapp://send?text=${encodeURIComponent(shareText)}`);
+  const onSms = () =>
+    shareText &&
+    openOrFallback(Platform.OS === 'ios' ? `sms:&body=${encodeURIComponent(shareText)}` : `sms:?body=${encodeURIComponent(shareText)}`);
+  const onMail = () =>
+    shareText && openOrFallback(`mailto:?subject=${encodeURIComponent('Check this out on Plated')}&body=${encodeURIComponent(shareText)}`);
+  const onFacebook = () => {
+    const link = forward ? undefined : payload?.link;
+    if (!link) {
+      onExternalShare();
+      return;
+    }
+    openOrFallback(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`);
   };
 
   return (
@@ -222,128 +319,151 @@ export function SendToSheet({
             onPress={(e) => e.stopPropagation()}>
             <View style={[styles.grabber, { backgroundColor: colors.border }]} />
 
-            {sentCount > 0 ? (
-              <View style={styles.sent}>
-                <Ionicons name="checkmark-circle" size={44} color={colors.success} />
-                <Text style={[styles.sentText, { color: colors.text }]}>
-                  Sent to {sentCount} {sentCount === 1 ? 'person' : 'people'}
+            <View style={styles.searchRow}>
+              <View
+                style={[styles.searchWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Ionicons name="search" size={17} color={colors.textMuted} />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="none"
+                  style={[styles.search, { color: colors.text }]}
+                />
+                {query.length > 0 && (
+                  <Pressable onPress={() => setQuery('')} hitSlop={8}>
+                    <Ionicons name="close-circle" size={17} color={colors.textMuted} />
+                  </Pressable>
+                )}
+              </View>
+              <Pressable
+                onPress={() => {
+                  tick();
+                  setGroupMode((g) => !g);
+                  setGroupPicked([]);
+                }}
+                style={[
+                  styles.groupBtn,
+                  { backgroundColor: groupMode ? colors.accent : colors.surface, borderColor: colors.border },
+                ]}>
+                <Ionicons
+                  name={groupMode ? 'close' : 'people-outline'}
+                  size={19}
+                  color={groupMode ? colors.accentText : colors.text}
+                />
+              </Pressable>
+            </View>
+
+            {/* A caption rides along with whatever gets sent — typed once,
+                before picking anyone, since sending itself is now a single
+                tap per recipient rather than a separate confirm step. */}
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder="Add a message… (optional)"
+              placeholderTextColor={colors.textMuted}
+              style={[
+                styles.note,
+                { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
+              ]}
+            />
+
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={styles.list}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
+              {filtered.map((t) => {
+                const sent = sentKeys.has(t.key);
+                const picked = groupMode && t.userId ? groupPicked.includes(t.userId) : false;
+                const sending = sendingKey === t.key;
+                return (
+                  <Pressable
+                    key={t.key}
+                    onPress={() => (groupMode ? t.userId && toggleGroupPick(t.userId) : sendToTarget(t))}
+                    disabled={sending}
+                    style={({ pressed }) => [styles.row, { opacity: pressed || sending ? 0.6 : 1 }]}>
+                    {t.isGroup ? (
+                      <GroupAvatar avatarUrl={t.avatarUri} memberAvatars={t.memberAvatars ?? []} size={48} />
+                    ) : (
+                      <Avatar uri={t.avatarUri ?? ''} size={48} />
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rowName, { color: colors.text }]} numberOfLines={1}>
+                        {t.name}
+                      </Text>
+                      <Text style={[styles.rowSubtitle, { color: colors.textMuted }]} numberOfLines={1}>
+                        {t.subtitle}
+                      </Text>
+                    </View>
+                    {groupMode ? (
+                      <Ionicons
+                        name={picked ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={24}
+                        color={picked ? colors.accent : colors.border}
+                      />
+                    ) : sent ? (
+                      <View style={[styles.sentBadge, { backgroundColor: colors.success }]}>
+                        <Ionicons name="checkmark" size={13} color="#fff" />
+                      </View>
+                    ) : (
+                      <View
+                        style={[styles.sendPill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                        <Text style={[styles.sendPillText, { color: colors.text }]}>Send</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+              {filtered.length === 0 && (
+                <Text style={[styles.noPeople, { color: colors.textMuted }]}>
+                  {query.trim()
+                    ? `No one matches “${query.trim()}”.`
+                    : groupMode
+                      ? 'Follow someone to add them to a group.'
+                      : 'Follow someone to send them plates.'}
                 </Text>
+              )}
+            </ScrollView>
+
+            {groupMode ? (
+              <View style={[styles.sendBar, { borderTopColor: colors.border, paddingBottom: insets.bottom + 10 }]}>
+                <Pressable
+                  onPress={onCreateGroupAndSend}
+                  disabled={groupPicked.length < 2 || creatingGroup}
+                  style={[
+                    styles.createGroupBtn,
+                    { backgroundColor: colors.accent, opacity: groupPicked.length < 2 || creatingGroup ? 0.5 : 1 },
+                  ]}>
+                  <Text style={[styles.sendText, { color: colors.accentText }]}>
+                    {creatingGroup
+                      ? 'Creating…'
+                      : `New group${groupPicked.length > 0 ? ` · ${groupPicked.length}` : ''}`}
+                  </Text>
+                </Pressable>
               </View>
             ) : (
-              <>
-                <View style={styles.searchRow}>
-                  <View
-                    style={[styles.searchWrap, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Ionicons name="search" size={17} color={colors.textMuted} />
-                    <TextInput
-                      value={query}
-                      onChangeText={setQuery}
-                      placeholder="Search"
-                      placeholderTextColor={colors.textMuted}
-                      autoCapitalize="none"
-                      style={[styles.search, { color: colors.text }]}
-                    />
-                    {query.length > 0 && (
-                      <Pressable onPress={() => setQuery('')} hitSlop={8}>
-                        <Ionicons name="close-circle" size={17} color={colors.textMuted} />
-                      </Pressable>
-                    )}
-                  </View>
-                  <Pressable
-                    onPress={() => {
-                      tapLight();
-                      close();
-                      router.push('/messages/new');
-                    }}
-                    style={[styles.groupBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Ionicons name="people-outline" size={19} color={colors.text} />
-                  </Pressable>
-                </View>
-
-                <ScrollView
-                  // flex:1 so the grid scrolls inside the remaining space. Left
-                  // to size itself it grows past the sheet and shoves the
-                  // action row off the bottom of the screen.
-                  style={{ flex: 1 }}
-                  contentContainerStyle={styles.grid}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}>
-                  {filtered.map((u) => {
-                    const on = picked.includes(u.id);
-                    return (
-                      <Pressable
-                        key={u.id}
-                        onPress={() => toggle(u.id)}
-                        style={[styles.cell, { width: cell }]}>
-                        <View>
-                          <Avatar uri={u.avatar} size={76} ring={on} />
-                          {on && (
-                            <View
-                              style={[styles.check, { backgroundColor: colors.accent, borderColor: colors.card }]}>
-                              <Ionicons name="checkmark" size={13} color={colors.accentText} />
-                            </View>
-                          )}
-                        </View>
-                        <Text
-                          style={[styles.cellName, { color: on ? colors.accent : colors.text }]}
-                          numberOfLines={2}>
-                          {u.name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                  {filtered.length === 0 && (
-                    <Text style={[styles.noPeople, { color: colors.textMuted }]}>
-                      {query.trim() ? `No one matches “${query.trim()}”.` : 'Follow someone to send them plates.'}
-                    </Text>
-                  )}
-                </ScrollView>
-
-                {picked.length > 0 ? (
-                  <View
-                    style={[
-                      styles.sendBar,
-                      { borderTopColor: colors.border, paddingBottom: insets.bottom + 10 },
-                    ]}>
-                    <TextInput
-                      value={note}
-                      onChangeText={setNote}
-                      placeholder={forward ? 'Add a message…' : 'Add a message…'}
-                      placeholderTextColor={colors.textMuted}
-                      style={[
-                        styles.note,
-                        { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
-                      ]}
-                    />
-                    <AnimatedPressable
-                      pressScale={0.95}
-                      onPress={onSend}
-                      disabled={sending}
-                      style={[styles.sendBtn, { backgroundColor: colors.accent, opacity: sending ? 0.6 : 1 }]}>
-                      <Text style={[styles.sendText, { color: colors.accentText }]}>
-                        {sending ? 'Sending…' : `Send${picked.length > 1 ? ` · ${picked.length}` : ''}`}
-                      </Text>
-                    </AnimatedPressable>
-                  </View>
-                ) : (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={[styles.actionsRail, { borderTopColor: colors.border }]}
-                    contentContainerStyle={[styles.actions, { paddingBottom: insets.bottom + 8 }]}>
-                    {payload && (
-                      <ShareAction icon="add-circle-outline" label="Add to story" onPress={onAddToStory} />
-                    )}
-                    <ShareAction
-                      icon={copied ? 'checkmark' : 'link-outline'}
-                      label={copied ? 'Copied' : forward ? 'Copy text' : 'Copy link'}
-                      onPress={onCopyLink}
-                      highlight={copied}
-                    />
-                    <ShareAction icon="share-outline" label="Share to…" onPress={onExternalShare} />
-                  </ScrollView>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={[styles.actionsRail, { borderTopColor: colors.border }]}
+                contentContainerStyle={[styles.actions, { paddingBottom: insets.bottom + 8 }]}>
+                {payload && (payload.kind === 'plate' || payload.kind === 'plato') && (
+                  <ShareAction icon="add-circle-outline" label="Add to story" onPress={onAddToStory} />
                 )}
-              </>
+                <ShareAction
+                  icon={copied ? 'checkmark' : 'link-outline'}
+                  label={copied ? 'Copied' : forward ? 'Copy text' : 'Copy link'}
+                  onPress={onCopyLink}
+                  highlight={copied}
+                />
+                <ShareAction icon="logo-whatsapp" label="WhatsApp" onPress={onWhatsApp} />
+                <ShareAction icon="chatbubble-outline" label="Messages" onPress={onSms} />
+                <ShareAction icon="logo-facebook" label="Facebook" onPress={onFacebook} />
+                <ShareAction icon="mail-outline" label="Email" onPress={onMail} />
+                <ShareAction icon="ellipsis-horizontal" label="More" onPress={onExternalShare} />
+              </ScrollView>
             )}
           </Pressable>
         </Pressable>
@@ -404,26 +524,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
   },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: 20,
+  note: {
+    marginHorizontal: spacing.lg,
+    marginTop: 10,
+    height: 42,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    fontSize: 14,
+    fontWeight: '500',
   },
-  cell: { alignItems: 'center', gap: 8, marginBottom: 18 },
-  cellName: { fontSize: 12, fontWeight: '700', textAlign: 'center', paddingHorizontal: 4 },
-  check: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 20 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  rowName: { fontSize: 15, fontWeight: '700' },
+  rowSubtitle: { fontSize: 12, fontWeight: '500', marginTop: 1 },
+  sentBadge: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  sendPill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth },
+  sendPillText: { fontSize: 12, fontWeight: '700' },
   noPeople: { width: '100%', textAlign: 'center', fontSize: 14, fontWeight: '500', paddingVertical: 40 },
   actionsRail: { flexGrow: 0, borderTopWidth: StyleSheet.hairlineWidth },
   actions: { flexDirection: 'row', gap: spacing.xl, paddingHorizontal: spacing.lg, paddingTop: 14 },
@@ -437,25 +554,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   actionLabel: { fontSize: 11, fontWeight: '700' },
-  sendBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: spacing.lg,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  note: {
-    flex: 1,
-    height: 46,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  sendBtn: { paddingHorizontal: 22, height: 46, justifyContent: 'center', borderRadius: radius.pill },
+  sendBar: { paddingHorizontal: spacing.lg, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
+  createGroupBtn: { height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill },
   sendText: { fontSize: 15, fontWeight: '800' },
-  sent: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  sentText: { fontSize: 17, fontWeight: '800' },
 });

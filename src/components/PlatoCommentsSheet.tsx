@@ -2,21 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CommentActionsSheet } from '@/components/CommentActionsSheet';
+import { CommentComposer, CommentComposerHandle } from '@/components/CommentComposer';
+import { SendToSheet, SharePayload } from '@/components/SendToSheet';
 import { PlatoComment } from '@/data/platos';
 import { tapLight, tapMedium } from '@/lib/haptics';
+import { platoLink } from '@/lib/invite';
+import { useData } from '@/store/DataContext';
 import { usePlatos } from '@/store/PlatosContext';
 import { radius, spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -33,16 +28,22 @@ interface Props {
   platoId: string;
   visible: boolean;
   onClose: () => void;
+  /** Arriving via a shared-comment card — scroll to and briefly highlight it. */
+  highlightCommentId?: string;
 }
 
-export function PlatoCommentsSheet({ platoId, visible, onClose }: Props) {
+export function PlatoCommentsSheet({ platoId, visible, onClose, highlightCommentId }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike } = usePlatos();
-  const [draft, setDraft] = useState('');
+  const { commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike } = usePlatos();
+  const { currentUser } = useData();
   const [replyTo, setReplyTo] = useState<{ parentId: string; handle: string } | null>(null);
-  const inputRef = useRef<TextInput>(null);
+  const [actionTarget, setActionTarget] = useState<PlatoComment | null>(null);
+  const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const composerRef = useRef<CommentComposerHandle>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     if (visible) loadComments(platoId);
@@ -52,25 +53,37 @@ export function PlatoCommentsSheet({ platoId, visible, onClose }: Props) {
   const threads = comments.filter((c) => !c.parentId);
   const repliesOf = (id: string) => comments.filter((c) => c.parentId === id);
 
-  const submit = () => {
-    const text = draft.trim();
-    if (!text) return;
-    addComment(platoId, text, replyTo?.parentId);
-    setDraft('');
-    setReplyTo(null);
-    tapLight();
-  };
-
   const startReply = (c: PlatoComment) => {
     // Replies to a reply still thread under the same top-level comment.
     setReplyTo({ parentId: c.parentId ?? c.id, handle: c.handle });
-    inputRef.current?.focus();
+    composerRef.current?.focus();
   };
 
-  const report = (c: PlatoComment) => {
+  const openActions = (c: PlatoComment) => {
     tapMedium();
-    onClose();
-    router.push(`/report?targetType=comment&targetId=${c.id}`);
+    setActionTarget(c);
+  };
+
+  const onDelete = () => {
+    if (actionTarget) deleteComment(platoId, actionTarget.id);
+  };
+
+  const onReport = () => {
+    if (actionTarget) router.push(`/report?targetType=comment&targetId=${actionTarget.id}`);
+  };
+
+  const onShare = () => {
+    if (!actionTarget) return;
+    setSharePayload({
+      kind: 'plato_comment',
+      attachmentId: actionTarget.id,
+      commentPostId: platoId,
+      commentAuthorId: actionTarget.userId,
+      commentText: actionTarget.text,
+      label: `${actionTarget.name}'s comment`,
+      shareMessage: `${actionTarget.name} commented: "${actionTarget.text}"`,
+      link: platoLink(platoId),
+    });
   };
 
   const renderComment = (c: PlatoComment, isReply: boolean) => {
@@ -78,16 +91,30 @@ export function PlatoCommentsSheet({ platoId, visible, onClose }: Props) {
     return (
       <Pressable
         key={c.id}
-        onLongPress={() => report(c)}
+        onLongPress={() => openActions(c)}
         delayLongPress={350}
-        style={[styles.row, isReply && styles.replyRow]}>
+        onLayout={(e) => {
+          if (highlightCommentId !== c.id) return;
+          const y = e.nativeEvent.layout.y;
+          setTimeout(() => {
+            scrollRef.current?.scrollTo({ y: Math.max(0, y - 40), animated: true });
+            setHighlighted(c.id);
+            setTimeout(() => setHighlighted(null), 1600);
+          }, 80);
+        }}
+        style={[
+          styles.row,
+          isReply && styles.replyRow,
+          highlighted === c.id && { backgroundColor: colors.accentSoft, borderRadius: radius.md },
+        ]}>
         <Image source={{ uri: c.avatar }} style={isReply ? styles.avatarSm : styles.avatar} contentFit="cover" />
         <View style={{ flex: 1 }}>
           <View style={styles.head}>
             <Text style={[styles.name, { color: colors.text }]}>{c.name}</Text>
             <Text style={[styles.time, { color: colors.textMuted }]}>{timeAgo(c.createdAt)}</Text>
           </View>
-          <Text style={[styles.text, { color: colors.text }]}>{c.text}</Text>
+          {!!c.text && <Text style={[styles.text, { color: colors.text }]}>{c.text}</Text>}
+          {c.imageUrl && <Image source={{ uri: c.imageUrl }} style={styles.commentImage} contentFit="cover" />}
           <Pressable onPress={() => startReply(c)} hitSlop={8}>
             <Text style={[styles.replyBtn, { color: colors.textMuted }]}>Reply</Text>
           </Pressable>
@@ -121,9 +148,10 @@ export function PlatoCommentsSheet({ platoId, visible, onClose }: Props) {
             <Text style={[styles.title, { color: colors.text }]}>
               {comments.length > 0 ? `${comments.length} comments` : 'Comments'}
             </Text>
-            <Text style={[styles.hint, { color: colors.textMuted }]}>Hold a comment to report it.</Text>
+            <Text style={[styles.hint, { color: colors.textMuted }]}>Hold a comment for more options.</Text>
 
             <ScrollView
+              ref={scrollRef}
               style={{ maxHeight: 360 }}
               contentContainerStyle={{ paddingVertical: spacing.md, gap: spacing.md }}
               keyboardShouldPersistTaps="handled"
@@ -152,24 +180,27 @@ export function PlatoCommentsSheet({ platoId, visible, onClose }: Props) {
               </View>
             )}
 
-            <View style={[styles.inputRow, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-              <TextInput
-                ref={inputRef}
-                value={draft}
-                onChangeText={setDraft}
-                placeholder={replyTo ? `Reply to @${replyTo.handle}…` : 'Add a comment…'}
-                placeholderTextColor={colors.textMuted}
-                style={[styles.input, { color: colors.text }]}
-                onSubmitEditing={submit}
-                returnKeyType="send"
-              />
-              <Pressable onPress={submit} hitSlop={8} disabled={!draft.trim()}>
-                <Ionicons name="arrow-up-circle" size={30} color={draft.trim() ? colors.accent : colors.border} />
-              </Pressable>
-            </View>
+            <CommentComposer
+              ref={composerRef}
+              placeholder={replyTo ? `Reply to @${replyTo.handle}…` : 'Add a comment…'}
+              onSubmit={(text, imageUrl) => {
+                addComment(platoId, text, replyTo?.parentId, imageUrl);
+                setReplyTo(null);
+              }}
+            />
           </Pressable>
         </KeyboardAvoidingView>
       </Pressable>
+
+      <CommentActionsSheet
+        visible={!!actionTarget}
+        onClose={() => setActionTarget(null)}
+        mine={actionTarget?.userId === currentUser.id}
+        onDelete={onDelete}
+        onReport={onReport}
+        onShare={onShare}
+      />
+      <SendToSheet visible={!!sharePayload} onClose={() => setSharePayload(null)} payload={sharePayload} />
     </Modal>
   );
 }
@@ -196,6 +227,7 @@ const styles = StyleSheet.create({
   name: { fontSize: 13, fontWeight: '800' },
   time: { fontSize: 12, fontWeight: '500' },
   text: { fontSize: 14, fontWeight: '500', lineHeight: 19 },
+  commentImage: { width: 120, height: 120, borderRadius: radius.md, marginTop: 6 },
   replyBtn: { fontSize: 12, fontWeight: '800', marginTop: 5 },
   heartCol: { alignItems: 'center', width: 30, paddingTop: 2, gap: 2 },
   heartCount: { fontSize: 11, fontWeight: '700' },
@@ -207,16 +239,4 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   replyBannerText: { fontSize: 13, fontWeight: '600', flex: 1 },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: spacing.sm,
-    paddingLeft: 14,
-    paddingRight: 8,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  input: { flex: 1, fontSize: 14, fontWeight: '500', paddingVertical: 8 },
 });

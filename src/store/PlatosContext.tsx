@@ -29,6 +29,8 @@ interface PlatosContextValue {
   refresh: () => void;
   /** Bumps on each refresh() so the feed can jump back to the first reel. */
   refreshTick: number;
+  /** Fetches the next page of Platos — call as the feed nears the end of what's loaded. */
+  loadMorePlatos: () => void;
   isLiked: (id: string) => boolean;
   toggleLike: (id: string) => void;
   /** Records that the signed-in user watched this Plato. Safe to call repeatedly. */
@@ -37,7 +39,9 @@ interface PlatosContextValue {
   /** Live mode fetches a Plato's comments on demand (no-op in demo). */
   loadComments: (id: string) => void;
   /** parentId set → this is a threaded reply to that top-level comment. */
-  addComment: (id: string, text: string, parentId?: string) => void;
+  addComment: (id: string, text: string, parentId?: string, imageUrl?: string) => void;
+  /** Author only — the row's own RLS policy is what actually enforces that. */
+  deleteComment: (platoId: string, commentId: string) => void;
   isCommentLiked: (commentId: string) => boolean;
   toggleCommentLike: (platoId: string, commentId: string) => void;
   addPlato: (input: NewPlatoInput) => Promise<PlatoVideo | null>;
@@ -47,6 +51,13 @@ interface PlatosContextValue {
   setPlatoVisibility: (id: string, visibility: 'public' | 'friends' | 'private') => void;
   /** Archive/unarchive your Plato — hidden from everyone but you when archived. */
   setPlatoArchived: (id: string, archived: boolean) => void;
+  /**
+   * "Do not include in taste profile" — a viewer excluding someone else's
+   * Plato from their own feed. Private to the viewer; the creator never sees
+   * it. Removes it from the feed immediately and records the signal for a
+   * future taste-profile feature.
+   */
+  excludePlato: (id: string) => void;
   /** Every Plato whose dish name matches `query`, ranked nearby-first. For the multi-entity search screen. */
   searchPlatos: (query: string) => PlatoVideo[];
 }
@@ -74,6 +85,12 @@ const PLATO_SELECT =
   // `*` already brings view_count along (0009); likes/comments stay aggregates.
   '*, creator:profiles!plato_videos_user_id_fkey(name,handle,avatar_url,verified,compensation_eligible), likes:plato_likes(count), comments:plato_comments(count), collaborators:post_collaborators(user_id, status)';
 
+// The feed used to fetch every Plato in the table on every cold start —
+// fine at demo scale, a real problem once there's enough content that
+// "every row" stops being a small number. Paged instead; `loadMorePlatos`
+// pulls the next page as the feed nears the end of what's loaded.
+const PLATO_PAGE_SIZE = 20;
+
 export function PlatosProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();
   const { currentUser, restaurantFor } = useData();
@@ -87,6 +104,9 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   const [loadedComments, setLoadedComments] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<boolean>(live);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [platoOffset, setPlatoOffset] = useState(0);
+  const [hasMorePlatos, setHasMorePlatos] = useState(true);
+  const [loadingMorePlatos, setLoadingMorePlatos] = useState(false);
 
   const seedFromDemo = useCallback(() => {
     setPlatos(shuffle(PLATOS));
@@ -104,14 +124,21 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         const { data, error } = await supabase
           .from('plato_videos')
           .select(PLATO_SELECT)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .range(0, PLATO_PAGE_SIZE - 1);
         // Table missing (migration not run yet) or no creator posts → show demo reels.
         if (error || !data || data.length === 0) {
           seedFromDemo();
           return;
         }
-        const likesRes = await supabase.from('plato_likes').select('plato_id').eq('user_id', uid);
-        setPlatos(shuffle(data.map(mapPlato)));
+        const [likesRes, exclusionsRes] = await Promise.all([
+          supabase.from('plato_likes').select('plato_id').eq('user_id', uid),
+          supabase.from('plato_taste_exclusions').select('plato_id').eq('user_id', uid),
+        ]);
+        const excluded = new Set((exclusionsRes.data ?? []).map((r) => r.plato_id));
+        setPlatos(shuffle(data.filter((row) => !excluded.has(row.id)).map(mapPlato)));
+        setPlatoOffset(data.length);
+        setHasMorePlatos(data.length === PLATO_PAGE_SIZE);
         setCommentsByPlato({});
         setLoadedComments(new Set());
         setLiked(new Set((likesRes.data ?? []).map((r) => r.plato_id)));
@@ -128,6 +155,41 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     if (live && userId) loadFromSupabase(userId);
     else seedFromDemo();
   }, [live, userId, loadFromSupabase, seedFromDemo]);
+
+  // Pulls the next page as the feed nears the end of what's loaded (wired to
+  // PlatosFeed's onEndReached) — appends rather than reshuffling everything,
+  // so reels already on screen don't reorder out from under the viewer.
+  const loadMorePlatos = useCallback(async () => {
+    if (!live || !userId || loadingMorePlatos || !hasMorePlatos) return;
+    setLoadingMorePlatos(true);
+    try {
+      const { data, error } = await supabase
+        .from('plato_videos')
+        .select(PLATO_SELECT)
+        .order('created_at', { ascending: false })
+        .range(platoOffset, platoOffset + PLATO_PAGE_SIZE - 1);
+      if (error || !data) {
+        setHasMorePlatos(false);
+        return;
+      }
+      const [likesRes, exclusionsRes] = await Promise.all([
+        supabase.from('plato_likes').select('plato_id').eq('user_id', userId).in('plato_id', data.map((r) => r.id)),
+        supabase.from('plato_taste_exclusions').select('plato_id').eq('user_id', userId),
+      ]);
+      const excluded = new Set((exclusionsRes.data ?? []).map((r) => r.plato_id));
+      const fresh = shuffle(data.filter((row) => !excluded.has(row.id)).map(mapPlato));
+      setPlatos((prev) => [...prev, ...fresh]);
+      setLiked((prev) => {
+        const next = new Set(prev);
+        for (const r of likesRes.data ?? []) next.add(r.plato_id);
+        return next;
+      });
+      setPlatoOffset((o) => o + data.length);
+      setHasMorePlatos(data.length === PLATO_PAGE_SIZE);
+    } finally {
+      setLoadingMorePlatos(false);
+    }
+  }, [live, userId, loadingMorePlatos, hasMorePlatos, platoOffset]);
 
   const refresh = useCallback(() => {
     setPlatos((prev) => shuffle(prev));
@@ -229,7 +291,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addComment = useCallback(
-    (id: string, text: string, parentId?: string) => {
+    (id: string, text: string, parentId?: string, imageUrl?: string) => {
       const tempId = `pc${Date.now()}`;
       const optimistic: PlatoComment = {
         id: tempId,
@@ -240,6 +302,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         handle: currentUser.handle,
         avatar: currentUser.avatar,
         text,
+        imageUrl,
         likes: 0,
         createdAt: new Date().toISOString(),
       };
@@ -248,7 +311,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       if (live && userId) {
         supabase
           .from('plato_comments')
-          .insert({ plato_id: id, user_id: userId, text, parent_id: parentId ?? null })
+          .insert({ plato_id: id, user_id: userId, text, parent_id: parentId ?? null, image_url: imageUrl ?? null })
           .select('*, author:profiles!plato_comments_user_id_fkey(name,handle,avatar_url)')
           .single()
           .then(({ data, error }) => {
@@ -268,6 +331,25 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [currentUser, live, userId],
+  );
+
+  // RLS (0002) already restricts the delete to the caller's own row. Replies
+  // to the deleted comment cascade in the DB (parent_id references ... on
+  // delete cascade, 0004) — mirrored here so the optimistic removal doesn't
+  // leave orphaned replies visible until the next refetch.
+  const deleteComment = useCallback(
+    (platoId: string, commentId: string) => {
+      const list = commentsByPlato[platoId] ?? [];
+      const removedCount = list.filter((c) => c.id === commentId || c.parentId === commentId).length;
+      if (removedCount === 0) return;
+      setCommentsByPlato((m) => ({
+        ...m,
+        [platoId]: (m[platoId] ?? []).filter((c) => c.id !== commentId && c.parentId !== commentId),
+      }));
+      adjustCount(platoId, 'comments', -removedCount);
+      if (live && userId) supabase.from('plato_comments').delete().eq('id', commentId).then(() => {});
+    },
+    [commentsByPlato, live, userId],
   );
 
   const isCommentLiked = useCallback((commentId: string) => likedComments.has(commentId), [likedComments]);
@@ -397,6 +479,21 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     [live],
   );
 
+  const excludePlato = useCallback(
+    (id: string) => {
+      setPlatos((p) => p.filter((x) => x.id !== id));
+      if (live && userId) {
+        supabase
+          .from('plato_taste_exclusions')
+          .insert({ plato_id: id, user_id: userId })
+          .then(({ error }) => {
+            if (error) console.warn('[platos] taste exclusion insert failed:', error.message);
+          });
+      }
+    },
+    [live, userId],
+  );
+
   // Every Plato whose dish name matches, ranked nearby-first — search screen.
   // Scores the best-matching dish (headline or any other plate in a multi-dish
   // Plato), same idea as DataContext's searchPlates.
@@ -430,8 +527,8 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, searchPlatos }),
-    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, searchPlatos],
+    () => ({ platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos }),
+    [platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;

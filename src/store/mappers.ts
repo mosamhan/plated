@@ -173,6 +173,7 @@ export function mapComment(row: any): Comment {
     orderId: row.order_id,
     userId: row.user_id,
     text: row.text,
+    imageUrl: row.image_url ?? undefined,
     createdAt: row.created_at,
   };
 }
@@ -218,6 +219,7 @@ export function mapPlatoComment(row: any): PlatoComment {
     handle: author.handle ?? 'guest',
     avatar: author.avatar_url || defaultAvatar(),
     text: row.text,
+    imageUrl: row.image_url ?? undefined,
     likes: countOf(row.likes),
     createdAt: row.created_at,
   };
@@ -263,6 +265,9 @@ export function mapMessage(row: any): Message {
     replyToIndex: row.reply_to_index ?? undefined,
     createdAt: row.created_at,
     editedAt: row.edited_at ?? undefined,
+    commentPostId: row.comment_post_id ?? undefined,
+    commentAuthorId: row.comment_author_id ?? undefined,
+    commentText: row.comment_text ?? undefined,
   };
 }
 

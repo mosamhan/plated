@@ -16,13 +16,15 @@ import Animated, { FadeInDown, ZoomIn, ZoomOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
+import { CommentActionsSheet } from '@/components/CommentActionsSheet';
 import { OrderProviderSheet } from '@/components/OrderProviderSheet';
 import { RatingBadge } from '@/components/RatingBadge';
 import { PlateCarousel } from '@/components/PlateCarousel';
 import { PostOptionsSheet } from '@/components/PostOptionsSheet';
 import { ScreenHeader } from '@/components/ScreenHeader';
-import { SendToSheet } from '@/components/SendToSheet';
+import { SendToSheet, SharePayload } from '@/components/SendToSheet';
 import { formatCount } from '@/components/StatPill';
+import { Comment } from '@/data/types';
 import { collabLabel } from '@/lib/collabs';
 import { formatAbsoluteDate } from '@/lib/dates';
 import { buildPlateShareMessage, plateLink } from '@/lib/invite';
@@ -43,7 +45,7 @@ function timeAgo(iso: string): string {
 }
 
 export default function OrderDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, commentId } = useLocalSearchParams<{ id: string; commentId?: string }>();
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -58,6 +60,7 @@ export default function OrderDetail() {
     hasReordered,
     commentsFor,
     addComment,
+    deleteComment,
     currentUser,
     userFor,
     restaurantFor,
@@ -75,6 +78,13 @@ export default function OrderDetail() {
   const lastHeroTap = useRef(0);
   const burstTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [draft, setDraft] = useState('');
+  const [actionTarget, setActionTarget] = useState<Comment | null>(null);
+  const [commentSharePayload, setCommentSharePayload] = useState<SharePayload | null>(null);
+  // Arriving from a shared-comment card (see SharedItemCard/messages) — scroll
+  // to and briefly highlight that one comment once it's laid out, the same
+  // "jump to it once, then let it fade" the message thread's own search does.
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   const order = orders.find((o) => o.id === id);
   // Which plates are ticked for ordering. Seeded to "all on" once the order
@@ -195,7 +205,10 @@ export default function OrderDetail() {
         />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 130 }}>
         {/* Same swipeable carousel as the feed, so the detail matches the post. */}
         <View>
         <PlateCarousel
@@ -398,11 +411,35 @@ export default function OrderDetail() {
               {comments.map((c) => {
                 const cu = c.userId === currentUser.id ? currentUser : userFor(c.userId);
                 return (
-                  <View key={c.id} style={styles.commentRow}>
+                  <View
+                    key={c.id}
+                    style={styles.commentRow}
+                    onLayout={(e) => {
+                      const y = e.nativeEvent.layout.y;
+                      if (commentId === c.id) {
+                        setTimeout(() => {
+                          scrollRef.current?.scrollTo({ y: Math.max(0, y - 100), animated: true });
+                          setHighlightedCommentId(c.id);
+                          setTimeout(() => setHighlightedCommentId(null), 1600);
+                        }, 80);
+                      }
+                    }}>
                     <Pressable onPress={() => router.push(`/user/${cu.id}`)}>
                       <Avatar uri={cu.avatar} size={34} />
                     </Pressable>
-                    <View style={[styles.commentBubble, { backgroundColor: colors.surface }]}>
+                    <Pressable
+                      onLongPress={() => {
+                        tapMedium();
+                        setActionTarget(c);
+                      }}
+                      delayLongPress={350}
+                      style={[
+                        styles.commentBubble,
+                        {
+                          backgroundColor:
+                            highlightedCommentId === c.id ? colors.accentSoft : colors.surface,
+                        },
+                      ]}>
                       <View style={styles.commentHead}>
                         <Text style={[styles.commentName, { color: colors.text }]}>{cu.name}</Text>
                         <View style={styles.commentHeadRight}>
@@ -420,7 +457,7 @@ export default function OrderDetail() {
                         </View>
                       </View>
                       <Text style={[styles.commentText, { color: colors.text }]}>{c.text}</Text>
-                    </View>
+                    </Pressable>
                   </View>
                 );
               })}
@@ -533,6 +570,35 @@ export default function OrderDetail() {
           link: plateLink(order.id),
           label: `the ${currentPlate.dishName || order.dishName}`,
         }}
+      />
+
+      <CommentActionsSheet
+        visible={!!actionTarget}
+        onClose={() => setActionTarget(null)}
+        mine={actionTarget?.userId === currentUser.id}
+        onDelete={() => actionTarget && deleteComment(actionTarget.id, order.id)}
+        onReport={() =>
+          actionTarget && router.push(`/report?targetType=comment&targetId=${actionTarget.id}`)
+        }
+        onShare={() => {
+          if (!actionTarget) return;
+          const author = actionTarget.userId === currentUser.id ? currentUser : userFor(actionTarget.userId);
+          setCommentSharePayload({
+            kind: 'plate_comment',
+            attachmentId: actionTarget.id,
+            commentPostId: order.id,
+            commentAuthorId: actionTarget.userId,
+            commentText: actionTarget.text,
+            label: `${author.name}'s comment`,
+            shareMessage: `${author.name} commented: "${actionTarget.text}"`,
+            link: plateLink(order.id),
+          });
+        }}
+      />
+      <SendToSheet
+        visible={!!commentSharePayload}
+        onClose={() => setCommentSharePayload(null)}
+        payload={commentSharePayload}
       />
     </KeyboardAvoidingView>
   );

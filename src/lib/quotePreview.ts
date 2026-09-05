@@ -66,5 +66,12 @@ export function resolveQuote(
     return { thumbnail, text };
   }
 
+  if (message.kind === 'video') {
+    // No thumbnail to show for a raw video URL (no poster-frame pipeline) —
+    // the play glyph is the same "here's a icon, not a still image" language
+    // a voice note's quote already uses.
+    return { icon: 'play', text: 'Video' };
+  }
+
   return { text: message.text };
 }

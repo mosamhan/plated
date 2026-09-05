@@ -11,13 +11,14 @@ import { EditGroupInfo } from '@/components/EditGroupInfo';
 import { IconAction, IconActionRow } from '@/components/IconAction';
 import { InviteLinkSheet } from '@/components/InviteLinkSheet';
 import { GroupAvatar } from '@/components/GroupAvatar';
+import { IconTabs } from '@/components/IconTabs';
 import { PlateTile } from '@/components/PlateTile';
 import { PlatoTile } from '@/components/PlatoTile';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { SegmentedPill } from '@/components/discover/SegmentedPill';
 import { SettingsRow, SettingsSection } from '@/components/SettingsKit';
+import { SharedCollectionSection } from '@/components/SharedCollectionSection';
 import { StreakUnlockModal } from '@/components/StreakUnlockModal';
-import { UnderlineTabs } from '@/components/UnderlineTabs';
 import { confirmAction } from '@/lib/dialog';
 import { useConversationStreak } from '@/lib/conversationStreak';
 import { warn } from '@/lib/haptics';
@@ -29,8 +30,18 @@ import { usePublicCollections } from '@/store/usePublicCollections';
 import { spacing } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
 
-const TABS = ['Members', 'Plates & Platos', 'Collections', 'Photos'] as const;
-type Tab = (typeof TABS)[number];
+type Tab = 'Members' | 'Plates & Platos' | 'Collections' | 'Photos';
+
+// Icon-only, matching the profile's own grid/bookmark tab language —
+// "Plates & Platos" reuses the exact grid glyph the profile's own plates
+// grid uses, and Collections reuses its bookmark, so a group's content tabs
+// read as the same visual vocabulary as a person's.
+const ICON_TABS: { key: Tab; icon: keyof typeof Ionicons.glyphMap; activeIcon?: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'Members', icon: 'people-outline', activeIcon: 'people' },
+  { key: 'Plates & Platos', icon: 'grid-outline', activeIcon: 'grid' },
+  { key: 'Collections', icon: 'bookmark-outline', activeIcon: 'bookmark' },
+  { key: 'Photos', icon: 'images-outline', activeIcon: 'images' },
+];
 
 // No "All" — plate tiles (square, rating badge) and Plato tiles (3:4, play
 // glyph, view count) look different enough side by side that mixing them
@@ -218,7 +229,7 @@ export default function GroupInfo() {
           </SettingsSection>
         </View>
 
-        <UnderlineTabs tabs={TABS} value={tab} onChange={setTab} scrollable />
+        <IconTabs tabs={ICON_TABS} value={tab} onChange={setTab} />
 
         {/* A filter narrowing the grid already on screen, not a second
             level of navigation — stays a compact centered pill rather than
@@ -285,6 +296,8 @@ export default function GroupInfo() {
 
           {tab === 'Collections' && (
             <View style={{ gap: spacing.lg }}>
+              <SharedCollectionSection conversationId={id} isGroup />
+
               <Text style={[styles.collectionsHint, { color: colors.textMuted }]}>
                 Public collections from everyone in this group.
               </Text>

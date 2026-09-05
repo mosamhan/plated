@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { Image } from 'expo-image';
+import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -9,15 +9,18 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
+import { CommentActionsSheet } from '@/components/CommentActionsSheet';
+import { CommentComposer } from '@/components/CommentComposer';
+import { SendToSheet, SharePayload } from '@/components/SendToSheet';
 import { Comment } from '@/data/types';
-import { tapLight, tapMedium } from '@/lib/haptics';
+import { tapMedium } from '@/lib/haptics';
+import { plateLink } from '@/lib/invite';
 import { useData } from '@/store/DataContext';
 import { useSettings } from '@/store/SettingsContext';
 import { displayFont } from '@/theme/fonts';
@@ -57,28 +60,42 @@ export function PlateCommentsSheet({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height } = useWindowDimensions();
-  const { commentsFor, addComment, userFor, orders } = useData();
+  const { commentsFor, addComment, deleteComment, userFor, currentUser, orders } = useData();
   const { isHidden } = useSettings();
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef<TextInput>(null);
+  const [actionTarget, setActionTarget] = useState<Comment | null>(null);
+  const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
 
   const order = orders.find((o) => o.id === orderId);
   // Hidden-words filtering is applied here rather than in the context: the
   // list is the author's own setting, and it only governs what *they* see.
   const comments = commentsFor(orderId).filter((c) => !isHidden(c.text));
 
-  const submit = () => {
-    const text = draft.trim();
-    if (!text) return;
-    addComment(orderId, text);
-    setDraft('');
-    tapLight();
+  const openActions = (c: Comment) => {
+    tapMedium();
+    setActionTarget(c);
   };
 
-  const report = (c: Comment) => {
-    tapMedium();
-    onClose();
-    router.push(`/report?targetType=comment&targetId=${c.id}`);
+  const onDelete = () => {
+    if (actionTarget) deleteComment(actionTarget.id, orderId);
+  };
+
+  const onReport = () => {
+    if (actionTarget) router.push(`/report?targetType=comment&targetId=${actionTarget.id}`);
+  };
+
+  const onShare = () => {
+    if (!actionTarget) return;
+    const author = userFor(actionTarget.userId);
+    setSharePayload({
+      kind: 'plate_comment',
+      attachmentId: actionTarget.id,
+      commentPostId: orderId,
+      commentAuthorId: actionTarget.userId,
+      commentText: actionTarget.text,
+      label: `${author.name}'s comment`,
+      shareMessage: `${author.name} commented: "${actionTarget.text}"`,
+      link: plateLink(orderId),
+    });
   };
 
   // Tall enough to be a real reading surface, short enough that the post behind
@@ -96,7 +113,7 @@ export function PlateCommentsSheet({
             <Text style={[styles.title, { color: colors.text, fontFamily: displayFont }]}>
               {comments.length > 0 ? `${comments.length} comments` : 'Comments'}
             </Text>
-            <Text style={[styles.hint, { color: colors.textMuted }]}>Hold a comment to report it.</Text>
+            <Text style={[styles.hint, { color: colors.textMuted }]}>Hold a comment for more options.</Text>
 
             <ScrollView
               style={{ maxHeight: sheetMax }}
@@ -108,7 +125,7 @@ export function PlateCommentsSheet({
                 return (
                   <Pressable
                     key={c.id}
-                    onLongPress={() => report(c)}
+                    onLongPress={() => openActions(c)}
                     delayLongPress={350}
                     style={styles.row}>
                     <Pressable
@@ -125,7 +142,10 @@ export function PlateCommentsSheet({
                           {timeAgo(c.createdAt)}
                         </Text>
                       </View>
-                      <Text style={[styles.text, { color: colors.text }]}>{c.text}</Text>
+                      {!!c.text && <Text style={[styles.text, { color: colors.text }]}>{c.text}</Text>}
+                      {c.imageUrl && (
+                        <Image source={{ uri: c.imageUrl }} style={styles.commentImage} contentFit="cover" />
+                      )}
                     </View>
                   </Pressable>
                 );
@@ -142,39 +162,22 @@ export function PlateCommentsSheet({
 
             {!order?.commentsDisabled && (
               <View style={[styles.composer, { borderTopColor: colors.border }]}>
-                <TextInput
-                  ref={inputRef}
-                  value={draft}
-                  onChangeText={setDraft}
-                  placeholder="Add a comment…"
-                  placeholderTextColor={colors.textMuted}
-                  onSubmitEditing={submit}
-                  returnKeyType="send"
-                  multiline
-                  style={[
-                    styles.input,
-                    { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
-                  ]}
-                />
-                <Pressable
-                  onPress={submit}
-                  disabled={!draft.trim()}
-                  hitSlop={6}
-                  style={[
-                    styles.send,
-                    { backgroundColor: draft.trim() ? colors.accent : colors.border },
-                  ]}>
-                  <Ionicons
-                    name="arrow-up"
-                    size={18}
-                    color={draft.trim() ? colors.accentText : colors.textMuted}
-                  />
-                </Pressable>
+                <CommentComposer onSubmit={(text, imageUrl) => addComment(orderId, text, imageUrl)} />
               </View>
             )}
           </Pressable>
         </KeyboardAvoidingView>
       </Pressable>
+
+      <CommentActionsSheet
+        visible={!!actionTarget}
+        onClose={() => setActionTarget(null)}
+        mine={actionTarget?.userId === currentUser.id}
+        onDelete={onDelete}
+        onReport={onReport}
+        onShare={onShare}
+      />
+      <SendToSheet visible={!!sharePayload} onClose={() => setSharePayload(null)} payload={sharePayload} />
     </Modal>
   );
 }
@@ -196,25 +199,7 @@ const styles = StyleSheet.create({
   name: { fontSize: 14, fontWeight: '800' },
   time: { fontSize: 12, fontWeight: '600' },
   text: { fontSize: 14, fontWeight: '500', lineHeight: 19, marginTop: 2 },
+  commentImage: { width: 140, height: 140, borderRadius: radius.md, marginTop: 6 },
   blank: { fontSize: 14, fontWeight: '500', paddingVertical: 8 },
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  input: {
-    flex: 1,
-    minHeight: 40,
-    maxHeight: 110,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 10,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  send: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  composer: { paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
 });

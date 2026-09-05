@@ -23,7 +23,7 @@ export function PlatosFeed({
   /** Opens the reel's restaurant in the same sheet a map pin opens. */
   onRestaurantPress?: (restaurantId: string) => void;
 }) {
-  const { platos: allPlatos, refresh, refreshTick } = usePlatos();
+  const { platos: allPlatos, refresh, refreshTick, loadMorePlatos } = usePlatos();
   const { placementsFor } = useData();
   // Archived Platos reach the client only for their author (RLS); keep them out
   // of the feed even for the author — they live on the profile grid instead.
@@ -85,6 +85,20 @@ export function PlatosFeed({
           showsVerticalScrollIndicator={false}
           decelerationRate="fast"
           onMomentumScrollEnd={onScrollEnd}
+          // Each row here is a full-screen `PlatoReel`, and every mounted one
+          // spins up a real native video decoder the instant it mounts —
+          // RN's own defaults (windowSize 21, initialNumToRender 10) would
+          // keep upwards of a dozen of those alive at once around a fast
+          // scroll, all competing for a phone's handful of hardware decode
+          // paths. Capped to roughly "current reel plus one neighbor each
+          // side" instead — still enough to preload the next reel for a
+          // smooth swipe, the same way TikTok/Instagram do it, just not
+          // twenty of them.
+          initialNumToRender={2}
+          maxToRenderPerBatch={2}
+          windowSize={3}
+          onEndReached={() => loadMorePlatos()}
+          onEndReachedThreshold={1}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" colors={['#fff']} />
           }
@@ -97,6 +111,11 @@ export function PlatosFeed({
                 height={containerH}
                 bottomInset={bottomInset}
                 onRestaurantPress={onRestaurantPress}
+                onEnded={() => {
+                  if (index < items.length - 1) {
+                    listRef.current?.scrollToOffset({ offset: containerH * (index + 1), animated: true });
+                  }
+                }}
               />
             ) : (
               <SponsoredReelCard placement={item.placement} height={containerH} bottomInset={bottomInset} />

@@ -17,6 +17,7 @@ import { Restaurant } from '@/data/types';
 import { confirmAction } from '@/lib/dialog';
 import { tapLight } from '@/lib/haptics';
 import { SavedItem, useCollections } from '@/store/CollectionsContext';
+import { useData } from '@/store/DataContext';
 import { useCollectionContents } from '@/store/useCollectionContents';
 import { useCollectionById } from '@/store/usePublicCollections';
 import { radius, spacing } from '@/theme/palettes';
@@ -43,6 +44,7 @@ export default function CollectionScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { width: windowWidth } = useWindowDimensions();
+  const { currentUser } = useData();
   const {
     collections,
     openSaveSheet,
@@ -58,6 +60,11 @@ export default function CollectionScreen() {
   const { collection: fetched, loading } = useCollectionById(id, own != null);
   const collection = own ?? fetched;
   const isOwner = own != null;
+  // Rename/delete/privacy stay creator-only for a shared collection — every
+  // member can add to it (that's the whole point), but RLS only lets the
+  // creator manage the list itself, so the "Manage" affordance shouldn't
+  // promise more than a non-creator member can actually do.
+  const canManage = isOwner && (!own?.conversationId || own?.creatorId === currentUser.id);
 
   const { plates, platos, restaurants, total } = useCollectionContents(collection ?? undefined);
   const [filter, setFilter] = useState(ALL);
@@ -179,11 +186,11 @@ export default function CollectionScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScreenHeader
         title={collection?.name ?? 'Collection'}
-        rightLabel={!collection ? undefined : selectMode ? 'Done' : isOwner ? 'Manage' : undefined}
+        rightLabel={!collection ? undefined : selectMode ? 'Done' : canManage ? 'Manage' : undefined}
         onRight={selectMode ? exitSelect : () => setManageOpen(true)}
       />
 
-      {collection && isOwner && (
+      {collection && canManage && (
         <>
           <ActionSheet
             visible={manageOpen}

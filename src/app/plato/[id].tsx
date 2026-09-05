@@ -8,7 +8,7 @@ import { usePlatos } from '@/store/PlatosContext';
 
 /** Full-screen player for a single Plato (opened from a profile grid tile). */
 export default function PlatoViewer() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, commentId } = useLocalSearchParams<{ id: string; commentId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -27,6 +27,7 @@ export default function PlatoViewer() {
           // with no map behind it, so the restaurant gets its own screen and the
           // back button walks the stack the way the rest of the app does.
           onRestaurantPress={(restaurantId) => router.push(`/restaurant/${restaurantId}`)}
+          autoOpenCommentId={commentId}
         />
       ) : (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>

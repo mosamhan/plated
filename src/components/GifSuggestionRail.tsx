@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet } from 'react-native';
 
-import { GifResult, searchGifs } from '@/lib/giphy';
+import { GifResult, searchStickers } from '@/lib/giphy';
 import { tapLight } from '@/lib/haptics';
 import { extractFirstUrl } from '@/lib/linkPreview';
 import { radius, spacing } from '@/theme/palettes';
@@ -21,16 +21,16 @@ const DEBOUNCE_MS = 400;
 const MAX_RESULTS = 12;
 
 /**
- * A row of GIF suggestions matching whatever's currently being typed —
- * TikTok's DM composer does this (type "wow", a strip of matching GIFs
- * appears right above the keyboard) instead of making GIFs something you
+ * A row of sticker suggestions (Giphy GIFs and Giphy stickers together, one
+ * mixed feed — see `searchStickers`) matching whatever's currently being
+ * typed — TikTok's DM composer does this (type "wow", a strip of matching
+ * GIFs appears right above the keyboard) instead of making it something you
  * have to go find behind an icon. Tapping one sends it immediately; the
  * typed text is left alone, since a suggestion is an alternative to sending
  * it, not something that consumes it.
  *
- * The manual "GIFs" tab in `AttachSheet` (`GifPickerSheet.tsx`) stays as the
- * fallback for browsing or searching without first typing a matching word —
- * trending, a specific search, stickers.
+ * The dedicated Stickers composer button (`GifPickerSheet.tsx`) stays as the
+ * fallback for browsing or searching without first typing a matching word.
  */
 export function GifSuggestionRail({ query, onPick }: { query: string; onPick: (url: string) => void }) {
   const [results, setResults] = useState<GifResult[]>([]);
@@ -55,7 +55,7 @@ export function GifSuggestionRail({ query, onPick }: { query: string; onPick: (u
     if (!inRange) return;
     const id = ++requestId.current;
     debounceTimer.current = setTimeout(() => {
-      searchGifs(trimmed).then((r) => {
+      searchStickers(trimmed).then((r) => {
         if (requestId.current === id) setResults(r.slice(0, MAX_RESULTS));
       });
     }, DEBOUNCE_MS);
@@ -70,7 +70,7 @@ export function GifSuggestionRail({ query, onPick }: { query: string; onPick: (u
     <FlatList
       horizontal
       data={results}
-      keyExtractor={(g) => g.id}
+      keyExtractor={(g) => `${g.kind}-${g.id}`}
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.row}
       renderItem={({ item }) => (
@@ -82,7 +82,7 @@ export function GifSuggestionRail({ query, onPick }: { query: string; onPick: (u
           style={styles.cell}>
           <Image
             source={{ uri: item.previewUrl }}
-            recyclingKey={item.id}
+            recyclingKey={`${item.kind}-${item.id}`}
             cachePolicy="memory-disk"
             transition={0}
             style={styles.thumb}

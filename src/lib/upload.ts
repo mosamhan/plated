@@ -98,13 +98,19 @@ export async function pickVideo(opts: { camera?: boolean; maxSeconds?: number } 
 /**
  * Upload a picked video to a public bucket under the user's folder (`platos`
  * by default; story clips go to `stories`, which has its own 24h-content
- * lifecycle). Streams the file via fetch → ArrayBuffer (videos are too large
- * for base64). Returns the public URL, or null on failure (caller can fall
- * back to the local uri).
+ * lifecycle; chat videos go to `chat-media`). Streams the file via fetch →
+ * ArrayBuffer (videos are too large for base64). Returns the public URL, or
+ * null on failure (caller can fall back to the local uri).
+ *
+ * Takes a minimal `{ uri, mimeType }` shape rather than the full
+ * `ImagePicker.ImagePickerAsset` type — both that and `MediaLibrary.Asset`
+ * (the in-chat gallery picker's own asset type, which has no `mimeType`
+ * field at all) satisfy it structurally, so callers from either picker can
+ * share this one function.
  */
 export async function uploadVideo(
   userId: string,
-  asset: ImagePicker.ImagePickerAsset,
+  asset: { uri: string; mimeType?: string },
   bucket: Bucket = 'platos',
 ): Promise<string | null> {
   try {
