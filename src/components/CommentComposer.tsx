@@ -1,14 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
 import { GifPickerModal } from '@/components/GifPickerSheet';
-import { showAlert } from '@/lib/dialog';
+import { PhotoPickerSheet } from '@/components/PhotoPickerSheet';
 import { tapLight } from '@/lib/haptics';
-import { pickImage, uploadAsset } from '@/lib/upload';
-import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import { radius } from '@/theme/palettes';
 import { useTheme } from '@/theme/ThemeContext';
@@ -44,11 +42,10 @@ export const CommentComposer = forwardRef<CommentComposerHandle, {
   placeholder?: string;
 }>(function CommentComposer({ onSubmit, disabled, placeholder = 'Add a comment…' }, ref) {
   const { colors } = useTheme();
-  const { userId } = useAuth();
   const { followingUsers } = useData();
   const [draft, setDraft] = useState('');
   const [pendingImage, setPendingImage] = useState<string | null>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
   const inputRef = useRef<TextInput>(null);
   useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
@@ -71,24 +68,6 @@ export const CommentComposer = forwardRef<CommentComposerHandle, {
     tapLight();
     setDraft((d) => (d.length === 0 || d.endsWith(' ') ? `${d}@` : `${d} @`));
     inputRef.current?.focus();
-  };
-
-  const onPickPhoto = async () => {
-    if (uploadingPhoto || !userId) return;
-    tapLight();
-    const asset = await pickImage({ square: true });
-    if (!asset?.base64) return;
-    setUploadingPhoto(true);
-    const url = await uploadAsset('chat-media', userId, {
-      base64: asset.base64,
-      mimeType: asset.mimeType ?? 'image/jpeg',
-    });
-    setUploadingPhoto(false);
-    if (!url) {
-      showAlert('Couldn’t attach that photo', 'Please try again.');
-      return;
-    }
-    setPendingImage(url);
   };
 
   const submit = () => {
@@ -142,16 +121,17 @@ export const CommentComposer = forwardRef<CommentComposerHandle, {
             multiline
             style={[styles.pillInput, { color: colors.text }]}
           />
-          {!draft.trim() &&
-            (uploadingPhoto ? (
-              <View style={styles.pillIconBtn}>
-                <ActivityIndicator size="small" color={colors.accent} />
-              </View>
-            ) : (
-              <Pressable onPress={onPickPhoto} hitSlop={8} style={styles.pillIconBtn}>
-                <Ionicons name="image-outline" size={19} color={colors.accent} />
-              </Pressable>
-            ))}
+          {!draft.trim() && (
+            <Pressable
+              onPress={() => {
+                tapLight();
+                setPhotoPickerOpen(true);
+              }}
+              hitSlop={8}
+              style={styles.pillIconBtn}>
+              <Ionicons name="image-outline" size={19} color={colors.accent} />
+            </Pressable>
+          )}
           <Pressable
             onPress={() => {
               tapLight();
@@ -187,6 +167,15 @@ export const CommentComposer = forwardRef<CommentComposerHandle, {
         onPick={(url) => {
           setPendingImage(url);
           setGifOpen(false);
+        }}
+      />
+
+      <PhotoPickerSheet
+        visible={photoPickerOpen}
+        onClose={() => setPhotoPickerOpen(false)}
+        singleSelect
+        onSend={(urls) => {
+          if (urls[0]) setPendingImage(urls[0]);
         }}
       />
     </View>

@@ -49,6 +49,7 @@ export function PhotoPickerSheet({
   onClose,
   onSend,
   onSendVideo,
+  singleSelect,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -62,6 +63,14 @@ export function PhotoPickerSheet({
    * never allow video) — video assets then simply won't send when tapped.
    */
   onSendVideo?: (url: string) => void;
+  /**
+   * Photos behave like video does above — tapping one uploads and sends it
+   * immediately (`onSend` called with a single-element array), skipping the
+   * multi-select toggle/"Send (N)" flow entirely. For a caller that only
+   * ever wants one photo per send (a comment's single attachment) rather
+   * than a multi-photo album (a chat message).
+   */
+  singleSelect?: boolean;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -208,6 +217,16 @@ export function PhotoPickerSheet({
     }
   };
 
+  // `asset.uri` (used for the grid's thumbnails) can be a bare `ph://` id on
+  // iOS — reading it as base64 needs the resolved local file uri instead,
+  // which `getAssetInfoAsync` provides.
+  const uploadPhoto = async (asset: MediaLibrary.Asset): Promise<string | null> => {
+    const info = await MediaLibrary.getAssetInfoAsync(asset);
+    const localUri = info.localUri ?? asset.uri;
+    const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
+    return uploadAsset('chat-media', userId!, { base64, mimeType: 'image/jpeg' });
+  };
+
   const send = async () => {
     if (!userId || selected.length === 0 || sending) return;
     setSending(true);
@@ -218,15 +237,7 @@ export function PhotoPickerSheet({
     const urls: string[] = [];
     for (const asset of chosen) {
       try {
-        // `asset.uri` (used for the grid's thumbnails) can be a bare
-        // `ph://` id on iOS — reading it as base64 needs the resolved local
-        // file uri instead, which `getAssetInfoAsync` provides.
-        const info = await MediaLibrary.getAssetInfoAsync(asset);
-        const localUri = info.localUri ?? asset.uri;
-        const base64 = await FileSystem.readAsStringAsync(localUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        const url = await uploadAsset('chat-media', userId, { base64, mimeType: 'image/jpeg' });
+        const url = await uploadPhoto(asset);
         if (url) urls.push(url);
       } catch (e) {
         if (__DEV__) console.warn('[Plated] photo read/upload failed', e);
@@ -239,6 +250,27 @@ export function PhotoPickerSheet({
     }
     onSend(urls);
     onClose();
+  };
+
+  // Single-select mode's own "tap sends immediately" path — same upload as
+  // above, just one asset, no toggle/"Send (N)" bar involved at all.
+  const sendSinglePhoto = async (asset: MediaLibrary.Asset) => {
+    if (!userId || sending) return;
+    setSending(true);
+    try {
+      const url = await uploadPhoto(asset);
+      if (!url) {
+        showAlert('Couldn’t send that photo', 'Please try again.');
+        return;
+      }
+      onSend([url]);
+      onClose();
+    } catch (e) {
+      if (__DEV__) console.warn('[Plated] photo read/upload failed', e);
+      showAlert('Couldn’t send that photo', 'Please try again.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -316,13 +348,19 @@ export function PhotoPickerSheet({
               const order = selected.indexOf(item.id);
               const isSelected = order >= 0;
               const isVideo = item.mediaType === 'video';
+              const sendingThis = (isVideo && sendingVideoId === item.id) || (singleSelect && !isVideo && sending);
               // A video is its own message the instant it's tapped — never
               // added to the multi-select batch, so it gets no number badge,
               // just the play glyph + length every gallery uses for this.
+              // `singleSelect` puts photos in that same "tap sends it" mode.
               return (
                 <Pressable
-                  onPress={() => (isVideo ? sendVideo(item) : toggle(item.id))}
-                  disabled={isVideo && sendingVideoId === item.id}
+                  onPress={() => {
+                    if (isVideo) sendVideo(item);
+                    else if (singleSelect) sendSinglePhoto(item);
+                    else toggle(item.id);
+                  }}
+                  disabled={sendingThis}
                   style={{ width: cellSize, height: cellSize }}>
                   <Image
                     source={{ uri: item.uri }}
@@ -354,6 +392,12 @@ export function PhotoPickerSheet({
                         </View>
                       )}
                     </>
+                  ) : singleSelect ? (
+                    sendingThis && (
+                      <View style={styles.videoPlayBadge}>
+                        <ActivityIndicator size="small" color="#fff" />
+                      </View>
+                    )
                   ) : (
                     <View
                       style={[
