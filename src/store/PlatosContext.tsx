@@ -29,6 +29,8 @@ interface PlatosContextValue {
   refresh: () => void;
   /** Bumps on each refresh() so the feed can jump back to the first reel. */
   refreshTick: number;
+  /** Fetches the next page of Platos — call as the feed nears the end of what's loaded. */
+  loadMorePlatos: () => void;
   isLiked: (id: string) => boolean;
   toggleLike: (id: string) => void;
   /** Records that the signed-in user watched this Plato. Safe to call repeatedly. */
@@ -81,6 +83,12 @@ const PLATO_SELECT =
   // `*` already brings view_count along (0009); likes/comments stay aggregates.
   '*, creator:profiles!plato_videos_user_id_fkey(name,handle,avatar_url,verified,compensation_eligible), likes:plato_likes(count), comments:plato_comments(count), collaborators:post_collaborators(user_id, status)';
 
+// The feed used to fetch every Plato in the table on every cold start —
+// fine at demo scale, a real problem once there's enough content that
+// "every row" stops being a small number. Paged instead; `loadMorePlatos`
+// pulls the next page as the feed nears the end of what's loaded.
+const PLATO_PAGE_SIZE = 20;
+
 export function PlatosProvider({ children }: { children: React.ReactNode }) {
   const { userId } = useAuth();
   const { currentUser, restaurantFor } = useData();
@@ -94,6 +102,9 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   const [loadedComments, setLoadedComments] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<boolean>(live);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [platoOffset, setPlatoOffset] = useState(0);
+  const [hasMorePlatos, setHasMorePlatos] = useState(true);
+  const [loadingMorePlatos, setLoadingMorePlatos] = useState(false);
 
   const seedFromDemo = useCallback(() => {
     setPlatos(shuffle(PLATOS));
@@ -111,7 +122,8 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         const { data, error } = await supabase
           .from('plato_videos')
           .select(PLATO_SELECT)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .range(0, PLATO_PAGE_SIZE - 1);
         // Table missing (migration not run yet) or no creator posts → show demo reels.
         if (error || !data || data.length === 0) {
           seedFromDemo();
@@ -123,6 +135,8 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         ]);
         const excluded = new Set((exclusionsRes.data ?? []).map((r) => r.plato_id));
         setPlatos(shuffle(data.filter((row) => !excluded.has(row.id)).map(mapPlato)));
+        setPlatoOffset(data.length);
+        setHasMorePlatos(data.length === PLATO_PAGE_SIZE);
         setCommentsByPlato({});
         setLoadedComments(new Set());
         setLiked(new Set((likesRes.data ?? []).map((r) => r.plato_id)));
@@ -139,6 +153,41 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     if (live && userId) loadFromSupabase(userId);
     else seedFromDemo();
   }, [live, userId, loadFromSupabase, seedFromDemo]);
+
+  // Pulls the next page as the feed nears the end of what's loaded (wired to
+  // PlatosFeed's onEndReached) — appends rather than reshuffling everything,
+  // so reels already on screen don't reorder out from under the viewer.
+  const loadMorePlatos = useCallback(async () => {
+    if (!live || !userId || loadingMorePlatos || !hasMorePlatos) return;
+    setLoadingMorePlatos(true);
+    try {
+      const { data, error } = await supabase
+        .from('plato_videos')
+        .select(PLATO_SELECT)
+        .order('created_at', { ascending: false })
+        .range(platoOffset, platoOffset + PLATO_PAGE_SIZE - 1);
+      if (error || !data) {
+        setHasMorePlatos(false);
+        return;
+      }
+      const [likesRes, exclusionsRes] = await Promise.all([
+        supabase.from('plato_likes').select('plato_id').eq('user_id', userId).in('plato_id', data.map((r) => r.id)),
+        supabase.from('plato_taste_exclusions').select('plato_id').eq('user_id', userId),
+      ]);
+      const excluded = new Set((exclusionsRes.data ?? []).map((r) => r.plato_id));
+      const fresh = shuffle(data.filter((row) => !excluded.has(row.id)).map(mapPlato));
+      setPlatos((prev) => [...prev, ...fresh]);
+      setLiked((prev) => {
+        const next = new Set(prev);
+        for (const r of likesRes.data ?? []) next.add(r.plato_id);
+        return next;
+      });
+      setPlatoOffset((o) => o + data.length);
+      setHasMorePlatos(data.length === PLATO_PAGE_SIZE);
+    } finally {
+      setLoadingMorePlatos(false);
+    }
+  }, [live, userId, loadingMorePlatos, hasMorePlatos, platoOffset]);
 
   const refresh = useCallback(() => {
     setPlatos((prev) => shuffle(prev));
@@ -457,8 +506,8 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos }),
-    [platos, loading, refresh, refreshTick, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos],
+    () => ({ platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos }),
+    [platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;

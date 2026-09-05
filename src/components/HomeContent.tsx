@@ -72,7 +72,7 @@ export function HomeContent() {
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { feedOrders, contacts, unreadCount, bumpedOrderIds } = useData();
+  const { feedOrders, contacts, unreadCount, bumpedOrderIds, loadMoreOrders } = useData();
   const { unreadCount: unreadMessages } = useMessages();
   const { openSaveSheet, isSaved: isSavedInCollections } = useCollections();
   const { current: streak } = useStreak();
@@ -197,6 +197,8 @@ export function HomeContent() {
             )
           }
           showsVerticalScrollIndicator={false}
+          onEndReached={() => loadMoreOrders()}
+          onEndReachedThreshold={2}
           // The rail scrolls away with the feed instead of pinning under the
           // header. It's the top of the *content*, not chrome — keeping it
           // fixed cost 90 points of every screenful for something you've

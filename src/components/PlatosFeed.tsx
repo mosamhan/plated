@@ -23,7 +23,7 @@ export function PlatosFeed({
   /** Opens the reel's restaurant in the same sheet a map pin opens. */
   onRestaurantPress?: (restaurantId: string) => void;
 }) {
-  const { platos: allPlatos, refresh, refreshTick } = usePlatos();
+  const { platos: allPlatos, refresh, refreshTick, loadMorePlatos } = usePlatos();
   const { placementsFor } = useData();
   // Archived Platos reach the client only for their author (RLS); keep them out
   // of the feed even for the author — they live on the profile grid instead.
@@ -97,6 +97,8 @@ export function PlatosFeed({
           initialNumToRender={2}
           maxToRenderPerBatch={2}
           windowSize={3}
+          onEndReached={() => loadMorePlatos()}
+          onEndReachedThreshold={1}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" colors={['#fff']} />
           }
