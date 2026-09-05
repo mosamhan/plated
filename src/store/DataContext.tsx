@@ -8,6 +8,7 @@ import { OFFERS } from '@/data/offers';
 import { makeOrderId, ORDERS, REORDER_SEEDS } from '@/data/orders';
 import { placeTypeFor, type PlaceType } from '@/lib/placeType';
 import { rankWithDistance, scoreTextMatch } from '@/lib/search';
+import { affinityFor, computeTasteAffinity } from '@/lib/tasteProfile';
 import { getRestaurant as getMockRestaurant, RESTAURANTS } from '@/data/restaurants';
 import { COMMENTS, NOTIFICATIONS } from '@/data/social';
 import { FEED_BUMPS, SPONSORED_PLACEMENTS } from '@/data/sponsored';
@@ -123,6 +124,10 @@ interface DataContextValue {
   toggleFollow: (userId: string) => void;
   hasReordered: (orderId: string) => boolean;
   markReordered: (orderId: string) => void;
+  /** Taste-profile signal — a plate or Plato sent into a chat or the system share sheet. */
+  recordShare: (kind: 'plate' | 'plato', id: string) => void;
+  /** The onboarding "choose your interests" step, and Settings' equivalent for revising picks later. */
+  updateTasteCategories: (categories: PlaceType[]) => void;
 
   // comments
   commentsFor: (orderId: string) => Comment[];
@@ -274,6 +279,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [reordered, setReordered] = useState<Set<string>>(new Set());
+  /** Plates this user has sent into a chat or the system share sheet — a
+   *  taste-profile signal (see src/lib/tasteProfile.ts), not a UI toggle. */
+  const [sharedOrderIds, setSharedOrderIds] = useState<Set<string>>(new Set());
   const [following, setFollowing] = useState<Set<string>>(new Set());
   const [followers, setFollowers] = useState<Set<string>>(new Set());
   const [blocked, setBlocked] = useState<Set<string>>(new Set());
@@ -306,7 +314,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Load everything from Supabase ──────────────────────────────────────────
   const loadFromSupabase = useCallback(async (uid: string) => {
     setLoading(true);
-    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes, offersRes, redemptionsRes, feedBumpsRes, placementsRes, ownersRes, searchQueriesRes] =
+    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes, offersRes, redemptionsRes, feedBumpsRes, placementsRes, ownersRes, searchQueriesRes, sharesRes] =
       await Promise.all([
         supabase
           .from('profiles')
@@ -343,6 +351,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           .eq('user_id', uid)
           .order('created_at', { ascending: false })
           .limit(30),
+        // Taste-profile share signal (0071) — plate side only; PlatosContext
+        // reads its own plato_id rows from the same table independently.
+        supabase.from('content_shares').select('order_id').eq('user_id', uid).not('order_id', 'is', null),
       ]);
 
     setProfileMap(Object.fromEntries((profilesRes.data ?? []).map((r) => [r.id, mapProfile(r)])));
@@ -376,6 +387,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     );
     setOwnedRestaurantIds(new Set((ownersRes.data ?? []).map((r) => r.restaurant_id)));
     setRecentSearchPlaceTypes(new Set((searchQueriesRes.data ?? []).map((r) => r.matched_place_type as PlaceType)));
+    setSharedOrderIds(new Set((sharesRes.data ?? []).map((r) => r.order_id).filter(Boolean)));
     setCurrentUserId(uid);
     setLoading(false);
   }, []);
@@ -583,6 +595,33 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     () => new Set(orders.filter((o) => o.userId === currentUserId).map((o) => o.restaurantId)),
     [orders, currentUserId],
   );
+
+  // Taste profile (D-taste) — every signal the app already tracks per user
+  // (an onboarding pick, a like, a save, a reorder, a share) folds into one
+  // affinity score per PlaceType via the shared engine in lib/tasteProfile,
+  // so the feed keeps adapting to how someone actually uses the app rather
+  // than only what they said once at signup. Additive to the v1 score below,
+  // not a replacement for it.
+  const placeTypeOfOrder = useCallback(
+    (orderId: string): PlaceType => {
+      const order = orders.find((o) => o.id === orderId);
+      return placeTypeFor(order ? restaurantMap[order.restaurantId]?.cuisine : undefined);
+    },
+    [orders, restaurantMap],
+  );
+  const tasteAffinity = useMemo(
+    () =>
+      computeTasteAffinity({
+        onboarding: (currentUser.tasteCategories ?? []) as PlaceType[],
+        reorders: [...reordered].map(placeTypeOfOrder),
+        saves: [...saved].map(placeTypeOfOrder),
+        shares: [...sharedOrderIds].map(placeTypeOfOrder),
+        likes: [...liked].map(placeTypeOfOrder),
+        views: [],
+        excludes: [],
+      }),
+    [currentUser.tasteCategories, reordered, saved, sharedOrderIds, liked, placeTypeOfOrder],
+  );
   const personalizationScore = useCallback(
     (o: Order) => {
       let score = 0;
@@ -590,9 +629,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const r = restaurantMap[o.restaurantId];
       if (r && recentSearchPlaceTypes.has(placeTypeFor(r.cuisine))) score += 2;
       if (visitedRestaurantIds.has(o.restaurantId)) score += 1;
+      if (r) score += affinityFor(tasteAffinity, placeTypeFor(r.cuisine));
       return score;
     },
-    [following, restaurantMap, recentSearchPlaceTypes, visitedRestaurantIds],
+    [following, restaurantMap, recentSearchPlaceTypes, visitedRestaurantIds, tasteAffinity],
   );
   const feedOrders = useCallback(
     () =>
@@ -800,6 +840,46 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (live && userId) supabase.from('reorders').insert({ order_id: id, user_id: userId }).then(() => {});
     },
     [reordered, live, userId],
+  );
+
+  // Taste-profile share signal (0071) — fired from SendToSheet's successful
+  // send paths for both plates and Platos. The plate-side optimistic Set is
+  // kept here (feedOrders' scoring needs it); a Plato share's row is written
+  // the same way but read back independently by PlatosContext, which can't
+  // see this context's state going the other direction (PlatosProvider is a
+  // *child* of DataProvider in _layout.tsx, not the reverse).
+  const recordShare = useCallback(
+    (kind: 'plate' | 'plato', id: string) => {
+      if (kind === 'plate') setSharedOrderIds((p) => new Set(p).add(id));
+      if (live && userId) {
+        supabase
+          .from('content_shares')
+          .insert(kind === 'plate' ? { user_id: userId, order_id: id } : { user_id: userId, plato_id: id })
+          .then(() => {});
+      }
+    },
+    [live, userId],
+  );
+
+  // The onboarding "choose your interests" step, and its Settings equivalent
+  // for revising picks later. `taste_onboarded` only ever flips true — once
+  // the picker's been completed, editing categories afterward shouldn't
+  // re-trigger it.
+  const updateTasteCategories = useCallback(
+    (categories: PlaceType[]) => {
+      setProfileMap((p) => ({
+        ...p,
+        [currentUserId]: { ...p[currentUserId], tasteCategories: categories, tasteOnboarded: true },
+      }));
+      if (live && userId) {
+        supabase
+          .from('profiles')
+          .update({ taste_categories: categories, taste_onboarded: true })
+          .eq('id', userId)
+          .then(() => {});
+      }
+    },
+    [live, userId, currentUserId],
   );
 
   const redeemOffer = useCallback(
@@ -1239,6 +1319,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       toggleFollow,
       hasReordered,
       markReordered,
+      recordShare,
+      updateTasteCategories,
       commentsFor,
       addComment,
       deleteComment,
@@ -1274,7 +1356,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       updateProfile,
       updateRestaurantPage,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, loadMoreOrders, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, deleteComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
+    [orders, restaurantMap, currentUser, loading, refresh, loadMoreOrders, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, recordShare, updateTasteCategories, commentsFor, addComment, deleteComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -35,6 +35,8 @@ export function mapProfile(row: any): User {
     estimatedEarnings: 0,
     needsOnboarding: !!row.needs_onboarding,
     dateOfBirth: row.date_of_birth ?? undefined,
+    tasteCategories: row.taste_categories ?? [],
+    tasteOnboarded: !!row.taste_onboarded,
   };
 }
 

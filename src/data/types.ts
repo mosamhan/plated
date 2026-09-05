@@ -23,6 +23,10 @@ export interface User {
   needsOnboarding?: boolean;
   /** ISO date (YYYY-MM-DD). Optional — collected during onboarding for birthday specials/recommendations, never required. */
   dateOfBirth?: string;
+  /** PlaceType keys picked at onboarding (or edited later) — see src/lib/placeType.ts and 0071_taste_profile.sql. Optional — absent (empty) for mock/offline data. */
+  tasteCategories?: string[];
+  /** False until the "choose your interests" step has been completed once. Optional — treated as already-done (true) when absent, so mock/offline data never shows the picker. */
+  tasteOnboarded?: boolean;
 }
 
 export interface RestaurantRequestInput {

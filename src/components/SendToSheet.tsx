@@ -102,7 +102,7 @@ export function SendToSheet({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height } = useWindowDimensions();
-  const { followingUsers, followerUsers, topCreators, currentUser, isBlocked, userFor } = useData();
+  const { followingUsers, followerUsers, topCreators, currentUser, isBlocked, userFor, recordShare } = useData();
   const { conversations, otherIds, sendMessage, startDirect, createGroup } = useMessages();
 
   const [query, setQuery] = useState('');
@@ -200,6 +200,14 @@ export function SendToSheet({
           text: note.trim(),
         };
 
+  // Taste-profile signal (0071) — a plate/Plato genuinely shared (to a
+  // person, a group, or your own story), not a comment card or a forwarded
+  // message: those aren't "I recommend this dish" the way sharing the post
+  // itself is.
+  const recordPayloadShare = () => {
+    if (payload?.kind === 'plate' || payload?.kind === 'plato') recordShare(payload.kind, payload.attachmentId);
+  };
+
   const sendToTarget = async (t: ShareTarget) => {
     if ((!payload && !forward) || sendingKey) return;
     tapLight();
@@ -210,6 +218,7 @@ export function SendToSheet({
     if (conversationId) {
       await sendMessage(conversationId, draft).catch(() => {});
       success();
+      recordPayloadShare();
       setSentKeys((p) => new Set(p).add(t.key));
     } else {
       showAlert('Couldn’t send', 'Please try again.');
@@ -234,6 +243,7 @@ export function SendToSheet({
     await sendMessage(conversationId, buildDraft()).catch(() => {});
     setCreatingGroup(false);
     success();
+    recordPayloadShare();
     close();
     router.push(`/messages/${conversationId}`);
   };
@@ -253,6 +263,7 @@ export function SendToSheet({
   const onAddToStory = () => {
     if (!payload) return;
     tapLight();
+    recordPayloadShare();
     close();
     router.push({
       pathname: '/create-story',

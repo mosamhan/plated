@@ -25,5 +25,11 @@ export default function Index() {
   // Brand-new Google/Apple signup — see 0047_onboarding_flag.sql. Email/password
   // signup already collects a real handle/name inline and never hits this.
   if (currentUser.needsOnboarding) return <Redirect href="/onboarding" />;
+  // The taste-profile picker — onboarding.tsx's own last step already covers
+  // the OAuth path above; this is the equivalent redirect for everyone else
+  // (email/password signup skips onboarding.tsx entirely). Existing accounts
+  // are backfilled to true by 0071_taste_profile.sql, so this only ever
+  // catches a genuinely new signup, not a retroactive interruption.
+  if (currentUser.tasteOnboarded === false) return <Redirect href="/onboarding/interests" />;
   return <Redirect href="/(tabs)" />;
 }
