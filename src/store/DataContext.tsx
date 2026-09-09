@@ -8,6 +8,7 @@ import { OFFERS } from '@/data/offers';
 import { makeOrderId, ORDERS, REORDER_SEEDS } from '@/data/orders';
 import { placeTypeFor, type PlaceType } from '@/lib/placeType';
 import { rankWithDistance, scoreTextMatch } from '@/lib/search';
+import { affinityFor, computeTasteAffinity, TASTE_WEIGHTS, type TasteAffinity, type TasteEvent } from '@/lib/tasteProfile';
 import { getRestaurant as getMockRestaurant, RESTAURANTS } from '@/data/restaurants';
 import { COMMENTS, NOTIFICATIONS } from '@/data/social';
 import { FEED_BUMPS, SPONSORED_PLACEMENTS } from '@/data/sponsored';
@@ -67,6 +68,14 @@ export interface NewOrderInput {
   hideLikeCount?: boolean;
 }
 
+/** A dated plate interaction — the taste-profile dashboard's raw material
+ *  for "how this developed over time" (see src/lib/tasteProfile.ts). */
+export interface PlateInteraction {
+  orderId: string;
+  createdAt: string;
+  kind: 'like' | 'save' | 'reorder' | 'share';
+}
+
 interface DataContextValue {
   orders: Order[];
   restaurants: Restaurant[];
@@ -123,6 +132,16 @@ interface DataContextValue {
   toggleFollow: (userId: string) => void;
   hasReordered: (orderId: string) => boolean;
   markReordered: (orderId: string) => void;
+  /** Taste-profile signal — a plate or Plato sent into a chat or the system share sheet. */
+  recordShare: (kind: 'plate' | 'plato', id: string) => void;
+  /** The onboarding "choose your interests" step, and Settings' equivalent for revising picks later. */
+  updateTasteCategories: (categories: PlaceType[]) => void;
+  /** The taste-profile dashboard's affinity score per category, from plate-side signals only (see PlatosContext for the Plato-side equivalent). */
+  tasteAffinity: TasteAffinity;
+  /** Dated plate interactions for the dashboard's "how this developed over time" chart. */
+  plateTasteEvents: () => TasteEvent[];
+  /** The dashboard's "not really me" — see 0072_taste_profile_muted.sql. */
+  muteTasteCategory: (type: PlaceType, muted: boolean) => void;
 
   // comments
   commentsFor: (orderId: string) => Comment[];
@@ -274,6 +293,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [reordered, setReordered] = useState<Set<string>>(new Set());
+  /** Plates this user has sent into a chat or the system share sheet — a
+   *  taste-profile signal (see src/lib/tasteProfile.ts), not a UI toggle. */
+  const [sharedOrderIds, setSharedOrderIds] = useState<Set<string>>(new Set());
+  // Dated interactions for the taste-profile dashboard's "how this developed
+  // over time" chart — the Sets above are enough for scoring (which only
+  // needs "does this exist"), but the dashboard needs *when* too.
+  const [plateInteractions, setPlateInteractions] = useState<PlateInteraction[]>([]);
   const [following, setFollowing] = useState<Set<string>>(new Set());
   const [followers, setFollowers] = useState<Set<string>>(new Set());
   const [blocked, setBlocked] = useState<Set<string>>(new Set());
@@ -306,7 +332,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Load everything from Supabase ──────────────────────────────────────────
   const loadFromSupabase = useCallback(async (uid: string) => {
     setLoading(true);
-    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes, offersRes, redemptionsRes, feedBumpsRes, placementsRes, ownersRes, searchQueriesRes] =
+    const [profilesRes, restaurantsRes, ordersRes, commentsRes, likesRes, savesRes, reordersRes, followsRes, followersRes, blocksRes, notifsRes, earningsRes, offersRes, redemptionsRes, feedBumpsRes, placementsRes, ownersRes, searchQueriesRes, sharesRes] =
       await Promise.all([
         supabase
           .from('profiles')
@@ -318,9 +344,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           .order('created_at', { ascending: false })
           .range(0, ORDER_PAGE_SIZE - 1),
         supabase.from('comments').select('*').order('created_at', { ascending: true }),
-        supabase.from('likes').select('order_id').eq('user_id', uid),
-        supabase.from('saves').select('order_id').eq('user_id', uid),
-        supabase.from('reorders').select('order_id').eq('user_id', uid),
+        supabase.from('likes').select('order_id, created_at').eq('user_id', uid),
+        supabase.from('saves').select('order_id, created_at').eq('user_id', uid),
+        supabase.from('reorders').select('order_id, created_at').eq('user_id', uid),
         supabase.from('follows').select('following_id').eq('follower_id', uid),
         supabase.from('follows').select('follower_id').eq('following_id', uid),
         supabase.from('blocks').select('blocked_id').eq('blocker_id', uid),
@@ -343,6 +369,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           .eq('user_id', uid)
           .order('created_at', { ascending: false })
           .limit(30),
+        // Taste-profile share signal (0071) — plate side only; PlatosContext
+        // reads its own plato_id rows from the same table independently.
+        supabase.from('content_shares').select('order_id, created_at').eq('user_id', uid).not('order_id', 'is', null),
       ]);
 
     setProfileMap(Object.fromEntries((profilesRes.data ?? []).map((r) => [r.id, mapProfile(r)])));
@@ -376,6 +405,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     );
     setOwnedRestaurantIds(new Set((ownersRes.data ?? []).map((r) => r.restaurant_id)));
     setRecentSearchPlaceTypes(new Set((searchQueriesRes.data ?? []).map((r) => r.matched_place_type as PlaceType)));
+    setSharedOrderIds(new Set((sharesRes.data ?? []).map((r) => r.order_id).filter(Boolean)));
+    setPlateInteractions([
+      ...(likesRes.data ?? []).map((r): PlateInteraction => ({ orderId: r.order_id, createdAt: r.created_at, kind: 'like' })),
+      ...(savesRes.data ?? []).map((r): PlateInteraction => ({ orderId: r.order_id, createdAt: r.created_at, kind: 'save' })),
+      ...(reordersRes.data ?? []).map((r): PlateInteraction => ({ orderId: r.order_id, createdAt: r.created_at, kind: 'reorder' })),
+      ...(sharesRes.data ?? [])
+        .filter((r) => r.order_id)
+        .map((r): PlateInteraction => ({ orderId: r.order_id, createdAt: r.created_at, kind: 'share' })),
+    ]);
     setCurrentUserId(uid);
     setLoading(false);
   }, []);
@@ -583,6 +621,45 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     () => new Set(orders.filter((o) => o.userId === currentUserId).map((o) => o.restaurantId)),
     [orders, currentUserId],
   );
+
+  // Taste profile (D-taste) — every signal the app already tracks per user
+  // (an onboarding pick, a like, a save, a reorder, a share) folds into one
+  // affinity score per PlaceType via the shared engine in lib/tasteProfile,
+  // so the feed keeps adapting to how someone actually uses the app rather
+  // than only what they said once at signup. Additive to the v1 score below,
+  // not a replacement for it.
+  const placeTypeOfOrder = useCallback(
+    (orderId: string): PlaceType => {
+      const order = orders.find((o) => o.id === orderId);
+      return placeTypeFor(order ? restaurantMap[order.restaurantId]?.cuisine : undefined);
+    },
+    [orders, restaurantMap],
+  );
+  const tasteAffinity = useMemo(
+    () =>
+      computeTasteAffinity({
+        onboarding: (currentUser.tasteCategories ?? []) as PlaceType[],
+        reorders: [...reordered].map(placeTypeOfOrder),
+        saves: [...saved].map(placeTypeOfOrder),
+        shares: [...sharedOrderIds].map(placeTypeOfOrder),
+        likes: [...liked].map(placeTypeOfOrder),
+        views: [],
+        excludes: (currentUser.tasteMuted ?? []) as PlaceType[],
+      }),
+    [currentUser.tasteCategories, currentUser.tasteMuted, reordered, saved, sharedOrderIds, liked, placeTypeOfOrder],
+  );
+  // Dated events for the taste-profile dashboard's history chart — the same
+  // signals as tasteAffinity above, just resolved to a type+timestamp+weight
+  // per event instead of folded into one running score.
+  const plateTasteEvents = useCallback(
+    (): TasteEvent[] =>
+      plateInteractions.map((i) => ({
+        createdAt: i.createdAt,
+        type: placeTypeOfOrder(i.orderId),
+        weight: TASTE_WEIGHTS[i.kind],
+      })),
+    [plateInteractions, placeTypeOfOrder],
+  );
   const personalizationScore = useCallback(
     (o: Order) => {
       let score = 0;
@@ -590,9 +667,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const r = restaurantMap[o.restaurantId];
       if (r && recentSearchPlaceTypes.has(placeTypeFor(r.cuisine))) score += 2;
       if (visitedRestaurantIds.has(o.restaurantId)) score += 1;
+      if (r) score += affinityFor(tasteAffinity, placeTypeFor(r.cuisine));
       return score;
     },
-    [following, restaurantMap, recentSearchPlaceTypes, visitedRestaurantIds],
+    [following, restaurantMap, recentSearchPlaceTypes, visitedRestaurantIds, tasteAffinity],
   );
   const feedOrders = useCallback(
     () =>
@@ -751,12 +829,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const adjustOrderCount = (id: string, field: 'likes' | 'comments' | 'reorders', delta: number) =>
     setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, [field]: Math.max(0, (o[field] ?? 0) + delta) } : o)));
 
+  // Taste-profile dashboard signal — only the positive transition counts as
+  // "an interaction happened" (unliking isn't "I disliked this on this
+  // date," it's just undoing the earlier like, which stays in the history
+  // as it originally happened).
+  const logInteraction = (orderId: string, kind: PlateInteraction['kind']) =>
+    setPlateInteractions((p) => [...p, { orderId, createdAt: new Date().toISOString(), kind }]);
+
   const isLiked = useCallback((id: string) => liked.has(id), [liked]);
   const toggleLike = useCallback(
     (id: string) => {
       const on = !liked.has(id);
       setLiked((p) => { const n = new Set(p); on ? n.add(id) : n.delete(id); return n; });
       adjustOrderCount(id, 'likes', on ? 1 : -1);
+      if (on) logInteraction(id, 'like');
       if (live && userId) {
         if (on) supabase.from('likes').insert({ order_id: id, user_id: userId }).then(() => {});
         else supabase.from('likes').delete().eq('order_id', id).eq('user_id', userId).then(() => {});
@@ -770,6 +856,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     (id: string) => {
       const on = !saved.has(id);
       setSaved((p) => { const n = new Set(p); on ? n.add(id) : n.delete(id); return n; });
+      if (on) logInteraction(id, 'save');
       if (live && userId) {
         if (on) supabase.from('saves').insert({ order_id: id, user_id: userId }).then(() => {});
         else supabase.from('saves').delete().eq('order_id', id).eq('user_id', userId).then(() => {});
@@ -797,9 +884,78 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (reordered.has(id)) return;
       setReordered((p) => new Set(p).add(id));
       adjustOrderCount(id, 'reorders', 1);
+      logInteraction(id, 'reorder');
       if (live && userId) supabase.from('reorders').insert({ order_id: id, user_id: userId }).then(() => {});
     },
     [reordered, live, userId],
+  );
+
+  // Taste-profile share signal (0071) — fired from SendToSheet's successful
+  // send paths for both plates and Platos. The plate-side optimistic Set is
+  // kept here (feedOrders' scoring needs it); a Plato share's row is written
+  // the same way but read back independently by PlatosContext, which can't
+  // see this context's state going the other direction (PlatosProvider is a
+  // *child* of DataProvider in _layout.tsx, not the reverse).
+  const recordShare = useCallback(
+    (kind: 'plate' | 'plato', id: string) => {
+      if (kind === 'plate') {
+        setSharedOrderIds((p) => new Set(p).add(id));
+        logInteraction(id, 'share');
+      }
+      if (live && userId) {
+        supabase
+          .from('content_shares')
+          .insert(kind === 'plate' ? { user_id: userId, order_id: id } : { user_id: userId, plato_id: id })
+          .then(() => {});
+      }
+    },
+    [live, userId],
+  );
+
+  // The onboarding "choose your interests" step, and its Settings equivalent
+  // for revising picks later. `taste_onboarded` only ever flips true — once
+  // the picker's been completed, editing categories afterward shouldn't
+  // re-trigger it.
+  const updateTasteCategories = useCallback(
+    (categories: PlaceType[]) => {
+      // Re-picking a category you'd previously muted is a clear enough "no,
+      // I do want this" that it should actually un-mute it — otherwise it'd
+      // sit in both lists, added to your picks but still hidden by
+      // rankCategories' hard filter on taste_muted.
+      const nextMuted = (currentUser.tasteMuted ?? []).filter((m) => !categories.includes(m as PlaceType));
+      setProfileMap((p) => ({
+        ...p,
+        [currentUserId]: { ...p[currentUserId], tasteCategories: categories, tasteOnboarded: true, tasteMuted: nextMuted },
+      }));
+      if (live && userId) {
+        supabase
+          .from('profiles')
+          .update({ taste_categories: categories, taste_onboarded: true, taste_muted: nextMuted })
+          .eq('id', userId)
+          .then(() => {});
+      }
+    },
+    [live, userId, currentUserId, currentUser.tasteMuted],
+  );
+
+  // The taste-profile dashboard's "not really me" — see 0072_taste_profile_muted.sql.
+  // A hard filter in rankCategories on top of the heavy negative weight it
+  // already carries in tasteAffinity's `excludes`, so dismissed genuinely
+  // stops showing rather than just scoring low.
+  const muteTasteCategory = useCallback(
+    (type: PlaceType, muted: boolean) => {
+      setProfileMap((p) => {
+        const current = new Set(p[currentUserId]?.tasteMuted ?? []);
+        muted ? current.add(type) : current.delete(type);
+        return { ...p, [currentUserId]: { ...p[currentUserId], tasteMuted: [...current] } };
+      });
+      if (live && userId) {
+        const next = new Set(currentUser.tasteMuted ?? []);
+        muted ? next.add(type) : next.delete(type);
+        supabase.from('profiles').update({ taste_muted: [...next] }).eq('id', userId).then(() => {});
+      }
+    },
+    [live, userId, currentUserId, currentUser.tasteMuted],
   );
 
   const redeemOffer = useCallback(
@@ -1239,6 +1395,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       toggleFollow,
       hasReordered,
       markReordered,
+      recordShare,
+      updateTasteCategories,
+      tasteAffinity,
+      plateTasteEvents,
+      muteTasteCategory,
       commentsFor,
       addComment,
       deleteComment,
@@ -1274,7 +1435,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       updateProfile,
       updateRestaurantPage,
     }),
-    [orders, restaurantMap, currentUser, loading, refresh, loadMoreOrders, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, commentsFor, addComment, deleteComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
+    [orders, restaurantMap, currentUser, loading, refresh, loadMoreOrders, userFor, ensureProfiles, restaurantFor, feedOrders, verifiedCreatorOrders, ordersByRestaurant, ordersByUser, ratingsByUser, restaurantWithRating, topRestaurants, topPlates, myRestaurantRankings, myPlateRankings, topCreators, followingUsers, followerUsers, suggestedUsers, friendUsers, exploreOrders, searchRestaurants, menuForRestaurant, restaurantMenu, isLiked, toggleLike, isSaved, toggleSave, isFollowing, toggleFollow, hasReordered, markReordered, recordShare, updateTasteCategories, tasteAffinity, plateTasteEvents, muteTasteCategory, commentsFor, addComment, deleteComment, notifications, unreadCount, markAllNotificationsRead, refreshNotifications, attributions, refreshAttributions, offersForRestaurant, offerFor, isOfferRedeemed, redeemOffer, activeOffers, recentActivity, searchPlates, searchUsers, bumpedOrderIds, placementsFor, ownedRestaurantIds, submitRestaurantClaim, submitRestaurantRequest, reportContent, isBlocked, blockUser, unblockUser, blockedUsers, addOrder, deleteOrder, setOrderVisibility, setOrderArchived, ensureRestaurant, updateProfile, updateRestaurantPage],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

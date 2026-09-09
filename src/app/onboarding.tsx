@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { InterestsStep } from '@/components/onboarding/InterestsStep';
 import { IntroCarousel } from '@/components/onboarding/IntroCarousel';
 import { NameStep } from '@/components/onboarding/NameStep';
 import { PermissionsStep } from '@/components/onboarding/PermissionsStep';
@@ -11,12 +12,13 @@ import { onboardingStyles as styles } from '@/components/onboarding/styles';
 import { UsernameStep } from '@/components/onboarding/UsernameStep';
 import { WelcomeStep } from '@/components/onboarding/WelcomeStep';
 import { normalizeHandle } from '@/lib/handles';
+import type { PlaceType } from '@/lib/placeType';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import { useTheme } from '@/theme/ThemeContext';
 
-type Step = 'intro' | 'username' | 'name' | 'photo' | 'welcome' | 'permissions';
+type Step = 'intro' | 'username' | 'name' | 'photo' | 'welcome' | 'permissions' | 'interests';
 /** Dots only cover the personal-setup steps — intro/welcome/permissions have their own pacing. */
 const DOT_STEPS: Step[] = ['username', 'name', 'photo'];
 
@@ -33,7 +35,7 @@ export default function Onboarding() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { userId } = useAuth();
-  const { currentUser, refresh } = useData();
+  const { currentUser, refresh, updateTasteCategories } = useData();
 
   const [step, setStep] = useState<Step>('intro');
   const [handle, setHandle] = useState('');
@@ -42,6 +44,7 @@ export default function Onboarding() {
   const [avatar, setAvatar] = useState(currentUser.avatar);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [interests, setInterests] = useState<Set<PlaceType>>(new Set());
 
   const finish = async () => {
     if (!userId) return;
@@ -82,8 +85,30 @@ export default function Onboarding() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top + 20 }}>
         <View style={styles.content}>
-          <PermissionsStep onFinish={getStarted} />
+          <PermissionsStep onFinish={() => setStep('interests')} />
         </View>
+      </View>
+    );
+  }
+  if (step === 'interests') {
+    const toggleInterest = (type: PlaceType) => {
+      setInterests((prev) => {
+        const next = new Set(prev);
+        next.has(type) ? next.delete(type) : next.add(type);
+        return next;
+      });
+    };
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top + 12 }}>
+        <InterestsStep
+          selected={interests}
+          onToggle={toggleInterest}
+          onSkip={getStarted}
+          onContinue={() => {
+            updateTasteCategories([...interests]);
+            getStarted();
+          }}
+        />
       </View>
     );
   }

@@ -2,12 +2,22 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { PLATO_COMMENTS, PLATOS, PlatoComment, PlatoVideo } from '@/data/platos';
 import { showAlert } from '@/lib/dialog';
+import { placeTypeFor, type PlaceType } from '@/lib/placeType';
 import { rankWithDistance, scoreTextMatch } from '@/lib/search';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { affinityFor, computeTasteAffinity, rankByAffinity, TASTE_WEIGHTS, type TasteAffinity, type TasteEvent } from '@/lib/tasteProfile';
 import { useAuth } from '@/store/AuthContext';
 import { useData } from '@/store/DataContext';
 import { useLocation } from '@/store/LocationContext';
 import { mapPlato, mapPlatoComment } from '@/store/mappers';
+
+/** A dated Plato interaction — the taste-profile dashboard's raw material
+ *  for "how this developed over time" (see src/lib/tasteProfile.ts). */
+export interface PlatoInteraction {
+  platoId: string;
+  createdAt: string;
+  kind: 'like' | 'save' | 'share';
+}
 
 export interface NewPlatoInput {
   videoUrl: string;
@@ -60,20 +70,13 @@ interface PlatosContextValue {
   excludePlato: (id: string) => void;
   /** Every Plato whose dish name matches `query`, ranked nearby-first. For the multi-entity search screen. */
   searchPlatos: (query: string) => PlatoVideo[];
+  /** The taste-profile dashboard's affinity score per category, from Plato-side signals only (see DataContext for the plate-side equivalent). */
+  platoAffinity: TasteAffinity;
+  /** Dated Plato interactions for the dashboard's "how this developed over time" chart. */
+  platoTasteEvents: () => TasteEvent[];
 }
 
 const PlatosContext = createContext<PlatosContextValue | undefined>(undefined);
-
-// Fisher–Yates. Personalized ranking will eventually replace this shuffle with
-// a score from the user's account details + in-app interactions (see 0002_platos.sql).
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
 
 function groupComments(list: PlatoComment[]): Record<string, PlatoComment[]> {
   const out: Record<string, PlatoComment[]> = {};
@@ -97,7 +100,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   const { location } = useLocation();
   const live = isSupabaseConfigured;
 
-  const [platos, setPlatos] = useState<PlatoVideo[]>([]);
+  const [rawPlatos, setRawPlatos] = useState<PlatoVideo[]>([]);
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
   const [commentsByPlato, setCommentsByPlato] = useState<Record<string, PlatoComment[]>>({});
@@ -107,9 +110,31 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   const [platoOffset, setPlatoOffset] = useState(0);
   const [hasMorePlatos, setHasMorePlatos] = useState(true);
   const [loadingMorePlatos, setLoadingMorePlatos] = useState(false);
+  // Taste-profile signals (see src/lib/tasteProfile.ts) not already covered
+  // by `liked` above. Fetched once at load, not re-fetched per page — none
+  // of these are page-scoped facts.
+  const [sharedPlatoIds, setSharedPlatoIds] = useState<Set<string>>(new Set());
+  const [savedPlatoIds, setSavedPlatoIds] = useState<Set<string>>(new Set());
+  // Place types excluded this session via "do not include in taste profile"
+  // — captured from the excluded Plato's own data at the moment it's
+  // excluded (see excludePlato below), not re-derived from past sessions'
+  // exclusion rows, which would need an extra round-trip to resolve ids
+  // back to a restaurant/cuisine for comparatively little benefit.
+  const [excludedPlaceTypes, setExcludedPlaceTypes] = useState<PlaceType[]>([]);
+  // Dated interactions for the taste-profile dashboard's history chart — see
+  // DataContext's plateInteractions for the plate-side equivalent.
+  const [platoInteractions, setPlatoInteractions] = useState<PlatoInteraction[]>([]);
+  // Which load-page each Plato came from — same page-stability role as
+  // DataContext's orderPageOf, so loadMorePlatos appending a page never
+  // reorders reels already rendered (and, here specifically, never shifts
+  // the index a viewer's mid-swipe position depends on).
+  const platoPageOf = useRef<Map<string, number>>(new Map());
+  const nextPlatoPage = useRef(0);
 
   const seedFromDemo = useCallback(() => {
-    setPlatos(shuffle(PLATOS));
+    platoPageOf.current = new Map(PLATOS.map((p) => [p.id, 0]));
+    nextPlatoPage.current = 1;
+    setRawPlatos(PLATOS);
     setCommentsByPlato(groupComments(PLATO_COMMENTS));
     setLoadedComments(new Set(PLATOS.map((p) => p.id)));
     setLiked(new Set());
@@ -131,24 +156,62 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
           seedFromDemo();
           return;
         }
-        const [likesRes, exclusionsRes] = await Promise.all([
-          supabase.from('plato_likes').select('plato_id').eq('user_id', uid),
+        const [likesRes, exclusionsRes, sharesRes, savesRes] = await Promise.all([
+          supabase.from('plato_likes').select('plato_id, created_at').eq('user_id', uid),
           supabase.from('plato_taste_exclusions').select('plato_id').eq('user_id', uid),
+          supabase.from('content_shares').select('plato_id, created_at').eq('user_id', uid).not('plato_id', 'is', null),
+          supabase.from('collection_items').select('item_id, created_at, collections!inner(user_id)').eq('item_type', 'plato').eq('collections.user_id', uid),
         ]);
         const excluded = new Set((exclusionsRes.data ?? []).map((r) => r.plato_id));
-        setPlatos(shuffle(data.filter((row) => !excluded.has(row.id)).map(mapPlato)));
+        const likedIds = new Set((likesRes.data ?? []).map((r) => r.plato_id));
+        const sharedIds = new Set((sharesRes.data ?? []).map((r) => r.plato_id).filter(Boolean));
+        const savedIds = new Set((savesRes.data ?? []).map((r) => r.item_id));
+        const mapped = data.filter((row) => !excluded.has(row.id)).map(mapPlato);
+        platoPageOf.current = new Map(mapped.map((p) => [p.id, 0]));
+        nextPlatoPage.current = 1;
+        const placeTypeOf = (id: string) => {
+          const p = mapped.find((m) => m.id === id);
+          return placeTypeFor(p?.restaurantId ? restaurantFor(p.restaurantId)?.cuisine : undefined);
+        };
+        const affinity = computeTasteAffinity({
+          onboarding: (currentUser.tasteCategories ?? []) as PlaceType[],
+          reorders: [],
+          saves: [...savedIds].map(placeTypeOf),
+          shares: [...sharedIds].map(placeTypeOf),
+          likes: [...likedIds].map(placeTypeOf),
+          views: [],
+          excludes: (currentUser.tasteMuted ?? []) as PlaceType[],
+        });
+        setRawPlatos(
+          rankByAffinity(
+            mapped,
+            (p) => p.id,
+            (p) => (p.restaurantId ? affinityFor(affinity, placeTypeFor(restaurantFor(p.restaurantId)?.cuisine)) : 0),
+            (id) => platoPageOf.current.get(id) ?? 0,
+          ),
+        );
         setPlatoOffset(data.length);
         setHasMorePlatos(data.length === PLATO_PAGE_SIZE);
         setCommentsByPlato({});
         setLoadedComments(new Set());
-        setLiked(new Set((likesRes.data ?? []).map((r) => r.plato_id)));
+        setLiked(likedIds);
         setLikedComments(new Set());
+        setSharedPlatoIds(sharedIds);
+        setSavedPlatoIds(savedIds);
+        setExcludedPlaceTypes([]);
+        setPlatoInteractions([
+          ...(likesRes.data ?? []).map((r): PlatoInteraction => ({ platoId: r.plato_id, createdAt: r.created_at, kind: 'like' })),
+          ...(savesRes.data ?? []).map((r): PlatoInteraction => ({ platoId: r.item_id, createdAt: r.created_at, kind: 'save' })),
+          ...(sharesRes.data ?? [])
+            .filter((r) => r.plato_id)
+            .map((r): PlatoInteraction => ({ platoId: r.plato_id, createdAt: r.created_at, kind: 'share' })),
+        ]);
         setLoading(false);
       } catch {
         seedFromDemo();
       }
     },
-    [seedFromDemo],
+    [seedFromDemo, currentUser.tasteCategories, currentUser.tasteMuted, restaurantFor],
   );
 
   useEffect(() => {
@@ -158,7 +221,11 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
 
   // Pulls the next page as the feed nears the end of what's loaded (wired to
   // PlatosFeed's onEndReached) — appends rather than reshuffling everything,
-  // so reels already on screen don't reorder out from under the viewer.
+  // so reels already on screen don't reorder out from under the viewer. The
+  // new page is ranked within itself (tagged with its own page number, see
+  // rankByAffinity) using whatever the affinity looks like right now — new
+  // content adapting to interactions made since the last page loaded is the
+  // point; it just can never outrank a page already on screen.
   const loadMorePlatos = useCallback(async () => {
     if (!live || !userId || loadingMorePlatos || !hasMorePlatos) return;
     setLoadingMorePlatos(true);
@@ -177,11 +244,34 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         supabase.from('plato_taste_exclusions').select('plato_id').eq('user_id', userId),
       ]);
       const excluded = new Set((exclusionsRes.data ?? []).map((r) => r.plato_id));
-      const fresh = shuffle(data.filter((row) => !excluded.has(row.id)).map(mapPlato));
-      setPlatos((prev) => [...prev, ...fresh]);
+      const mapped = data.filter((row) => !excluded.has(row.id)).map(mapPlato);
+      const page = nextPlatoPage.current;
+      nextPlatoPage.current += 1;
+      for (const p of mapped) platoPageOf.current.set(p.id, page);
+      const placeTypeOf = (id: string) => {
+        const p = mapped.find((m) => m.id === id);
+        return placeTypeFor(p?.restaurantId ? restaurantFor(p.restaurantId)?.cuisine : undefined);
+      };
+      const newLikedIds = (likesRes.data ?? []).map((r) => r.plato_id);
+      const affinity = computeTasteAffinity({
+        onboarding: (currentUser.tasteCategories ?? []) as PlaceType[],
+        reorders: [],
+        saves: [...savedPlatoIds].map(placeTypeOf),
+        shares: [...sharedPlatoIds].map(placeTypeOf),
+        likes: [...liked, ...newLikedIds].map(placeTypeOf),
+        views: [],
+        excludes: [...excludedPlaceTypes, ...((currentUser.tasteMuted ?? []) as PlaceType[])],
+      });
+      const fresh = rankByAffinity(
+        mapped,
+        (p) => p.id,
+        (p) => (p.restaurantId ? affinityFor(affinity, placeTypeFor(restaurantFor(p.restaurantId)?.cuisine)) : 0),
+        (id) => platoPageOf.current.get(id) ?? page,
+      );
+      setRawPlatos((prev) => [...prev, ...fresh]);
       setLiked((prev) => {
         const next = new Set(prev);
-        for (const r of likesRes.data ?? []) next.add(r.plato_id);
+        for (const id of newLikedIds) next.add(id);
         return next;
       });
       setPlatoOffset((o) => o + data.length);
@@ -189,15 +279,40 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoadingMorePlatos(false);
     }
-  }, [live, userId, loadingMorePlatos, hasMorePlatos, platoOffset]);
+  }, [live, userId, loadingMorePlatos, hasMorePlatos, platoOffset, currentUser.tasteCategories, currentUser.tasteMuted, restaurantFor, savedPlatoIds, sharedPlatoIds, liked, excludedPlaceTypes]);
 
+  // Pull-to-refresh: re-ranks the whole feed with a fresh random tiebreak
+  // (rankByAffinity), the same explicit "shuffle it up" action the old pure
+  // shuffle gave — still respects the current affinity, so a strong
+  // preference doesn't get buried by refreshing, but everything roughly as
+  // relevant reshuffles among itself the way a plain shuffle used to.
   const refresh = useCallback(() => {
-    setPlatos((prev) => shuffle(prev));
+    const placeTypeOf = (id: string) => {
+      const p = rawPlatos.find((m) => m.id === id);
+      return placeTypeFor(p?.restaurantId ? restaurantFor(p.restaurantId)?.cuisine : undefined);
+    };
+    const affinity = computeTasteAffinity({
+      onboarding: (currentUser.tasteCategories ?? []) as PlaceType[],
+      reorders: [],
+      saves: [...savedPlatoIds].map(placeTypeOf),
+      shares: [...sharedPlatoIds].map(placeTypeOf),
+      likes: [...liked].map(placeTypeOf),
+      views: [],
+      excludes: [...excludedPlaceTypes, ...((currentUser.tasteMuted ?? []) as PlaceType[])],
+    });
+    setRawPlatos((prev) =>
+      rankByAffinity(
+        prev,
+        (p) => p.id,
+        (p) => (p.restaurantId ? affinityFor(affinity, placeTypeFor(restaurantFor(p.restaurantId)?.cuisine)) : 0),
+        (id) => platoPageOf.current.get(id) ?? 0,
+      ),
+    );
     setRefreshTick((t) => t + 1);
-  }, []);
+  }, [rawPlatos, currentUser.tasteCategories, currentUser.tasteMuted, restaurantFor, savedPlatoIds, sharedPlatoIds, liked, excludedPlaceTypes]);
 
   const adjustCount = (id: string, field: 'likes' | 'comments' | 'views', delta: number) =>
-    setPlatos((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: Math.max(0, p[field] + delta) } : p)));
+    setRawPlatos((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: Math.max(0, p[field] + delta) } : p)));
 
   const isLiked = useCallback((id: string) => liked.has(id), [liked]);
   const toggleLike = useCallback(
@@ -205,6 +320,9 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
       const on = !liked.has(id);
       setLiked((p) => { const n = new Set(p); on ? n.add(id) : n.delete(id); return n; });
       adjustCount(id, 'likes', on ? 1 : -1);
+      // Taste-profile dashboard signal — only the positive transition, same
+      // reasoning as DataContext's plate-side logInteraction.
+      if (on) setPlatoInteractions((p) => [...p, { platoId: id, createdAt: new Date().toISOString(), kind: 'like' }]);
       if (live && userId) {
         const q = on
           ? supabase.from('plato_likes').insert({ plato_id: id, user_id: userId })
@@ -405,7 +523,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         comments: 0,
         views: 0,
       };
-      setPlatos((p) => [local, ...p]);
+      setRawPlatos((p) => [local, ...p]);
       setLoadedComments((p) => new Set(p).add(local.id));
 
       if (live && userId) {
@@ -413,7 +531,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         // the creator a Plato that silently vanishes on next launch.
         const rollback = (reason: string) => {
           console.warn('[platos] failed to save Plato:', reason);
-          setPlatos((p) => p.filter((x) => x.id !== local.id));
+          setRawPlatos((p) => p.filter((x) => x.id !== local.id));
           setLoadedComments((p) => { const n = new Set(p); n.delete(local.id); return n; });
         };
         try {
@@ -443,7 +561,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
           }
           // Swap the temp row for the persisted one.
           const saved = mapPlato(data);
-          setPlatos((p) => p.map((x) => (x.id === local.id ? saved : x)));
+          setRawPlatos((p) => p.map((x) => (x.id === local.id ? saved : x)));
           return saved;
         } catch (e) {
           rollback(e instanceof Error ? e.message : String(e));
@@ -459,21 +577,21 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
   // local update, then the row write; RLS scopes each to the author.
   const deletePlato = useCallback(
     (id: string) => {
-      setPlatos((p) => p.filter((x) => x.id !== id));
+      setRawPlatos((p) => p.filter((x) => x.id !== id));
       if (live) supabase.from('plato_videos').delete().eq('id', id).then(() => {});
     },
     [live],
   );
   const setPlatoVisibility = useCallback(
     (id: string, visibility: 'public' | 'friends' | 'private') => {
-      setPlatos((p) => p.map((x) => (x.id === id ? { ...x, visibility } : x)));
+      setRawPlatos((p) => p.map((x) => (x.id === id ? { ...x, visibility } : x)));
       if (live) supabase.from('plato_videos').update({ visibility }).eq('id', id).then(() => {});
     },
     [live],
   );
   const setPlatoArchived = useCallback(
     (id: string, archived: boolean) => {
-      setPlatos((p) => p.map((x) => (x.id === id ? { ...x, archived } : x)));
+      setRawPlatos((p) => p.map((x) => (x.id === id ? { ...x, archived } : x)));
       if (live) supabase.from('plato_videos').update({ archived }).eq('id', id).then(() => {});
     },
     [live],
@@ -481,7 +599,15 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
 
   const excludePlato = useCallback(
     (id: string) => {
-      setPlatos((p) => p.filter((x) => x.id !== id));
+      // Captured before the filter below removes it — its own data (and so
+      // its restaurant/cuisine) won't be reachable afterward. Only feeds the
+      // negative signal for *this* session; see excludedPlaceTypes above.
+      const excluded = rawPlatos.find((p) => p.id === id);
+      if (excluded) {
+        const type = placeTypeFor(excluded.restaurantId ? restaurantFor(excluded.restaurantId)?.cuisine : undefined);
+        if (type !== 'other') setExcludedPlaceTypes((p) => [...p, type]);
+      }
+      setRawPlatos((p) => p.filter((x) => x.id !== id));
       if (live && userId) {
         supabase
           .from('plato_taste_exclusions')
@@ -491,7 +617,41 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
           });
       }
     },
-    [live, userId],
+    [live, userId, rawPlatos, restaurantFor],
+  );
+
+  // The taste-profile dashboard's Plato-side affinity/history — a reactive
+  // equivalent of the load-time-only `affinity` snapshots computed inline
+  // above (those exist purely to rank a specific fetch at the moment it
+  // lands; this is the stable, always-current score the dashboard reads).
+  const platoPlaceTypeOf = useCallback(
+    (id: string) => {
+      const p = rawPlatos.find((m) => m.id === id);
+      return placeTypeFor(p?.restaurantId ? restaurantFor(p.restaurantId)?.cuisine : undefined);
+    },
+    [rawPlatos, restaurantFor],
+  );
+  const platoAffinity = useMemo(
+    () =>
+      computeTasteAffinity({
+        onboarding: (currentUser.tasteCategories ?? []) as PlaceType[],
+        reorders: [],
+        saves: [...savedPlatoIds].map(platoPlaceTypeOf),
+        shares: [...sharedPlatoIds].map(platoPlaceTypeOf),
+        likes: [...liked].map(platoPlaceTypeOf),
+        views: [],
+        excludes: [...excludedPlaceTypes, ...((currentUser.tasteMuted ?? []) as PlaceType[])],
+      }),
+    [currentUser.tasteCategories, currentUser.tasteMuted, savedPlatoIds, sharedPlatoIds, liked, excludedPlaceTypes, platoPlaceTypeOf],
+  );
+  const platoTasteEvents = useCallback(
+    (): TasteEvent[] =>
+      platoInteractions.map((i) => ({
+        createdAt: i.createdAt,
+        type: platoPlaceTypeOf(i.platoId),
+        weight: TASTE_WEIGHTS[i.kind],
+      })),
+    [platoInteractions, platoPlaceTypeOf],
   );
 
   // Every Plato whose dish name matches, ranked nearby-first — search screen.
@@ -513,7 +673,7 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         ].filter((s) => s >= 0);
         return scores.length ? Math.min(...scores) : -1;
       };
-      return rankWithDistance(platos, {
+      return rankWithDistance(rawPlatos, {
         score: bestScore,
         coords: (p) => {
           const r = p.restaurantId ? restaurantFor(p.restaurantId) : undefined;
@@ -523,12 +683,12 @@ export function PlatosProvider({ children }: { children: React.ReactNode }) {
         origin: locationOrigin,
       });
     },
-    [platos, restaurantFor, locationOrigin],
+    [rawPlatos, restaurantFor, locationOrigin],
   );
 
   const value = useMemo<PlatosContextValue>(
-    () => ({ platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos }),
-    [platos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos],
+    () => ({ platos: rawPlatos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos, platoAffinity, platoTasteEvents }),
+    [rawPlatos, loading, refresh, refreshTick, loadMorePlatos, isLiked, toggleLike, recordView, commentsFor, loadComments, addComment, deleteComment, isCommentLiked, toggleCommentLike, addPlato, deletePlato, setPlatoVisibility, setPlatoArchived, excludePlato, searchPlatos, platoAffinity, platoTasteEvents],
   );
 
   return <PlatosContext.Provider value={value}>{children}</PlatosContext.Provider>;
