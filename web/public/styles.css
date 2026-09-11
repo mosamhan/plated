@@ -103,6 +103,7 @@ h1, h2, h3, .brand-name {
   letter-spacing: -0.2px;
 }
 .header-cta {
+  flex-shrink: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--accent);
@@ -484,7 +485,13 @@ h1 {
   .footer-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 520px) {
-  .wrap { padding: 0 var(--space-lg); }
+  /* left/right only. The shorthand form (padding: 0 var(--space-lg)) would
+     also zero out vertical padding on any element that combines .wrap with
+     its own padding-top/bottom, like .footer-grid, since same-specificity
+     rules later in the file win regardless of what they don't mean to
+     touch. That's exactly what was pinning the footer's social icons
+     against its divider line on narrow screens. */
+  .wrap { padding-left: var(--space-lg); padding-right: var(--space-lg); }
   h1 { font-size: 33px; }
   .section-title { font-size: 27px; }
   .footer-grid { grid-template-columns: 1fr; }
