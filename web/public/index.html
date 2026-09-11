@@ -20,9 +20,10 @@
 <link rel="icon" href="/favicon.png" />
 <link rel="apple-touch-icon" href="/favicon.png" />
 <link rel="stylesheet" href="/styles.css" />
+<noscript><style>[data-reveal], [data-reveal-group] > * { opacity: 1 !important; transform: none !important; }</style></noscript>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,800&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
 
@@ -39,7 +40,7 @@
 
   <section class="hero">
     <div class="wrap hero-grid">
-      <div class="hero-copy">
+      <div class="hero-copy" data-reveal-group>
         <p class="eyebrow">Dish-first food discovery</p>
         <h1>Rate the dish,<br />not the restaurant.</h1>
         <p class="lede">
@@ -59,9 +60,11 @@
         <p class="hero-note">Not submitted yet — we&rsquo;re polishing the last few features before launch.</p>
       </div>
 
-      <div class="hero-art">
+      <div class="hero-art" data-reveal style="animation-delay:.15s">
         <div class="phone-frame">
-          <img src="/images/home-feed.jpg" alt="Plated home feed showing dish ratings, reorder counts, and an Order button" />
+          <div class="frame-window">
+            <img src="/images/home-feed.jpg" alt="Plated home feed showing dish ratings, reorder counts, and an Order button" />
+          </div>
         </div>
       </div>
     </div>
@@ -69,12 +72,16 @@
 
   <section class="features">
     <div class="wrap">
-      <h2 class="section-title">Welcome to Plated</h2>
-      <p class="section-sub">Most food apps rate restaurants. Plated rates the dish.</p>
+      <div data-reveal>
+        <span class="section-eyebrow">Why it&rsquo;s different</span>
+        <h2 class="section-title">Welcome to Plated</h2>
+        <p class="section-sub">Most food apps rate restaurants. Plated rates the dish.</p>
+      </div>
 
       <div class="feature-rows">
 
-        <article class="feature-row">
+        <article class="feature-row" data-reveal>
+          <span class="feature-index" aria-hidden="true">01</span>
           <div class="feature-copy">
             <span class="feature-kicker">Rate</span>
             <h3>Every plate gets its own score.</h3>
@@ -85,11 +92,16 @@
             </p>
           </div>
           <div class="feature-art">
-            <img src="/images/home-feed.jpg" alt="Dish rating badges and flame icon for top-rated plates" loading="lazy" />
+            <div class="phone-frame">
+              <div class="frame-window">
+                <img src="/images/home-feed.jpg" alt="Dish rating badges and flame icon for top-rated plates" loading="lazy" />
+              </div>
+            </div>
           </div>
         </article>
 
-        <article class="feature-row feature-row--reverse">
+        <article class="feature-row feature-row--reverse" data-reveal>
+          <span class="feature-index" aria-hidden="true">02</span>
           <div class="feature-copy">
             <span class="feature-kicker">Discover</span>
             <h3>Platos: dish stories in motion.</h3>
@@ -99,11 +111,16 @@
             </p>
           </div>
           <div class="feature-art">
-            <img src="/images/platos-reel.jpg" alt="Plated's vertical video feed of short creator clips about a dish" loading="lazy" />
+            <div class="phone-frame">
+              <div class="frame-window">
+                <img src="/images/platos-reel.jpg" alt="Plated's vertical video feed of short creator clips about a dish" loading="lazy" />
+              </div>
+            </div>
           </div>
         </article>
 
-        <article class="feature-row">
+        <article class="feature-row" data-reveal>
+          <span class="feature-index" aria-hidden="true">03</span>
           <div class="feature-copy">
             <span class="feature-kicker">Reorder</span>
             <h3>The highest praise in food.</h3>
@@ -114,7 +131,11 @@
             </p>
           </div>
           <div class="feature-art">
-            <img src="/images/explore-discover.jpg" alt="Explore grid of trending and most-reordered dishes" loading="lazy" />
+            <div class="phone-frame">
+              <div class="frame-window">
+                <img src="/images/explore-discover.jpg" alt="Explore grid of trending and most-reordered dishes" loading="lazy" />
+              </div>
+            </div>
           </div>
         </article>
 
@@ -123,8 +144,8 @@
   </section>
 
   <section class="creators">
-    <div class="wrap creators-grid">
-      <div>
+    <div class="wrap creators-grid" data-reveal>
+      <div class="creators-heading">
         <h2 class="section-title">Creators earn, transparently.</h2>
         <p class="section-sub creators-sub">
           Food creators earn on orders attributed to their plates — decoupled from how they
@@ -178,5 +199,30 @@
   </div>
 </footer>
 
+
+<script>
+  // Progressive enhancement: everything tagged [data-reveal]/[data-reveal-group]
+  // is fully visible with no JS (see the plain, un-animated CSS rule); this
+  // just adds the entrance motion for browsers that support IntersectionObserver.
+  if ('IntersectionObserver' in window) {
+    var targets = document.querySelectorAll('[data-reveal], [data-reveal-group]');
+    var io = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            io.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -8% 0px' },
+    );
+    targets.forEach(function (el) { io.observe(el); });
+  } else {
+    document.querySelectorAll('[data-reveal], [data-reveal-group]').forEach(function (el) {
+      el.classList.add('is-visible');
+    });
+  }
+</script>
 </body>
 </html>
