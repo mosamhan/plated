@@ -218,9 +218,9 @@ h1 {
 
 .hero-art { display: flex; justify-content: center; }
 .phone-frame {
-  width: 264px;
-  border-radius: 40px;
-  border: 8px solid #1a1a1a;
+  width: 336px;
+  border-radius: 46px;
+  border: 9px solid #1a1a1a;
   background: #1a1a1a;
   box-shadow: 0 30px 60px -20px rgba(58, 42, 14, 0.4), 0 4px 16px -6px rgba(58, 42, 14, 0.3);
   overflow: hidden;
@@ -229,7 +229,9 @@ h1 {
 .phone-frame--flat { transform: none; }
 .phone-frame .frame-window {
   width: 100%;
-  aspect-ratio: 9 / 17;
+  /* Matches the source screenshots exactly (460×1000) — the full UI, status
+     bar to tab bar, shows with zero crop instead of a top-only slice. */
+  aspect-ratio: 460 / 1000;
   overflow: hidden;
   position: relative;
 }
@@ -325,7 +327,7 @@ h1 {
 .feature-copy strong, .feature-copy em { color: var(--text); font-style: normal; }
 
 .feature-art { display: flex; justify-content: center; position: relative; z-index: 1; }
-.feature-art .phone-frame { width: 208px; transform: rotate(1.5deg); }
+.feature-art .phone-frame { width: 272px; transform: rotate(1.5deg); }
 .feature-row--reverse .feature-art .phone-frame { transform: rotate(-1.5deg); }
 
 /* Creators band */
