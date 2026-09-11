@@ -98,7 +98,7 @@ h1, h2, h3, .brand-name {
   text-decoration: none;
 }
 .brand-name {
-  font-size: 19px;
+  font-size: 25px;
   font-weight: 600;
   letter-spacing: -0.2px;
 }
@@ -350,26 +350,24 @@ h1 {
 .creators-heading .section-title { text-align: left; }
 .creators-sub { text-align: left; margin-top: var(--space-md); max-width: 58ch; }
 
+/* Matches the real in-app disclosure tag exactly (PlateCard.tsx's
+   commissionTag/commissionTagText): accentSoft fill, ink text, an
+   information-circle-outline glyph — not a green "verified" dot, which
+   reads as a status indicator rather than a disclosure. Scaled up
+   slightly from the in-app 10px/7px-2px for web viewing distance. */
 .pill-disclosure {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 16px;
+  gap: 5px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 14px;
   border-radius: 999px;
   white-space: nowrap;
 }
-.verified-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #2E9E63;
-  display: inline-block;
-}
+.pill-disclosure .info-icon { width: 15px; height: 15px; flex-shrink: 0; }
 
 /* Footer */
 .site-footer { padding: 56px 0 28px; }
@@ -491,6 +489,6 @@ h1 {
   .section-title { font-size: 27px; }
   .footer-grid { grid-template-columns: 1fr; }
   .header-cta { padding: 7px 12px; font-size: 12px; }
-  .brand-name { font-size: 17px; }
+  .brand-name { font-size: 21px; }
   .features { padding: 64px 0 72px; }
 }
