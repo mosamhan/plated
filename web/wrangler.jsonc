@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Kept as "share-preview" — this Worker still owns the OG-unfurling proxy
+  // (src/index.js) that predates the marketing site; it now also serves the
+  // static site as assets for every path that isn't a share link. Renaming
+  // would mean re-pointing the two live Workers routes below for no benefit.
+  "name": "share-preview",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "routes": [
+    { "pattern": "joinplated.app/*", "zone_name": "joinplated.app" },
+    { "pattern": "www.joinplated.app/*", "zone_name": "joinplated.app" }
+  ],
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "404-page",
+    // Only these OG-unfurl paths (see src/lib/invite.ts's plateLink/platoLink/
+    // restaurantLink/profileLink) invoke the Worker; everything else — /,
+    // /privacy, /terms, images — is served directly from ./public with no
+    // Worker invocation at all.
+    "run_worker_first": ["/p/*", "/plato/*", "/r/*", "/@*"]
+  }
+}
