@@ -1,17 +1,26 @@
-/* Plated marketing site — tokens mirror src/theme/palettes.ts (Saffron, light) */
+/* Plated marketing site — tokens mirror src/theme/palettes.ts (Saffron light /
+   Noir Gold dark). Whichever theme is active, every color below still comes
+   from a variable, the same rule the app itself follows. */
 :root {
   --bg: #FFFDF8;
   --surface: #FBF3E2;
   --card: #FFFFFF;
   --text: #251B10;
-  --text-muted: #8C7B61;
+  --text-muted: #79694F;
   --border: #EFE3CC;
   --accent: #B07207;
   --accent-soft: #FBEDCE;
   --accent-text: #FFFFFF;
   --order-cta: #D9480F;
   --order-cta-text: #FFFFFF;
-  --ink: #1A1304;
+
+  --header-bg: rgba(255, 253, 248, 0.85);
+  --header-cta-hover: #f5e2b8;
+  --badge-disabled-from: #e3dac6;
+  --badge-disabled-to: #d3c7ab;
+  --badge-disabled-text: #6b5a3a;
+  --grain-blend: multiply;
+  --grain-opacity: 0.5;
 
   --space-xs: 4px;
   --space-sm: 8px;
@@ -26,6 +35,36 @@
   --radius-xl: 26px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Noir Gold — the app's dark theme, same source values as src/theme/palettes.ts's
+   `noir` palette. Applied via [data-theme="dark"] on <html>, set by the inline
+   script in <head> (before first paint, so there's no flash of the light theme)
+   from localStorage, falling back to prefers-color-scheme for a first-time
+   visitor. accent/orderCta stay the exact same hex either way — same as the
+   app, where the order CTA is deliberately warm-orange in both themes. */
+:root[data-theme="dark"] {
+  --bg: #121110;
+  --surface: #1C1813;
+  --card: #221C14;
+  --text: #F5F1E8;
+  --text-muted: #A99F8C;
+  --border: #33291B;
+  --accent: #D9A441;
+  --accent-soft: #2E2415;
+  --accent-text: #1A1304;
+  --order-cta: #D9480F;
+  --order-cta-text: #FFFFFF;
+
+  --header-bg: rgba(18, 17, 16, 0.85);
+  --header-cta-hover: #3a2f1c;
+  --badge-disabled-from: #3a3226;
+  --badge-disabled-to: #2a2419;
+  --badge-disabled-text: #A99F8C;
+  /* multiply only darkens on a dark background, so the grain nearly vanishes;
+     overlay keeps it visible against both light and dark surfaces. */
+  --grain-blend: overlay;
+  --grain-opacity: 0.4;
 }
 
 * { box-sizing: border-box; }
@@ -43,6 +82,7 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   position: relative;
+  transition: background-color 0.25s var(--ease-out), color 0.25s var(--ease-out);
 }
 
 /* A faint paper grain over everything — keeps large cream fields from
@@ -53,8 +93,8 @@ body::before {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.5;
-  mix-blend-mode: multiply;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.55 0 0 0 0 0.45 0 0 0 0 0.25 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -77,8 +117,9 @@ h1, h2, h3, .brand-name {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(255, 253, 248, 0.85);
+  background: var(--header-bg);
   backdrop-filter: saturate(180%) blur(12px);
+  transition: background-color 0.2s var(--ease-out);
   border-bottom: 1px solid var(--border);
 }
 .site-header .wrap {
@@ -102,6 +143,11 @@ h1, h2, h3, .brand-name {
   font-weight: 600;
   letter-spacing: -0.2px;
 }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
 .header-cta {
   flex-shrink: 0;
   font-size: 13px;
@@ -114,7 +160,28 @@ h1, h2, h3, .brand-name {
   white-space: nowrap;
   transition: background-color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
-.header-cta:hover { background: #f5e2b8; transform: translateY(-1px); }
+.header-cta:hover { background: var(--header-cta-hover); transform: translateY(-1px); }
+
+.theme-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+}
+.theme-toggle:hover { transform: translateY(-1px); }
+.theme-toggle svg { width: 18px; height: 18px; }
+.theme-toggle .icon-sun { display: none; }
+.theme-toggle .icon-moon { display: block; }
+[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
 
 /* Hero */
 .hero { padding: 44px 0 8px; position: relative; overflow: hidden; }
@@ -187,11 +254,12 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .store-badge--disabled {
-  background: linear-gradient(180deg, #e3dac6, #d3c7ab);
-  color: #6b5a3a;
+  background: linear-gradient(180deg, var(--badge-disabled-from), var(--badge-disabled-to));
+  color: var(--badge-disabled-text);
   cursor: default;
   position: relative;
   overflow: hidden;
+  transition: background 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 .store-badge--disabled::after {
   /* A single diagonal sheen sweep on load — reads as "polished", not "broken". */
@@ -431,6 +499,7 @@ h1 {
   line-height: 1.6;
   margin-top: var(--space-sm);
 }
+.legal-section p a { color: var(--accent); }
 .legal-back {
   display: inline-block;
   margin-top: var(--space-xxl);
