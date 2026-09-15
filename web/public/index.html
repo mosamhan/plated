@@ -3,6 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<script>
+  // Runs before the stylesheet so there's no flash of the wrong theme: an
+  // explicit choice from a past visit wins, otherwise fall back to the
+  // browser/OS preference, same default the app itself would use.
+  (function () {
+    try {
+      var stored = localStorage.getItem('plated-theme');
+      var theme = stored || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {}
+  })();
+</script>
 <title>Plated. Find the best dishes and the best spots to eat.</title>
 <meta name="description" content="Discover the best dishes, restaurants, cafes, and bakeries near you. See what's trending, find the next great spot, and order the exact dish people are raving about. Coming soon to the App Store." />
 
@@ -24,6 +37,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,800&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="/theme.js" defer></script>
 </head>
 <body>
 
@@ -32,7 +46,13 @@
     <a class="brand" href="/">
       <span class="brand-name">Plated</span>
     </a>
-    <a class="header-cta" href="#get-the-app">Coming soon</a>
+    <div class="header-actions">
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+      </button>
+      <a class="header-cta" href="#get-the-app">Coming soon</a>
+    </div>
   </div>
 </header>
 
