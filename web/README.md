@@ -11,13 +11,25 @@ web/
 ├── wrangler.jsonc       # Worker config: assets dir, routes, run_worker_first
 ├── src/index.js         # OG-unfurl proxy (unchanged logic, just scoped now)
 └── public/              # the actual site — served as static assets
-    ├── index.html
+    ├── index.html       # hero + six feature cards (Rate/Watch/Discover/Rank/Map/Reorder)
     ├── privacy/index.html
     ├── terms/index.html
     ├── 404.html
-    ├── styles.css
-    └── images/
+    ├── styles.css       # light (Saffron) + dark (Noir Gold) theme variables
+    ├── theme.js         # dark-mode toggle click handler
+    └── images/          # real screenshots from a live iOS Simulator run, not mockups
 ```
+
+Each feature card's screenshot is a real capture from the current `develop`
+build (not a mockup) — see the main repo's `web/` commit history for how
+each one was captured (several needed a temporary, reverted-before-commit
+local state flip on the simulator to reach a screen with no direct deep
+link; a couple used a plain `plated://order/<id>`-style deep link once the
+real record id was looked up in Supabase). If the app's UI changes in a way
+that makes one of these stale, recapture from a real running build rather
+than hand-editing or reusing an old screenshot — that's what went wrong the
+first time these were added, using screenshots from an Aug-dated design
+handoff folder that predated three merged feature branches.
 
 ## Why one Worker instead of a separate Pages project
 
@@ -43,6 +55,22 @@ deployed.
 `src/app/legal/privacy.tsx` / `terms.tsx`'s `SECTIONS`. The in-app privacy
 screen notes "a public web copy is required for store submission" — if the
 in-app copy changes, update these two files in the same change.
+
+## Dark mode
+
+`styles.css`'s `:root` and `:root[data-theme="dark"]` blocks mirror
+`src/theme/palettes.ts`'s `saffron` (light) and `noir` (dark) palettes
+exactly — same hex values, pulled from that file directly, not
+re-derived. If the app's palette values change, update both blocks to
+match; `accent`/`order-cta` are deliberately identical across themes in
+both the app and here.
+
+The theme is set by a small blocking inline `<script>` at the very top of
+each page's `<head>`, before the stylesheet loads: an explicit choice in
+`localStorage['plated-theme']` wins, otherwise it falls back to
+`prefers-color-scheme`. That script has to stay inline and un-deferred (not
+moved into `theme.js`) or there's a flash of the wrong theme on load.
+`theme.js` only wires up the toggle button's click handler.
 
 ## Local dev
 
