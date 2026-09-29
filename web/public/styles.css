@@ -514,7 +514,10 @@ h1 {
 .waitlist-input-row button:hover { transform: translateY(-1px); filter: brightness(1.06); }
 .waitlist-input-row button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .waitlist-input-row button:disabled { cursor: wait; opacity: 0.72; transform: none; }
-.waitlist-turnstile { min-height: 140px; margin-top: 14px; }
+/* `interaction-only` appearance keeps the widget invisible (0-height) for
+   the vast majority of visitors, so no fixed min-height here — that used to
+   reserve a full compact-widget-sized dead box on every card regardless. */
+.waitlist-turnstile { margin-top: 14px; }
 .waitlist-consent { display: flex; align-items: flex-start; gap: 9px; margin-top: 16px; color: var(--text-muted); font-size: 13px; cursor: pointer; }
 .waitlist-consent input { flex-shrink: 0; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--order-cta); }
 .waitlist-privacy { margin: 14px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }

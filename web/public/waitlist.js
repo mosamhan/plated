@@ -24,7 +24,7 @@
   function resetTurnstile(message) {
     turnstileToken = '';
     submitButton.disabled = true;
-    submitButton.textContent = 'Complete security check';
+    submitButton.textContent = 'Verifying…';
     if (turnstileReady && turnstileWidgetId !== null && window.turnstile) {
       window.turnstile.reset(turnstileWidgetId);
     }
@@ -43,7 +43,7 @@
     }
 
     submitButton.disabled = true;
-    submitButton.textContent = 'Complete security check';
+    submitButton.textContent = 'Verifying…';
 
     var script = document.createElement('script');
     script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
@@ -60,8 +60,17 @@
         turnstileWidgetId = window.turnstile.render(turnstileContainer, {
           sitekey: turnstileSiteKey,
           action: 'waitlist_signup',
-          theme: 'auto',
-          size: 'compact',
+          // Match the page's actual theme (not 'auto', which only tracks the
+          // OS preference and can disagree with an explicit toggle choice
+          // stored in localStorage — see the inline script at the top of
+          // <head> that sets data-theme).
+          theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light',
+          size: 'flexible',
+          // Stays invisible for the vast majority of real visitors — Cloudflare
+          // still runs its check and fires `callback` with a token in the
+          // background, it just doesn't render the boxy widget chrome unless
+          // it actually needs an interactive challenge from this visitor.
+          appearance: 'interaction-only',
           callback: function (token) {
             turnstileToken = token;
             submitButton.disabled = false;
@@ -74,7 +83,7 @@
           'error-callback': function () {
             turnstileToken = '';
             submitButton.disabled = true;
-            submitButton.textContent = 'Complete security check';
+            submitButton.textContent = 'Verifying…';
             showStatus('The secure sign-up check failed. Please refresh and try again.', 'error');
           },
         });
