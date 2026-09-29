@@ -112,10 +112,12 @@ async function sendEmail(email: string, signupId: string, inviteUrl: string | nu
   return result.ok;
 }
 
-async function enrollNewsletter(email: string) {
+type NewsletterEnrollment = 'enrolled' | 'not_configured' | 'failed';
+
+async function enrollNewsletter(email: string): Promise<NewsletterEnrollment> {
   const apiKey = Deno.env.get('RESEND_API_KEY');
   const segmentId = Deno.env.get('RESEND_NEWSLETTER_SEGMENT_ID');
-  if (!apiKey || !segmentId) return false;
+  if (!apiKey || !segmentId) return 'not_configured';
 
   const headers = {
     Authorization: `Bearer ${apiKey}`,
@@ -123,7 +125,7 @@ async function enrollNewsletter(email: string) {
   };
   const contactUrl = `https://api.resend.com/contacts/${encodeURIComponent(email)}`;
 
-  async function updateExistingContact() {
+  async function updateExistingContact(): Promise<NewsletterEnrollment> {
     const updateResponse = await fetch(contactUrl, {
       method: 'PATCH',
       headers,
@@ -131,7 +133,7 @@ async function enrollNewsletter(email: string) {
     });
     if (!updateResponse.ok) {
       console.error('[waitlist-signup] newsletter contact update failed', updateResponse.status);
-      return false;
+      return 'failed';
     }
 
     const segmentResponse = await fetch(
@@ -139,14 +141,14 @@ async function enrollNewsletter(email: string) {
       { method: 'POST', headers },
     );
     if (!segmentResponse.ok) console.error('[waitlist-signup] newsletter segment add failed', segmentResponse.status);
-    return segmentResponse.ok;
+    return segmentResponse.ok ? 'enrolled' : 'failed';
   }
 
   const contactResponse = await fetch(contactUrl, { headers: { Authorization: headers.Authorization } });
   if (contactResponse.ok) return updateExistingContact();
   if (contactResponse.status !== 404) {
     console.error('[waitlist-signup] newsletter contact lookup failed', contactResponse.status);
-    return false;
+    return 'failed';
   }
 
   const createResponse = await fetch('https://api.resend.com/contacts', {
@@ -154,13 +156,13 @@ async function enrollNewsletter(email: string) {
     headers,
     body: JSON.stringify({ email, unsubscribed: false, segments: [{ id: segmentId }] }),
   });
-  if (createResponse.ok) return true;
+  if (createResponse.ok) return 'enrolled';
 
   const racedContactResponse = await fetch(contactUrl, { headers: { Authorization: headers.Authorization } });
   if (racedContactResponse.ok) return updateExistingContact();
 
   console.error('[waitlist-signup] newsletter contact create failed', createResponse.status);
-  return false;
+  return 'failed';
 }
 
 Deno.serve(async (request) => {
@@ -231,8 +233,11 @@ Deno.serve(async (request) => {
   }
 
   let newsletterEnrolled = Boolean(signup.newsletter_enrolled_at);
+  let newsletterConfigured = true;
   if (signup.newsletter_opt_in && !signup.newsletter_enrolled_at) {
-    newsletterEnrolled = await enrollNewsletter(email);
+    const enrollment = await enrollNewsletter(email);
+    newsletterConfigured = enrollment !== 'not_configured';
+    newsletterEnrolled = enrollment === 'enrolled';
     if (newsletterEnrolled) {
       await database
         .from('waitlist_signups')
@@ -264,5 +269,5 @@ Deno.serve(async (request) => {
     }
   }
 
-  return jsonResponse({ ok: true, betaInviteSent, newsletterEnrolled }, 200, origin);
+  return jsonResponse({ ok: true, betaInviteSent, newsletterEnrolled, newsletterConfigured }, 200, origin);
 });

@@ -117,18 +117,28 @@
 
       if (!response.ok || !result.ok) throw new Error('signup failed');
 
-      if (newsletterInput.checked && !result.newsletterEnrolled) {
+      var newsletterPending = newsletterInput.checked && !result.newsletterEnrolled;
+      var newsletterNotConfigured = newsletterPending && result.newsletterConfigured === false;
+
+      // Only an actual Resend failure (segment/API is configured but the
+      // call itself failed) is worth blocking on and asking to retry — the
+      // person's waitlist row is already saved either way. If the newsletter
+      // feature just isn't turned on yet (no segment ID set), that's an
+      // expected pre-launch state, not a failure: don't punish the person
+      // who checked the box with an error loop they can't fix by retrying.
+      if (newsletterPending && !newsletterNotConfigured) {
         showStatus('You’re on the beta list. Newsletter signup is still syncing—please try again shortly.', 'error');
         resetTurnstile();
         return;
       }
 
-      showStatus(
-        result.betaInviteSent
-          ? 'You’re in. Check your inbox for your Plated beta invite.'
-          : 'You’re on the list. We’ll email you when beta access is ready.',
-        'success',
-      );
+      var message = result.betaInviteSent
+        ? 'You’re in. Check your inbox for your Plated beta invite.'
+        : 'You’re on the list. We’ll email you when beta access is ready.';
+      if (newsletterNotConfigured) {
+        message += ' We’ll add you to the newsletter once that’s set up.';
+      }
+      showStatus(message, 'success');
       Array.prototype.forEach.call(form.elements, function (element) {
         element.disabled = true;
       });

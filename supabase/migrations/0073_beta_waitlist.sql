@@ -1,3 +1,8 @@
+-- Plated — beta waitlist signups collected from joinplated.app, plus enough
+-- state to track newsletter opt-in and beta/welcome invite emails without a
+-- second table. Idempotent. Standalone — no earlier migration required.
+--
+
 create table if not exists public.waitlist_signups (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
