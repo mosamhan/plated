@@ -11,12 +11,13 @@ web/
 ├── wrangler.jsonc       # Worker config: assets dir, routes, run_worker_first
 ├── src/index.js         # OG-unfurl proxy (unchanged logic, just scoped now)
 └── public/              # the actual site — served as static assets
-    ├── index.html       # hero + six feature cards (Rate/Watch/Discover/Rank/Map/Reorder)
+    ├── index.html       # hero, feature cards, and beta waitlist
     ├── privacy/index.html
     ├── terms/index.html
     ├── 404.html
     ├── styles.css       # light (Saffron) + dark (Noir Gold) theme variables
     ├── theme.js         # dark-mode toggle click handler
+    ├── waitlist.js      # beta waitlist form submission
     └── images/          # real screenshots from a live iOS Simulator run, not mockups
 ```
 
@@ -87,3 +88,50 @@ cd web
 npx wrangler login   # first time only, on this machine
 npm run deploy
 ```
+
+## Beta waitlist email setup
+
+The waitlist writes to `public.waitlist_signups` through the Supabase Edge
+Function `waitlist-signup`. Its migration is `0073_beta_waitlist.sql`. Apply the
+migration and deploy the functions before enabling live signups:
+
+```bash
+supabase db push
+supabase functions deploy waitlist-signup --no-verify-jwt
+supabase functions deploy send-beta-invites --no-verify-jwt
+```
+
+Before exposing the anonymous signup endpoint, configure Cloudflare Turnstile:
+
+- Create a managed widget for `joinplated.app` and `www.joinplated.app`.
+- Put its public site key in the `data-sitekey` attribute of
+  `#waitlist-turnstile` in `public/index.html`.
+- Set the private secret as the Supabase Function secret `TURNSTILE_SECRET_KEY`.
+
+The form stays disabled while the site key is blank, and the Edge Function
+rejects submissions unless Cloudflare validates the one-time token, hostname,
+and `waitlist_signup` action. The origin and honeypot checks remain as
+additional safeguards, not substitutes for Turnstile.
+
+Set these Supabase Function secrets after verifying the sender domain in Resend:
+
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL` (for example, a verified `beta@joinplated.app` sender)
+- `RESEND_NEWSLETTER_SEGMENT_ID` (optional until a newsletter segment exists)
+- `BETA_ACCESS_URL` (leave unset until a real TestFlight invite URL exists)
+- `BETA_INVITE_ADMIN_TOKEN` (long random secret for one-time batch invitations)
+- `TURNSTILE_SECRET_KEY`
+
+Use a server-only Resend API key with email-sending and contact/segment access;
+store it only as a Supabase Function secret, never in the browser.
+
+The site stores beta signups separately from newsletter consent. Only people
+who check the optional newsletter box are added to the Resend segment. New
+waitlist signups receive a confirmation when the Resend API key and sender are
+configured but `BETA_ACCESS_URL` is unset; once a real TestFlight URL is set,
+new signups receive that invite. To send invites to people already waiting,
+call `send-beta-invites` with the admin token after setting the real invite URL.
+Use Google Workspace for a branded human inbox, Resend for beta and explicitly
+opted-in newsletter email, and Stripe's billing emails for Stripe transactions;
+keep receipts outside the newsletter flow. Configure the `privacy@joinplated.app`
+mailbox or alias before publishing the privacy policy.
