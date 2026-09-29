@@ -1,4 +1,5 @@
 import { serviceClient } from '../_shared/http.ts';
+import { renderWaitlistEmail, validInviteUrl } from '../_shared/waitlist-email.ts';
 
 const ALLOWED_ORIGINS = new Set([
   'https://joinplated.app',
@@ -23,27 +24,6 @@ function jsonResponse(body: unknown, status: number, origin: string | null) {
   }
 
   return new Response(JSON.stringify(body), { status, headers });
-}
-
-function escapeHtml(value: string) {
-  const escapedCharacters: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  };
-  return value.replace(/[&<>"']/g, (character) => escapedCharacters[character] ?? character);
-}
-
-function validInviteUrl(value: string | undefined) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' ? url.toString() : null;
-  } catch {
-    return null;
-  }
 }
 
 async function verifyTurnstile(token: unknown, expectedHostname: string) {
@@ -88,22 +68,14 @@ async function sendEmail(email: string, signupId: string, inviteUrl: string | nu
   const from = Deno.env.get('RESEND_FROM_EMAIL');
   if (!apiKey || !from) return false;
 
-  const betaInvite = Boolean(inviteUrl);
-  const safeInviteUrl = inviteUrl ? escapeHtml(inviteUrl) : '';
-  const subject = betaInvite ? 'Your Plated beta invite is ready' : 'You’re on the Plated beta list';
-  const text = betaInvite
-    ? `Your seat at the table is ready. Join the Plated beta: ${inviteUrl}`
-    : 'Thanks for joining the Plated beta list. We’ll email you as soon as beta access is ready.';
-  const html = betaInvite
-    ? `<p>Your seat at the table is ready.</p><p><a href="${safeInviteUrl}">Join the Plated beta</a></p><p>We can’t wait to see what you find.</p>`
-    : '<p>Thanks for joining the Plated beta list.</p><p>We’ll email you as soon as beta access is ready.</p>';
+  const { subject, html, text } = renderWaitlistEmail({ inviteUrl: inviteUrl ?? undefined });
 
   const result = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      'Idempotency-Key': `plated-waitlist-${signupId}-${betaInvite ? 'invite' : 'welcome'}`,
+      'Idempotency-Key': `plated-waitlist-${signupId}-${inviteUrl ? 'invite' : 'welcome'}`,
     },
     body: JSON.stringify({ from, to: [email], subject, html, text }),
   });

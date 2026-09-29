@@ -1,4 +1,5 @@
 import { serviceClient } from '../_shared/http.ts';
+import { renderWaitlistEmail, validInviteUrl } from '../_shared/waitlist-email.ts';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -7,28 +8,9 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function validInviteUrl(value: string | undefined) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-function escapeHtml(value: string) {
-  const escapedCharacters: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  };
-  return value.replace(/[&<>"']/g, (character) => escapedCharacters[character] ?? character);
-}
-
 async function sendInvite(email: string, signupId: string, inviteUrl: string, apiKey: string, from: string) {
+  const { subject, html, text } = renderWaitlistEmail({ inviteUrl });
+
   const result = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -36,13 +18,7 @@ async function sendInvite(email: string, signupId: string, inviteUrl: string, ap
       'Content-Type': 'application/json',
       'Idempotency-Key': `plated-beta-invite-${signupId}`,
     },
-    body: JSON.stringify({
-      from,
-      to: [email],
-      subject: 'Your Plated beta invite is ready',
-      text: `Your seat at the table is ready. Join the Plated beta: ${inviteUrl}`,
-      html: `<p>Your seat at the table is ready.</p><p><a href="${escapeHtml(inviteUrl)}">Join the Plated beta</a></p><p>We can’t wait to see what you find.</p>`,
-    }),
+    body: JSON.stringify({ from, to: [email], subject, html, text }),
   });
 
   return result.ok;
