@@ -493,7 +493,10 @@ h1 {
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  /* Anything under 16px makes iOS Safari/Chrome auto-zoom the viewport on
+     focus (a WebKit quirk, not a bug in this input specifically) — the
+     zoom-then-snap-back is almost certainly what "gets funky" describes. */
+  font-size: 16px;
 }
 .waitlist-input-row input::placeholder { color: var(--text-muted); opacity: 0.75; }
 .waitlist-input-row input:focus-visible { outline: 3px solid var(--accent-soft); border-color: var(--accent); }
