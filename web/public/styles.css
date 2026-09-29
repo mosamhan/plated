@@ -683,5 +683,13 @@ h1 {
   .waitlist-copy .section-title { font-size: 34px; }
   .waitlist-card { padding: 25px 20px; }
   .waitlist-input-row { flex-direction: column; }
+  /* The base rule's `flex: 1` (flex-basis: 0%) sizes along the *main* axis —
+     width in the row layout above, but height once this breakpoint switches
+     the container to column. With no free space in the auto-height
+     container to grow into, that silently overrides the explicit
+     height: 48px and the input collapses thinner than intended. The button
+     already got its own width: 100% override here; the input needs the
+     matching fix; `flex: none` hands sizing back to width/height. */
+  .waitlist-input-row input { flex: none; width: 100%; }
   .waitlist-input-row button { width: 100%; }
 }
