@@ -14,6 +14,10 @@ const SECTIONS: { title: string; body: string }[] = [
     body: 'To run the feed, leaderboards, and recommendations; to attribute orders to creators (order hand-offs carry an anonymous session ID, never your identity); and to keep the community safe. Food/cuisine-related searches (e.g. searching "ramen") are stored against your account and used to personalize what you see — a random typo or a person\'s name is never stored this way. We do not sell personal data.',
   },
   {
+    title: 'Beta waitlist and email updates',
+    body: 'If you join the beta waitlist, we store your email address to manage beta access and send beta-related messages. You can separately choose to receive occasional product news and launch updates; that choice is optional, and you can unsubscribe from newsletter emails at any time. For email delivery and optional newsletter management, we share your address and consent status with Resend. To request removal from the waitlist, contact privacy@joinplated.app. We do not sell email addresses. We use Cloudflare Turnstile to help prevent automated waitlist submissions. For this security check, Cloudflare processes technical signals such as IP address, TLS fingerprint, browser user-agent, site key, and origin to detect bots and improve Turnstile. Your email address and newsletter choice are submitted to Plated, not Cloudflare; Plated stores and uses the signup only if verification succeeds.',
+  },
+  {
     title: 'Ordering hand-offs',
     body: 'When you tap a provider (DoorDash, Uber Eats), you leave Plated and that provider’s privacy policy applies. Plated receives only anonymous confirmation that an attributed order completed — not your address, payment details, or order contents.',
   },
@@ -34,7 +38,7 @@ export default function Privacy() {
       <ScreenHeader title="Privacy Policy" />
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
         <Text style={[styles.updated, { color: colors.textMuted }]}>
-          Working draft · last updated June 2026 · a public web copy is required for store submission
+          Working draft · last updated September 27, 2026 · a public web copy is required for store submission
         </Text>
         {SECTIONS.map((s) => (
           <View key={s.title} style={{ marginTop: spacing.xl }}>

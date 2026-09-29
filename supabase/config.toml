@@ -44,3 +44,9 @@ enable_confirmations = false
 # human's browser never carry a session. See its own header comment.
 [functions.share-preview]
 verify_jwt = false
+
+[functions.waitlist-signup]
+verify_jwt = false
+
+[functions.send-beta-invites]
+verify_jwt = false

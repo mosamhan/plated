@@ -17,17 +17,17 @@
   })();
 </script>
 <title>Plated. Find the best dishes and the best spots to eat.</title>
-<meta name="description" content="Discover the best dishes, restaurants, cafes, and bakeries near you. See what's trending, find the next great spot, and order the exact dish people are raving about. Coming soon to the App Store." />
+<meta name="description" content="Discover dishes worth sharing, find hidden-gem restaurants, and join the Plated beta waitlist." />
 
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Plated" />
 <meta property="og:title" content="Plated. Find the best dishes and the best spots to eat." />
-<meta property="og:description" content="Discover the best dishes, restaurants, cafes, and bakeries near you. See what's trending and find the next great spot. Coming soon to the App Store." />
+<meta property="og:description" content="Discover dishes worth sharing, find hidden-gem restaurants, and join the Plated beta waitlist." />
 <meta property="og:url" content="https://joinplated.app" />
 <meta property="og:image" content="https://joinplated.app/images/home-feed.jpg" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Plated. Find the best dishes and the best spots to eat." />
-<meta name="twitter:description" content="Discover the best dishes, restaurants, cafes, and bakeries near you. See what's trending and find the next great spot. Coming soon to the App Store." />
+<meta name="twitter:description" content="Discover dishes worth sharing, find hidden-gem restaurants, and join the Plated beta waitlist." />
 <meta name="twitter:image" content="https://joinplated.app/images/home-feed.jpg" />
 
 <link rel="icon" href="/favicon.png" />
@@ -51,7 +51,7 @@
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
       </button>
-      <a class="header-cta" href="#get-the-app">Coming soon</a>
+      <a class="header-cta" href="#beta-waitlist">Join the beta</a>
     </div>
   </div>
 </header>
@@ -243,6 +243,49 @@
     </div>
   </section>
 
+  <section class="waitlist" id="beta-waitlist">
+    <div class="wrap waitlist-grid">
+      <div class="waitlist-copy" data-reveal>
+        <p class="section-eyebrow">First seats at the table</p>
+        <h2 class="section-title">Good food is better shared.</h2>
+        <p class="section-sub waitlist-sub">
+          Plated is a new way to share restaurant experiences, find your next favorite dish,
+          and follow the people who know your neighborhood best. Built in Boston by a
+          Northeastern student, it&rsquo;s opening a small beta group soon.
+        </p>
+        <ul class="waitlist-highlights">
+          <li><span aria-hidden="true">01</span><div><strong>Share your plates</strong><p>Post short videos and rate dishes at the restaurants you visit.</p></div></li>
+          <li><span aria-hidden="true">02</span><div><strong>Discover hidden gems</strong><p>Find local favorites that get lost in the noise elsewhere.</p></div></li>
+          <li><span aria-hidden="true">03</span><div><strong>Follow local food creators</strong><p>Get recommendations from people who eat where you do.</p></div></li>
+        </ul>
+      </div>
+
+      <div class="waitlist-card" data-reveal>
+        <p class="waitlist-card-kicker">Plated early access</p>
+        <h3>Save your spot.</h3>
+        <p class="waitlist-card-copy">Join the beta list and we&rsquo;ll email you when your invite is ready.</p>
+        <form id="waitlist-form" class="waitlist-form" novalidate>
+          <label for="waitlist-email">Email address</label>
+          <div class="waitlist-input-row">
+            <input id="waitlist-email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required />
+            <button id="waitlist-submit" type="submit">Join the beta</button>
+          </div>
+          <div id="waitlist-turnstile" class="waitlist-turnstile" data-sitekey="" aria-label="Signup security check"></div>
+          <label class="waitlist-consent" for="waitlist-newsletter">
+            <input id="waitlist-newsletter" name="newsletterOptIn" type="checkbox" />
+            <span>Also send me occasional Plated news and launch updates.</span>
+          </label>
+          <div class="waitlist-trap" aria-hidden="true">
+            <label for="waitlist-website">Leave this field empty</label>
+            <input id="waitlist-website" name="website" type="text" tabindex="-1" autocomplete="off" />
+          </div>
+          <p class="waitlist-privacy">Beta emails are only about your invite. Newsletter updates are optional. <a href="/privacy">Privacy policy</a>.</p>
+          <p id="waitlist-status" class="waitlist-status" role="status" aria-live="polite" hidden></p>
+        </form>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <footer class="site-footer">
@@ -307,5 +350,6 @@
     });
   }
 </script>
+<script src="/waitlist.js" defer></script>
 </body>
 </html>
