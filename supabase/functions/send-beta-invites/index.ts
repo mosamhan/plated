@@ -1,5 +1,5 @@
 import { serviceClient } from '../_shared/http.ts';
-import { renderWaitlistEmail, validInviteUrl } from '../_shared/waitlist-email.ts';
+import { renderWaitlistEmail, validInviteUrl, RESEND_HEADERS } from '../_shared/waitlist-email.ts';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -18,7 +18,7 @@ async function sendInvite(email: string, signupId: string, inviteUrl: string, ap
       'Content-Type': 'application/json',
       'Idempotency-Key': `plated-beta-invite-${signupId}`,
     },
-    body: JSON.stringify({ from, to: [email], subject, html, text }),
+    body: JSON.stringify({ from, to: [email], subject, html, text, headers: RESEND_HEADERS }),
   });
 
   return result.ok;

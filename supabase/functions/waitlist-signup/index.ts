@@ -1,5 +1,5 @@
 import { serviceClient } from '../_shared/http.ts';
-import { renderWaitlistEmail, validInviteUrl } from '../_shared/waitlist-email.ts';
+import { renderWaitlistEmail, validInviteUrl, RESEND_HEADERS } from '../_shared/waitlist-email.ts';
 
 const ALLOWED_ORIGINS = new Set([
   'https://joinplated.app',
@@ -77,7 +77,7 @@ async function sendEmail(email: string, signupId: string, inviteUrl: string | nu
       'Content-Type': 'application/json',
       'Idempotency-Key': `plated-waitlist-${signupId}-${inviteUrl ? 'invite' : 'welcome'}`,
     },
-    body: JSON.stringify({ from, to: [email], subject, html, text }),
+    body: JSON.stringify({ from, to: [email], subject, html, text, headers: RESEND_HEADERS }),
   });
 
   if (!result.ok) console.error('[waitlist-signup] transactional email failed', result.status);

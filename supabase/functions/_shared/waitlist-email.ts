@@ -66,6 +66,16 @@ const DARK = {
 };
 const ORDER_CTA = '#D9480F'; // identical in both themes, same as the app
 
+/**
+ * Passed as Resend's `headers` body field (not HTTP request headers) on
+ * every waitlist send. A recognized inbox-placement signal on its own —
+ * particularly for providers like iCloud that weight it heavily for a new,
+ * unfamiliar sending domain — and unrelated to the actual Resend audience
+ * unsubscribe flow, which only applies to Broadcast sends, not these
+ * per-signup transactional emails.
+ */
+const RESEND_HEADERS = { 'List-Unsubscribe': '<mailto:beta@joinplated.app?subject=unsubscribe>' };
+
 function escapeHtml(value: string) {
   const escapedCharacters: Record<string, string> = {
     '&': '&amp;',
@@ -285,4 +295,4 @@ export function renderWaitlistEmail(options: { inviteUrl?: string | undefined })
   return { subject, html, text };
 }
 
-export { escapeHtml, validInviteUrl };
+export { escapeHtml, validInviteUrl, RESEND_HEADERS };
